@@ -348,9 +348,6 @@ function setInitialIndex(newIndex)
     var newBlockItem = document.getElementById("code_" + newFrame);
     newBlockItem.style.display = "";
 
-    var newHookItem = document.getElementById("hook_" + newFrame);
-    newHookItem.style.display = "";
-
     var newLineItem = document.getElementById("code_" + newFrame + "_" + newLine);
     newLineItem.style.backgroundColor = "#99FF99";
 
@@ -389,12 +386,6 @@ function setMoveIndex(newIndex)
 
         var newBlockItem = document.getElementById("code_" + newFrame);
         newBlockItem.style.display = "";
-
-        var curHookItem = document.getElementById("hook_" + curFrame);
-        curHookItem.style.display = "none";
-
-        var newHookItem = document.getElementById("hook_" + newFrame);
-        newHookItem.style.display = "";
     }
 
     var newLineItem = document.getElementById("code_" + newFrame + "_" + newLine);

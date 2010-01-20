@@ -70,7 +70,7 @@ $xgillargs .= " -fplugin-arg-xgill-log=$logfile" if ($logfile ne "");
 my $args;
 
 # preprocessed arguments to accumulate source contents.
-my $ppargs = "-E";
+my $ppargs = "-E -DXGILL_PLUGIN";
 
 # whether we have an input file.
 my $has_input = 0;
