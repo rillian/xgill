@@ -1,0 +1,59 @@
+#!/usr/bin/perl
+
+# Sixgill: Static assertion checker for C/C++ programs.
+# Copyright (C) 2009-2010  Stanford University
+# Author: Brian Hackett
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# run a command repeatedly until it succeeds with error code zero.
+
+use strict;
+
+my $usage = "USAGE: xwatch output.txt command args\n";
+
+my $output = shift or die $usage;
+my $command = shift or die $usage;
+
+while (my $arg = shift) {
+    $command .= " '$arg'";
+}
+
+$command .= " >> $output";
+
+unlink $output if (-e $output);
+
+my $pid = fork();
+if ($pid != 0) {
+    print("Forked, exiting...\n");
+    exit(0);
+}
+
+while (1) {
+    # print_msg($output, "*** Executing $command\n");
+    my $res = system($command) / 256;
+    last if ($res == 0);
+    print_msg($output, "*** Program terminated with code $res\n");
+}
+
+print_msg($output, "*** Program terminated normally\n");
+
+sub print_msg
+{
+    my $output = shift or die;
+    my $msg = shift or die;
+    open(OUT, ">> $output");
+    print OUT $msg;
+    close(OUT);
+}

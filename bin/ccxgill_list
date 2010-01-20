@@ -1,0 +1,15 @@
+#!/usr/bin/perl
+
+# single core parse of a list of files using Elsa frontend.
+
+system("rm -f *.xdb");
+
+my $files = shift or die "USAGE: ccxgill_list files.txt [additional-options]\n";
+die "could not find $files\n" if (not -e $files);
+
+my $extra;
+while (my $arg = shift) {
+    $extra .= " $arg";
+}
+
+exec("xmanager -spawn-count=1 -spawn-command='xwatch ccxgill.txt ccxgill $extra -file-list $files' > ccxgill_manage.txt");

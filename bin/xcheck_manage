@@ -1,0 +1,12 @@
+#!/usr/bin/perl
+
+# single core xcheck, with recovery from failures.
+
+system("rm -f check_reports.xdb check_incomplete.xdb");
+
+my $extra;
+while (my $arg = shift) {
+    $extra .= " $arg";
+}
+
+exec("xwatch xcheck_manage.txt xmanager -spawn-count=1 -spawn-command='xwatch xcheck.txt xcheck $extra'");

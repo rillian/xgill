@@ -1,0 +1,12 @@
+#!/usr/bin/perl
+
+# single core xinfer, with recovery from failures.
+
+system("rm -f body_summary.xdb");
+
+my $extra;
+while (my $arg = shift) {
+    $extra .= " $arg";
+}
+
+exec("xwatch xinfer_manage.txt xmanager -spawn-count=1 -spawn-command='xwatch xinfer.txt xinfer $extra'");

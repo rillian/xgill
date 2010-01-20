@@ -1,0 +1,111 @@
+#!/usr/bin/perl
+
+# Sixgill: Static assertion checker for C/C++ programs.
+# Copyright (C) 2009-2010  Stanford University
+# Author: Brian Hackett
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# do a complete run of the system from raw source to reports. this requires
+# various xmonitor processes to be running in the background (maybe on other
+# machines) and watching poll_file for jobs.
+
+use strict;
+use IO::Handle;
+
+#################################
+# environment specific settings #
+#################################
+
+# common poll file, shared with xmonitor.
+my $poll_file = "/path/to/poll/file";
+
+# commands with timeouts to use.
+my $xmemlocal = "xmemlocal -timeout=20";
+my $xinfer = "xinfer -timeout=60";
+my $xcheck = "xcheck -timeout=30";
+
+##########################
+# general purpose script #
+##########################
+
+my $usage = "USAGE: xcomplete result_dir\n";
+my $result_dir = shift or die $usage;
+
+#die if (-d $result_dir);
+#mkdir $result_dir or die;
+chdir $result_dir;
+
+my $pid = fork();
+if ($pid != 0) {
+    print "Forked, exiting...\n";
+    exit(0);
+}
+
+open(OUT, "> $result_dir/xcomplete.log");
+OUT->autoflush(1);  # don't buffer writes to the main log
+
+run_pass("xmemlocal", $xmemlocal);
+run_pass("xinfer", $xinfer);
+run_pass("xcheck_annot", "$xcheck -check-kind=annotation");
+run_pass("xcheck_rtime", "$xcheck -check-kind=annotation_runtime");
+run_pass("xcheck_oflow", "$xcheck -check-kind=write_overflow");
+
+close(OUT);
+
+sub run_pass
+{
+    my ($name, $command) = @_;
+    my $log_file = "$result_dir/manager.$name.log";
+
+    # fork off a manager process for the analysis.
+    defined(my $pid = fork) or die;
+
+    if (!$pid) {
+        # this is the child process, start the manager.
+        exec("xmanager > $log_file");
+    }
+
+    # can only get here in the parent process. figure out the address of the
+    # manager for connecting workers. we need to read the manager's log file,
+    # will be the first line. give the manager one second to start up,
+    # any longer and something's broken.
+    sleep(1);
+    my $log_data = `cat $log_file`;
+    $log_data =~ /Listening on ([\.\:0-9]*)/ or die;
+    my $address = $1;
+
+    # write the configuration file.
+    open(POLL, "> $poll_file");
+    print POLL "$command\n";
+    print POLL "$result_dir/$name\n";
+    print POLL "$address\n";
+    close(POLL);
+
+    print OUT "$name started: ";
+    print OUT scalar(localtime());
+    print OUT "\n";
+
+    waitpid($pid, 0);
+    unlink($poll_file);
+
+    print OUT "$name finished: ";
+    print OUT scalar(localtime());
+    print OUT "\n";
+
+    # collate the worker's output into a single file. wait a few seconds first
+    # to make sure we get all the worker output.
+    sleep(10);
+    system("cat $name.*.log > $name.log");
+}
