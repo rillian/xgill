@@ -1,11 +1,14 @@
 
 CC = g++
 
-# enable Yices solver
-USE_YICES = 1
-
-# enable CVC3 solver
-USE_CVC3 = 1
+# this file includes any custom configuration for this environment.
+# settings of interest:
+# USE_YICES: whether the Yices solver should be enabled.
+# USE_CVC3: whether the CVC3 solver should be enabled.
+# GCCDIR: GCC source directory for building xgill plugin.
+# GCCBUILD: GCC build directory for building xgill plugin.
+#           e.g. $(GCCDIR)/host-i686-pc-linux-gnu
+include config.mk
 
 # run 'make debug'
 ifdef DEBUG

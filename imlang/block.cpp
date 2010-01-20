@@ -330,7 +330,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf)
       break;
     }
     case TAG_BlockPPoint: {
-      BlockPPoint parent = BlockPPoint::Read(buf, TAG_BlockPPoint);
+      BlockPPoint parent = BlockPPoint::Read(buf);
 
       if (drop_info)
         parent.id->DecRef();
@@ -1693,6 +1693,11 @@ void PEdgeAnnotation::Print(OutStream &out) const
 void PEdgeAnnotation::PrintUI(OutStream &out) const
 {
   out << "annotation";
+}
+
+void PEdgeAnnotation::DecMoveChildRefs(ORef ov, ORef nv)
+{
+  m_annot->DecMoveRef(ov, nv);
 }
 
 NAMESPACE_XGILL_END

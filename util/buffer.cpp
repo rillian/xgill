@@ -1050,7 +1050,7 @@ tag_t PeekOpenTag(Buffer *buf)
   Read16(buf, &xtag);
   Rewind(buf, 2);
 
-  if (xtag & 0x0001 != 0)
+  if ((xtag & 0x0001) != 0)
     return 0;
 
   return xtag;

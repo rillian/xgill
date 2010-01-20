@@ -596,7 +596,7 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
   // these updates are local to the current function. also look for updates
   // to 'this' which can come from frontend parse/tcheck errors.
   if (use_id->Kind() == B_Function &&
-      (root->Kind() == VK_Arg) || (root->Kind() == VK_This)) {
+      (root->Kind() == VK_Arg || root->Kind() == VK_This)) {
     if (lval->DerefCount() == 0)
       goto exit;
   }
