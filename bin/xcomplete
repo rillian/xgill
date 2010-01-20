@@ -19,32 +19,20 @@
 
 # do a complete run of the system from raw source to reports. this requires
 # various xmonitor processes to be running in the background (maybe on other
-# machines) and watching poll_file for jobs.
+# machines) and watching a shared poll_file for jobs.
 
 use strict;
 use IO::Handle;
-
-#################################
-# environment specific settings #
-#################################
-
-# common poll file, shared with xmonitor.
-my $poll_file = "/path/to/poll/file";
 
 # commands with timeouts to use.
 my $xmemlocal = "xmemlocal -timeout=20";
 my $xinfer = "xinfer -timeout=60";
 my $xcheck = "xcheck -timeout=30";
 
-##########################
-# general purpose script #
-##########################
-
-my $usage = "USAGE: xcomplete result_dir\n";
+my $usage = "USAGE: xcomplete poll-file result-dir\n";
+my $poll_file = shift or die $usage;
 my $result_dir = shift or die $usage;
 
-#die if (-d $result_dir);
-#mkdir $result_dir or die;
 chdir $result_dir;
 
 my $pid = fork();

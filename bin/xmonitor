@@ -25,18 +25,8 @@
 
 use strict;
 
-#################################
-# environment specific settings #
-#################################
-
-# common poll file, shared with xcomplete.
-my $poll_file = "/path/to/poll/file";
-
-##########################
-# general purpose script #
-##########################
-
-my $usage = "USAGE: xmonitor index\n";
+my $usage = "USAGE: xmonitor poll-file index\n";
+my $poll_file = shift or die $usage;
 my $index = shift or die $usage;
 
 my $pid = fork();
