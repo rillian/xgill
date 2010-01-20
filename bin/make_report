@@ -24,9 +24,8 @@ use strict;
 # string to replace tabs with.
 my $tab_str = ' ' x 8;
 
-my $usage = "USAGE: make_report code-name prev-link next-link < report-xml\n";
+my $usage = "USAGE: make_report prev-link next-link < report-xml\n";
 
-my $code_name = shift or die $usage;
 my $prev_link = shift or die $usage;
 my $next_link = shift or die $usage;
 

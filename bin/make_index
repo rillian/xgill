@@ -27,7 +27,7 @@ my $usage = "USAGE: make_index kind\n";
 my $assertkind = shift or die $usage;
 
 # start with a fresh output directory.
-system("rm -rf $assertkind") if (-d $assert_kind);
+system("rm -rf $assertkind") if (-d $assertkind);
 mkdir($assertkind);
 
 # get all reports of the kind we are interested in.
@@ -130,7 +130,7 @@ function toggleDir(name)
 
 EOF
 
-print INDEX "<h2>$code_name reports</h2>\n";
+print INDEX "<h2>Reports</h2>\n";
 
 my %next_hash;
 my %prev_hash;
@@ -252,7 +252,7 @@ foreach my $report (@reports)
     $prevlink = "none" if ($prevlink eq "");
     $nextlink = "none" if ($nextlink eq "");
 
-    my $retcode = system("xdbfind -plain-text check_reports.xdb '$report' | make_report $code_name $prevlink $nextlink > $output");
+    my $retcode = system("xdbfind -plain-text report_$assertkind.xdb '$report' | make_report $prevlink $nextlink > $output");
 
     if ($retcode ne 0) {
         print "Failed on '$report'\n";
