@@ -393,17 +393,6 @@ void CloneLoopBody(BlockCFG *base_cfg, PPoint loophead,
       }
     }
   }
-
-  // copy any assertions on body points to the new CFG.
-  for (size_t aind = 0; aind < base_cfg->GetPointAnnotationCount(); aind++) {
-    BlockPPoint point_annot = base_cfg->GetPointAnnotation(aind);
-
-    if (body_table->Lookup(loophead, point_annot.point)) {
-      point_annot.id->IncRef();
-      PPoint new_point = remapping->LookupSingle(point_annot.point);
-      receive_cfg->AddPointAnnotation(BlockPPoint(point_annot.id, new_point));
-    }
-  }
 }
 
 // get the result of transitively following skip edges from point
@@ -471,13 +460,6 @@ void CopyCFGPointsEdges(BlockCFG *old_cfg, BlockCFG *new_cfg)
   new_cfg->SetEntryPoint(old_cfg->GetEntryPoint());
   new_cfg->SetExitPoint(old_cfg->GetExitPoint());
 
-  // duplicate the CFG's point annotations.
-  for (size_t aind = 0; aind < old_cfg->GetPointAnnotationCount(); aind++) {
-    BlockPPoint point_annot = old_cfg->GetPointAnnotation(aind);
-    point_annot.id->IncRef();
-    new_cfg->AddPointAnnotation(point_annot);
-  }
-
   // duplicate the CFG's loop heads list.
   for (size_t lind = 0; lind < old_cfg->GetLoopHeadCount(); lind++) {
     const LoopHead &head = old_cfg->GetLoopHead(lind);
@@ -503,7 +485,6 @@ void TrimUnreachable(BlockCFG *cfg, bool flatten_skips)
   // fill these in, then replace wholesale the old points/edges on the CFG.
   Vector<Location*> new_points;
   Vector<PEdge*> new_edges;
-  Vector<BlockPPoint> new_point_annotations;
   Vector<LoopHead> new_loop_heads;
 
   Vector<PPoint> worklist;
@@ -632,27 +613,6 @@ void TrimUnreachable(BlockCFG *cfg, bool flatten_skips)
     }
   }
 
-  for (size_t aind = 0; aind < cfg->GetPointAnnotationCount(); aind++) {
-    BlockPPoint point_annot = cfg->GetPointAnnotation(aind);
-    PPoint point = point_annot.point;
-
-    // watch out if the point has outgoing skips.
-    Vector<PPoint> *skip_point_list = skip_remapping.Lookup(point, false);
-    if (skip_point_list) {
-      Assert(skip_point_list->Size() == 1);
-      point = skip_point_list->At(0);
-    }
-
-    Vector<PPoint> *new_point_list = remapping.Lookup(point, false);
-    if (new_point_list) {
-      Assert(new_point_list->Size() == 1);
-
-      point_annot.id->IncRef();
-      BlockPPoint new_point_annot(point_annot.id, new_point_list->At(0));
-      new_point_annotations.PushBack(new_point_annot);
-    }
-  }
-
   for (size_t lind = 0; lind < cfg->GetLoopHeadCount(); lind++) {
     const LoopHead &head = cfg->GetLoopHead(lind);
 
@@ -679,8 +639,6 @@ void TrimUnreachable(BlockCFG *cfg, bool flatten_skips)
     cfg->AddPoint(new_points[pind]);
   for (size_t eind = 0; eind < new_edges.Size(); eind++)
     cfg->AddEdge(new_edges[eind]);
-  for (size_t aind = 0; aind < new_point_annotations.Size(); aind++)
-    cfg->AddPointAnnotation(new_point_annotations[aind]);
   for (size_t lind = 0; lind < new_loop_heads.Size(); lind++)
     cfg->AddLoopHead(new_loop_heads[lind].point,
                      new_loop_heads[lind].end_location);
@@ -795,25 +753,6 @@ void TopoSortCFG(BlockCFG *cfg)
     }
   }
 
-  // remap all the point annotations. this is done so that any annotations
-  // will appear in topological order.
-  Vector<BlockPPoint> new_point_annotations;
-
-  for (size_t pind = 0; pind < old_points.Size(); pind++) {
-    for (size_t aind = 0; aind < cfg->GetPointAnnotationCount(); aind++) {
-      BlockPPoint point_annot = cfg->GetPointAnnotation(aind);
-
-      if (point_annot.point == old_points[pind]) {
-        PPoint new_point = remapping.LookupSingle(old_points[pind]);
-        Assert(new_point == pind + 1);
-
-        point_annot.id->IncRef();
-        BlockPPoint new_point_annot(point_annot.id, new_point);
-        new_point_annotations.PushBack(new_point_annot);
-      }
-    }
-  }
-
   // clear out the initial CFG.
   cfg->ClearBody();
 
@@ -822,8 +761,6 @@ void TopoSortCFG(BlockCFG *cfg)
     cfg->AddPoint(new_points[pind]);
   for (size_t eind = 0; eind < new_edges.Size(); eind++)
     cfg->AddEdge(new_edges[eind]);
-  for (size_t aind = 0; aind < new_point_annotations.Size(); aind++)
-    cfg->AddPointAnnotation(new_point_annotations[aind]);
 
   // set the new entry point. this had better be the first point in the order.
   PPoint new_entry_point = remapping.LookupSingle(entry_point);

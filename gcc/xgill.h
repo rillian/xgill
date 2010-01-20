@@ -28,7 +28,7 @@
 #include <tree.h>
 #include <gcc-plugin.h>
 
-#include "interface.h"
+#include "../imlang/interface.h"
 
 // suppress weird error with CUMULATIVE_ARGS not defined in target.h
 #ifndef CUMULATIVE_ARGS
@@ -443,6 +443,7 @@ const char* XIL_DecodeAttribute(tree attr,
 // if attribute indicates an annotation, consume it and add it to the backend
 // databases. attribute is attached to node (either the active function
 // or the active type).
-void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint point);
+void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
+                           XIL_Location loc);
 
 #endif // XIL_MAIN

@@ -713,22 +713,6 @@ void XIL_CFGSetExitPoint(XIL_PPoint point)
 }
 
 extern "C"
-void XIL_CFGAddPointAnnotation(XIL_PPoint point, const char *annot_name)
-{
-  Assert(g_active_cfg);
-  if (!point) return;
-
-  Variable *func_var = g_active_id->BaseVar();
-  Assert(func_var->Kind() == VK_Func);
-
-  func_var->IncRef();
-  String *new_name = String::Make(annot_name);
-  BlockId *annot_id = BlockId::Make(B_AnnotationFunc, func_var, new_name);
-
-  g_active_cfg->AddPointAnnotation(BlockPPoint(annot_id, point));
-}
-
-extern "C"
 void XIL_CFGAddLoopHead(XIL_PPoint point, XIL_Location end_loc)
 {
   Assert(g_active_cfg);
@@ -826,6 +810,24 @@ void XIL_CFGEdgeAssembly(XIL_PPoint source, XIL_PPoint target)
   if (!source) return;
 
   PEdge *edge = PEdge::MakeAssembly((PPoint) source, (PPoint) target);
+  g_active_cfg->AddEdge(edge);
+}
+
+extern "C"
+void XIL_CFGEdgeAnnotation(XIL_PPoint source, XIL_PPoint target,
+                           const char *annot_name)
+{
+  Assert(g_active_cfg);
+  if (!source) return;
+
+  Variable *func_var = g_active_id->BaseVar();
+  Assert(func_var->Kind() == VK_Func);
+
+  func_var->IncRef();
+  String *new_name = String::Make(annot_name);
+  BlockId *annot = BlockId::Make(B_AnnotationFunc, func_var, new_name);
+
+  PEdge *edge = PEdge::MakeAnnotation((PPoint) source, (PPoint) target, annot);
   g_active_cfg->AddEdge(edge);
 }
 

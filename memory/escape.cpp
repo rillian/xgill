@@ -1084,8 +1084,8 @@ void EscapeProcessCFG(BlockCFG *cfg)
       break;
     }
     case EGK_Loop:
-      break;
     case EGK_Assembly:
+    case EGK_Annotation:
       break;
     default:
       Assert(false);

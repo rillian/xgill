@@ -101,8 +101,8 @@ class BlockId : public HashObject
 // for each point in the program. each point of a program's execution
 // is uniquely represented by a chain of these.
 struct BlockPPoint {
-  static void Write(Buffer *buf, BlockPPoint bp, tag_t tag = TAG_BlockPPoint);
-  static BlockPPoint Read(Buffer *buf, tag_t tag = TAG_BlockPPoint);
+  static void Write(Buffer *buf, BlockPPoint bp);
+  static BlockPPoint Read(Buffer *buf);
 
   BlockId *id;
   PPoint point;
@@ -220,15 +220,6 @@ class BlockCFG : public HashObject
   // NULL otherwise.
   Variable* FindMatchingVariable(Variable *var) const;
 
-  // get the annotations associated with interior points of this block.
-  size_t GetPointAnnotationCount() const {
-    return m_point_annotations ? m_point_annotations->Size() : 0;
-  }
-  BlockPPoint GetPointAnnotation(size_t ind) const {
-    Assert(m_point_annotations);
-    return m_point_annotations->At(ind);
-  }
-
   // get the parent of this loop, if it exists. only used for B_Loop.
   size_t GetLoopParentCount() const {
     return m_loop_parents ? m_loop_parents->Size() : 0;
@@ -307,9 +298,6 @@ class BlockCFG : public HashObject
   // add a variable to the list of non-global variables accessible in this CFG.
   void AddVariable(Variable *var, Type *type);
 
-  // add an annotation for this CFG.
-  void AddPointAnnotation(BlockPPoint annot);
-
   // add a loop parent of this CFG.
   void AddLoopParent(BlockPPoint where);
 
@@ -376,9 +364,6 @@ class BlockCFG : public HashObject
   // being declared.
   Vector<DefineVariable> *m_vars;
 
-  // identifiers with code for annotations at interior points of this block.
-  Vector<BlockPPoint> *m_point_annotations;
-
   // if this is B_Loop, indicates the point(s) in the parent loop or outer
   // function body where this loop is invoked. a loop may have multiple
   // parents if its entry point appears in the body both for another loop
@@ -434,7 +419,8 @@ enum PEdgeKind {
   EGK_Assign = 3,
   EGK_Call = 4,
   EGK_Loop = 5,
-  EGK_Assembly = 6
+  EGK_Assembly = 6,
+  EGK_Annotation = 7
 };
 
 class PEdgeSkip;
@@ -443,6 +429,7 @@ class PEdgeAssign;
 class PEdgeCall;
 class PEdgeLoop;
 class PEdgeAssembly;
+class PEdgeAnnotation;
 
 class PEdge : public HashObject
 {
@@ -462,6 +449,7 @@ class PEdge : public HashObject
                          const Vector<Exp*> &arguments);
   static PEdge* MakeLoop(PPoint source, PPoint target, BlockId *loop);
   static PEdge* MakeAssembly(PPoint source, PPoint target);
+  static PEdge* MakeAnnotation(PPoint source, PPoint target, BlockId *annot);
 
   // get a reference on an edge equivalent to e except with a
   // new source and target.
@@ -484,6 +472,7 @@ class PEdge : public HashObject
   DOWNCAST_TYPE(PEdge, EGK_, Call)
   DOWNCAST_TYPE(PEdge, EGK_, Loop)
   DOWNCAST_TYPE(PEdge, EGK_, Assembly)
+  DOWNCAST_TYPE(PEdge, EGK_, Annotation)
 
   // print this edge for the UI.
   virtual void PrintUI(OutStream &out) const = 0;
@@ -670,7 +659,28 @@ class PEdgeAssembly : public PEdge
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
 
+ private:
   PEdgeAssembly(PPoint source, PPoint target);
+  friend class PEdge;
+};
+
+// annotation edges have no side effects, they merely indicate the placement
+// of an assert/assume annotation from the source.
+class PEdgeAnnotation : public PEdge
+{
+ public:
+  // get the identifier of the annotation at this point.
+  BlockId* GetAnnotationId() const { return m_annot; }
+
+  // inherited methods
+  void Print(OutStream &out) const;
+  void PrintUI(OutStream &out) const;
+  void DecMoveChildRefs(ORef ov, ORef nv);
+
+ private:
+  BlockId *m_annot;
+
+  PEdgeAnnotation(PPoint source, PPoint target, BlockId *annot);
   friend class PEdge;
 };
 

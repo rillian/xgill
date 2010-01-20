@@ -562,6 +562,7 @@ void BlockMemory::ComputeTables()
         ComputeEdgeLoop(edge->AsLoop());
         break;
       case EGK_Assembly:
+      case EGK_Annotation:
         break;
       default:
         // shouldn't get skips here.

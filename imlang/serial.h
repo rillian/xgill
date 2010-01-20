@@ -153,8 +153,6 @@
 
 // children: TAG_BlockId, TAG_Index
 #define TAG_BlockPPoint  1612
-#define TAG_PointAnnotation  1614
-#define TAG_LoopParent  1616
 
 // children: TAG_Variable, TAG_Type
 #define TAG_DefineVariable  1618
@@ -176,7 +174,7 @@
 //   TAG_PEdgeCallArguments (call)
 //   TAG_PEdgeCallInstance (call optional)
 //   TAG_Type (assign, call)
-//   TAG_BlockId (loop)
+//   TAG_BlockId (loop, annotation)
 #define TAG_PEdge  1630
 
 // children: none (if present, the assume is != 0)
@@ -198,8 +196,7 @@
 //   ordered list of TAG_PEdge
 //   TAG_Index x2  (for entry/exit points)
 //   list of TAG_DefineVariable
-//   list of TAG_Annotation
-//   list of TAG_LoopParent
+//   list of TAG_BlockPPoint (loop parents)
 //   list of TAG_LoopHead
 //   list of TAG_LoopIsomorphic
 #define TAG_BlockCFG 1700

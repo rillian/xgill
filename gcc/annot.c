@@ -1324,7 +1324,8 @@ void WriteAnnotationFile(FILE *file)
 // before giving up.
 #define PROCESS_MAX_TRIES 8
 
-void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint point)
+void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
+                           XIL_Location loc)
 {
   const char *annot_text = NULL;
   const char *purpose = XIL_DecodeAttribute(attr, &annot_text, NULL);
@@ -1389,8 +1390,11 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint point)
     annot_type = true;
   }
 
-  if (point)
-    XIL_CFGAddPointAnnotation(point, annot_name);
+  if (point) {
+    XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+    XIL_CFGEdgeAnnotation(*point, after_point, annot_name);
+    *point = after_point;
+  }
 
   if (XIL_HasAnnotation(annot_var, annot_name, annot_type)) {
     // we've seen this annotation before, don't need to process it again.

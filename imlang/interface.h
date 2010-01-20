@@ -283,7 +283,6 @@ XIL_Location XIL_CFGGetPointLocation(XIL_PPoint point);
 void XIL_CFGSetPointLocation(XIL_PPoint point, XIL_Location loc);
 void XIL_CFGSetEntryPoint(XIL_PPoint point);
 void XIL_CFGSetExitPoint(XIL_PPoint point);
-void XIL_CFGAddPointAnnotation(XIL_PPoint point, const char *annot_name);
 void XIL_CFGAddLoopHead(XIL_PPoint point, XIL_Location end_loc);
 
 // fixup the function so that it is relative to instance, NULL if it is not
@@ -299,6 +298,8 @@ void XIL_CFGEdgeCall(XIL_PPoint source, XIL_PPoint target, XIL_Type func_type,
                      XIL_Exp return_assign, XIL_Exp instance, XIL_Exp func,
                      XIL_Exp *args, int arg_count);
 void XIL_CFGEdgeAssembly(XIL_PPoint source, XIL_PPoint target);
+void XIL_CFGEdgeAnnotation(XIL_PPoint source, XIL_PPoint target,
+                           const char *annot_name);
 
 /////////////////////////////////////////////////////////////////////
 // Databases

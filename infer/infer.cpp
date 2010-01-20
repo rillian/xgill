@@ -459,39 +459,39 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
       }
     }
 
-    // add any intermediate annotated assertions.
-    for (size_t pind = 0; pind < cfg->GetPointAnnotationCount(); pind++) {
-      BlockPPoint point_annot = cfg->GetPointAnnotation(pind);
-
-      BlockCFG *annot_cfg = NULL;
-      for (size_t aind = 0; annot_list && aind < annot_list->Size(); aind++) {
-        BlockCFG *test_cfg = annot_list->At(aind);
-        if (test_cfg->GetId() == point_annot.id) {
-          annot_cfg = test_cfg;
-          break;
-        }
-      }
-      if (!annot_cfg) continue;
-
-      if (annot_cfg->GetAnnotationKind() != AK_Assert &&
-          annot_cfg->GetAnnotationKind() != AK_AssertRuntime)
-        continue;
-      if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
-        bit->IncRef();
-
-        AssertInfo info;
-        info.kind = (annot_cfg->GetAnnotationKind() == AK_Assert)
-          ? ASK_Annotation : ASK_AnnotationRuntime;
-        info.cls = ASC_Check;
-        info.point = point_annot.point;
-        info.bit = bit;
-        asserts.PushBack(info);
-      }
-    }
-
     for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
       PEdge *edge = cfg->GetEdge(eind);
       PPoint point = edge->GetSource();
+
+      if (PEdgeAnnotation *nedge = edge->IfAnnotation()) {
+        // add an assertion for this annotation if it not an assume.
+
+        BlockCFG *annot_cfg = NULL;
+        for (size_t aind = 0; annot_list &&
+                              aind < annot_list->Size(); aind++) {
+          BlockCFG *test_cfg = annot_list->At(aind);
+          if (test_cfg->GetId() == nedge->GetAnnotationId()) {
+            annot_cfg = test_cfg;
+            break;
+          }
+        }
+        if (!annot_cfg) continue;
+
+        if (annot_cfg->GetAnnotationKind() != AK_Assert &&
+            annot_cfg->GetAnnotationKind() != AK_AssertRuntime)
+          continue;
+        if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
+          bit->IncRef();
+
+          AssertInfo info;
+          info.kind = (annot_cfg->GetAnnotationKind() == AK_Assert)
+            ? ASK_Annotation : ASK_AnnotationRuntime;
+          info.cls = ASC_Check;
+          info.point = point;
+          info.bit = bit;
+          asserts.PushBack(info);
+        }
+      }
 
       if (PEdgeCall *nedge = edge->IfCall()) {
         // add assertions for any callee preconditions.

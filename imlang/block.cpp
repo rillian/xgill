@@ -152,21 +152,21 @@ void BlockId::DecMoveChildRefs(ORef ov, ORef nv)
 // BlockPPoint static
 /////////////////////////////////////////////////////////////////////
 
-void BlockPPoint::Write(Buffer *buf, BlockPPoint bp, tag_t tag)
+void BlockPPoint::Write(Buffer *buf, BlockPPoint bp)
 {
-  WriteOpenTag(buf, tag);
+  WriteOpenTag(buf, TAG_BlockPPoint);
   BlockId::Write(buf, bp.id);
   WriteTagUInt32(buf, TAG_Index, bp.point);
-  WriteCloseTag(buf, tag);
+  WriteCloseTag(buf, TAG_BlockPPoint);
 }
 
-BlockPPoint BlockPPoint::Read(Buffer *buf, tag_t tag)
+BlockPPoint BlockPPoint::Read(Buffer *buf)
 {
   BlockId *id = NULL;
   uint32_t point = 0;
 
-  Try(ReadOpenTag(buf, tag));
-  while (!ReadCloseTag(buf, tag)) {
+  Try(ReadOpenTag(buf, TAG_BlockPPoint));
+  while (!ReadCloseTag(buf, TAG_BlockPPoint)) {
     switch (PeekOpenTag(buf)) {
     case TAG_BlockId:
       Try(!id);
@@ -238,12 +238,8 @@ void BlockCFG::Write(Buffer *buf, const BlockCFG *cfg)
     }
   }
 
-  for (size_t ind = 0; ind < cfg->GetPointAnnotationCount(); ind++)
-    BlockPPoint::Write(buf, cfg->GetPointAnnotation(ind),
-                       TAG_PointAnnotation);
-
   for (size_t ind = 0; ind < cfg->GetLoopParentCount(); ind++)
-    BlockPPoint::Write(buf, cfg->GetLoopParent(ind), TAG_LoopParent);
+    BlockPPoint::Write(buf, cfg->GetLoopParent(ind));
 
   for (PPoint point = 1; point <= cfg->GetPointCount(); point++) {
     WriteOpenTag(buf, TAG_PPoint);
@@ -333,17 +329,8 @@ BlockCFG* BlockCFG::Read(Buffer *buf)
       Try(ReadCloseTag(buf, TAG_DefineVariable));
       break;
     }
-    case TAG_PointAnnotation: {
-      BlockPPoint annot = BlockPPoint::Read(buf, TAG_PointAnnotation);
-
-      if (drop_info)
-        annot.id->DecRef();
-      else
-        res->AddPointAnnotation(annot);
-      break;
-    }
-    case TAG_LoopParent: {
-      BlockPPoint parent = BlockPPoint::Read(buf, TAG_LoopParent);
+    case TAG_BlockPPoint: {
+      BlockPPoint parent = BlockPPoint::Read(buf, TAG_BlockPPoint);
 
       if (drop_info)
         parent.id->DecRef();
@@ -450,7 +437,7 @@ void BlockCFG::ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs)
 
 BlockCFG::BlockCFG(BlockId *id)
   : m_id(id), m_begin_location(NULL), m_end_location(NULL),
-    m_vars(NULL), m_point_annotations(NULL), m_loop_parents(NULL),
+    m_vars(NULL), m_loop_parents(NULL),
     m_loop_heads(NULL), m_loop_isomorphic(NULL),
     m_points(NULL), m_entry_point(0), m_exit_point(0), m_edges(NULL),
     m_annotation_kind(AK_Invalid),
@@ -502,15 +489,6 @@ void BlockCFG::AddVariable(Variable *var, Type *type)
   m_vars->PushBack(DefineVariable(var, type));
 }
 
-void BlockCFG::AddPointAnnotation(BlockPPoint annot)
-{
-  if (m_point_annotations == NULL)
-    m_point_annotations = new Vector<BlockPPoint>();
-
-  annot.id->MoveRef(NULL, this);
-  m_point_annotations->PushBack(annot);
-}
-
 void BlockCFG::AddLoopParent(BlockPPoint where)
 {
   Assert(m_id->Kind() == B_Loop);
@@ -530,13 +508,6 @@ void BlockCFG::ClearBody()
       m_points->At(ind)->DecRef(this);
     delete m_points;
     m_points = NULL;
-  }
-
-  if (m_point_annotations) {
-    for (size_t ind = 0; ind < m_point_annotations->Size(); ind++)
-      m_point_annotations->At(ind).id->DecRef(this);
-    delete m_point_annotations;
-    m_point_annotations = NULL;
   }
 
   ClearLoopHeads();
@@ -822,11 +793,6 @@ void BlockCFG::Print(OutStream &out) const
   default: break;
   }
 
-  for (size_t ind = 0; ind < GetPointAnnotationCount(); ind++) {
-    BlockPPoint annot = GetPointAnnotation(ind);
-    out << "annotation: " << annot.id << ": " << annot.point << endl;
-  }
-
   for (size_t ind = 0; ind < GetLoopParentCount(); ind++) {
     BlockPPoint where = GetLoopParent(ind);
     out << "parent: " << where.id << ":" << where.point << endl;
@@ -984,6 +950,12 @@ int PEdge::CompareInner(const PEdge *e0, const PEdge *e1)
   }
   case EGK_Assembly:
     break;
+  case EGK_Annotation: {
+    const PEdgeAnnotation *ne0 = (const PEdgeAnnotation*) e0;
+    const PEdgeAnnotation *ne1 = (const PEdgeAnnotation*) e1;
+    TryCompareObjects(ne0->GetAnnotationId(), ne1->GetAnnotationId(), BlockId);
+    break;
+  }
   default:
     Assert(false);
   }
@@ -994,12 +966,13 @@ int PEdge::CompareInner(const PEdge *e0, const PEdge *e1)
 PEdge* PEdge::Copy(const PEdge *e)
 {
   switch (e->Kind()) {
-  case EGK_Skip:     return new PEdgeSkip      (*(PEdgeSkip*)e);
-  case EGK_Assume:   return new PEdgeAssume    (*(PEdgeAssume*)e);
-  case EGK_Assign:   return new PEdgeAssign    (*(PEdgeAssign*)e);
-  case EGK_Call:     return new PEdgeCall      (*(PEdgeCall*)e);
-  case EGK_Loop:     return new PEdgeLoop      (*(PEdgeLoop*)e);
-  case EGK_Assembly: return new PEdgeAssembly  (*(PEdgeAssembly*)e);
+  case EGK_Skip:       return new PEdgeSkip       (*(PEdgeSkip*)e);
+  case EGK_Assume:     return new PEdgeAssume     (*(PEdgeAssume*)e);
+  case EGK_Assign:     return new PEdgeAssign     (*(PEdgeAssign*)e);
+  case EGK_Call:       return new PEdgeCall       (*(PEdgeCall*)e);
+  case EGK_Loop:       return new PEdgeLoop       (*(PEdgeLoop*)e);
+  case EGK_Assembly:   return new PEdgeAssembly   (*(PEdgeAssembly*)e);
+  case EGK_Annotation: return new PEdgeAnnotation (*(PEdgeAnnotation*)e);
   default:
     Assert(false);
     return NULL;
@@ -1018,21 +991,21 @@ void PEdge::Write(Buffer *buf, const PEdge *e)
     break;
   }
   case EGK_Assume: {
-    const PEdgeAssume *ne = (const PEdgeAssume*)e;
+    const PEdgeAssume *ne = e->AsAssume();
     Exp::Write(buf, ne->GetCondition());
     if (ne->IsNonZero())
       WriteTagEmpty(buf, TAG_PEdgeAssumeNonZero);
     break;
   }
   case EGK_Assign: {
-    const PEdgeAssign *ne = (const PEdgeAssign*)e;
+    const PEdgeAssign *ne = e->AsAssign();
     Type::Write(buf, ne->GetType());
     Exp::Write(buf, ne->GetLeftSide());
     Exp::Write(buf, ne->GetRightSide());
     break;
   }
   case EGK_Call: {
-    const PEdgeCall *ne = (const PEdgeCall*)e;
+    const PEdgeCall *ne = e->AsCall();
     Type::Write(buf, ne->GetType());
     Exp::Write(buf, ne->GetFunction());
     if (ne->GetReturnValue() != NULL)
@@ -1051,11 +1024,16 @@ void PEdge::Write(Buffer *buf, const PEdge *e)
     break;
   }
   case EGK_Loop: {
-    const PEdgeLoop *ne = (const PEdgeLoop*)e;
+    const PEdgeLoop *ne = e->AsLoop();
     BlockId::Write(buf, ne->GetLoopId());
     break;
   }
   case EGK_Assembly: {
+    break;
+  }
+  case EGK_Annotation: {
+    const PEdgeAnnotation *ne = e->AsAnnotation();
+    BlockId::Write(buf, ne->GetAnnotationId());
     break;
   }
   default:
@@ -1167,6 +1145,9 @@ PEdge* PEdge::Read(Buffer *buf)
     return MakeLoop(source, target, block);
   case EGK_Assembly:
     return MakeAssembly(source, target);
+  case EGK_Annotation:
+    Try(block);
+    return MakeAnnotation(source, target, block);
   default:
     Try(false);
   }
@@ -1213,6 +1194,12 @@ PEdge* PEdge::MakeAssembly(PPoint source, PPoint target)
   return g_table.Lookup(xe);
 }
 
+PEdge* PEdge::MakeAnnotation(PPoint source, PPoint target, BlockId *annot)
+{
+  PEdgeAnnotation xe(source, target, annot);
+  return g_table.Lookup(xe);
+}
+
 PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
 {
   switch (e->Kind()) {
@@ -1220,7 +1207,7 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     return MakeSkip(source, target);
   }
   case EGK_Assume: {
-    const PEdgeAssume *ne = (const PEdgeAssume*)e;
+    const PEdgeAssume *ne = e->AsAssume();
 
     Exp *scalar = ne->GetCondition();
     scalar->IncRef();
@@ -1230,7 +1217,7 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     return MakeAssume(source, target, scalar, nonzero);
   }
   case EGK_Assign: {
-    const PEdgeAssign *ne = (const PEdgeAssign*)e;
+    const PEdgeAssign *ne = e->AsAssign();
 
     Type *type = ne->GetType();
     type->IncRef();
@@ -1244,7 +1231,7 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     return MakeAssign(source, target, type, left, right);
   }
   case EGK_Call: {
-    const PEdgeCall *ne = (const PEdgeCall*)e;
+    const PEdgeCall *ne = e->AsCall();
     
     TypeFunction *type = ne->GetType();
     type->IncRef();
@@ -1272,7 +1259,7 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
                     retval, instance_object, function, arguments);
   }
   case EGK_Loop: {
-    const PEdgeLoop *ne = (const PEdgeLoop*)e;
+    const PEdgeLoop *ne = e->AsLoop();
 
     BlockId *block = ne->GetLoopId();
     block->IncRef();
@@ -1281,6 +1268,14 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
   }
   case EGK_Assembly: {
     return MakeAssembly(source, target);
+  }
+  case EGK_Annotation: {
+    const PEdgeAnnotation *ne = e->AsAnnotation();
+
+    BlockId *annot = ne->GetAnnotationId();
+    annot->IncRef();
+
+    return MakeAnnotation(source, target, annot);
   }
   default:
     Assert(false);
@@ -1646,10 +1641,8 @@ BlockId* PEdgeLoop::GetDirectCallee() const
 
 void PEdgeLoop::Print(OutStream &out) const
 {
-  out << "Loop(";
-  out << (long)m_source << "," << (long)m_target
+  out << "Loop(" << (long)m_source << "," << (long)m_target
       << ", " << m_loop->Loop()->Value() << ")";
-  out << ")";
 }
 
 void PEdgeLoop::PrintUI(OutStream &out) const
@@ -1678,6 +1671,28 @@ void PEdgeAssembly::Print(OutStream &out) const
 void PEdgeAssembly::PrintUI(OutStream &out) const
 {
   out << "assembly";
+}
+
+/////////////////////////////////////////////////////////////////////
+// PEdgeAnnotation
+/////////////////////////////////////////////////////////////////////
+
+PEdgeAnnotation::PEdgeAnnotation(PPoint source, PPoint target, BlockId *annot)
+  : PEdge(EGK_Annotation, source, target), m_annot(annot)
+{
+  Assert(m_annot);
+  m_hash = Hash32(m_hash, m_annot->Hash());
+}
+
+void PEdgeAnnotation::Print(OutStream &out) const
+{
+  out << "Annotation(" << (long)m_source << "," << (long)m_target
+      << "," << m_annot->Loop()->Value() << ")";
+}
+
+void PEdgeAnnotation::PrintUI(OutStream &out) const
+{
+  out << "annotation";
 }
 
 NAMESPACE_XGILL_END

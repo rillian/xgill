@@ -389,50 +389,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg,
     }
   }
 
-  // add any assert/assume annotations from points in the block.
-
-  for (size_t ind = 0; ind < cfg->GetPointAnnotationCount(); ind++) {
-    BlockPPoint point_annot = cfg->GetPointAnnotation(ind);
-
-    // get the corresponding annotation CFG.
-    BlockCFG *annot_cfg = NULL;
-    for (size_t aind = 0; annot_list && aind < annot_list->Size(); aind++) {
-      BlockCFG *test_cfg = annot_list->At(aind);
-      if (test_cfg->GetId() == point_annot.id) {
-        annot_cfg = test_cfg;
-        break;
-      }
-    }
-
-    if (!annot_cfg) {
-      logout << "ERROR: Could not find annotation CFG: "
-             << point_annot.id << endl;
-      continue;
-    }
-
-    // don't incorporate AssertRuntimes, these are not assumed.
-    if (annot_cfg->GetAnnotationKind() == AK_AssertRuntime)
-      continue;
-
-    // get the annotation bit in terms of block entry.
-    Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
-    if (!bit) continue;
-
-    Bit *point_bit = NULL;
-    mcfg->TranslateBit(TRK_Point, point_annot.point, bit, &point_bit);
-    point_bit->MoveRef(&point_bit, assume_list);
-
-    annot_cfg->IncRef(assume_list);
-
-    AssumeInfo info;
-    info.annot = annot_cfg;
-    info.point = point_annot.point;
-    info.bit = point_bit;
-    assume_list->PushBack(info);
-  }
-
-  BodyAnnotCache.Release(id->Function());
-
   // add assumptions from invariants on values accessed by the block,
   // and from the summaries of any callees.
 
@@ -442,6 +398,45 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg,
 
     InvariantAssumeVisitor visitor(mcfg, point, assume_list);
     edge->DoVisit(&visitor);
+
+    if (PEdgeAnnotation *nedge = edge->IfAnnotation()) {
+      // add an assumption for this annotation.
+
+      BlockCFG *annot_cfg = NULL;
+      for (size_t aind = 0; annot_list && aind < annot_list->Size(); aind++) {
+        BlockCFG *test_cfg = annot_list->At(aind);
+        if (test_cfg->GetId() == nedge->GetAnnotationId()) {
+          annot_cfg = test_cfg;
+          break;
+        }
+      }
+
+      if (!annot_cfg) {
+        logout << "ERROR: Could not find annotation CFG: "
+               << nedge->GetAnnotationId() << endl;
+        continue;
+      }
+
+      // don't incorporate AssertRuntimes, these are not assumed.
+      if (annot_cfg->GetAnnotationKind() == AK_AssertRuntime)
+        continue;
+
+      // get the annotation bit in terms of block entry.
+      Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
+      if (!bit) continue;
+
+      Bit *point_bit = NULL;
+      mcfg->TranslateBit(TRK_Point, point, bit, &point_bit);
+      point_bit->MoveRef(&point_bit, assume_list);
+
+      annot_cfg->IncRef(assume_list);
+
+      AssumeInfo info;
+      info.annot = annot_cfg;
+      info.point = point;
+      info.bit = point_bit;
+      assume_list->PushBack(info);
+    }
 
     if (BlockId *callee = edge->GetDirectCallee()) {
       GetCallAssumedBits(mcfg, edge, callee, false, assume_list);
@@ -508,6 +503,8 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg,
       CalleeCache.Release(id->BaseVar());
     }
   }
+
+  BodyAnnotCache.Release(id->Function());
 }
 
 bool BlockSummary::GetAssertFunction(const char *name, Buffer *buf)
