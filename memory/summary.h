@@ -150,8 +150,9 @@ class BlockSummary : public HashObject
   }
 
   // adds all bits to assume for mcfg to assumed_list. these bits can come
-  // from the summary or annotations on mcfg and its callees.
-  static void GetAssumedBits(BlockMemory *mcfg,
+  // from the summary or annotations on mcfg and its callees. only assertions
+  // earlier than end_point are included.
+  static void GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
                              Vector<AssumeInfo> *assume_list);
 
   // parse the name of a function which contains the specified assertion name.

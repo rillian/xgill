@@ -339,7 +339,7 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
   sum->DecRef();
 }
 
-void BlockSummary::GetAssumedBits(BlockMemory *mcfg,
+void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
                                   Vector<AssumeInfo> *assume_list)
 {
   BlockId *id = mcfg->GetId();
@@ -395,6 +395,9 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg,
   for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
     PEdge *edge = cfg->GetEdge(eind);
     PPoint point = edge->GetSource();
+
+    if (end_point && point >= end_point)
+      continue;
 
     InvariantAssumeVisitor visitor(mcfg, point, assume_list);
     edge->DoVisit(&visitor);

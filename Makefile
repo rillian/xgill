@@ -6,6 +6,7 @@ CC = g++
 # USE_YICES: whether the Yices solver should be enabled.
 # USE_CVC3: whether the CVC3 solver should be enabled.
 # GCCDIR: GCC source directory for building xgill plugin.
+#         xgill plugin will only be built if this is set.
 # GCCBUILD: GCC build directory for building xgill plugin.
 #           e.g. $(GCCDIR)/host-i686-pc-linux-gnu
 include config.mk
@@ -251,7 +252,7 @@ endif
 %.o: %.cpp ${INCLUDE}
 	${CC} ${CFLAGS} -c $< -o $@
 
-all: build-libevent .have_yices .have_cvc3 ${ALL_LIBS} ${ALL_BINS} # build-elsa
+all: .have_yices .have_cvc3 build-libevent ${ALL_LIBS} gcc/xgill.so ${ALL_BINS} # build-elsa
 
 debug:
 	$(MAKE) all "DEBUG=1"
@@ -269,6 +270,13 @@ bin/libxgill.a: ${LIB_OBJS}
 bin/libxcheck.a: ${CHK_OBJS}
 	rm -f $@
 	ar -r $@ ${CHK_OBJS}
+
+ifdef GCCDIR
+gcc/xgill.so:
+	make -C gcc
+else
+gcc/xgill.so:
+endif
 
 bin/xdbfind: main/xdbfind.o ${ALL_LIBS}
 	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
@@ -317,6 +325,7 @@ endif # DEBUG
 
 clean:
 	rm -f ${LIB_OBJS} ${CHK_OBJS} bin/libmemory.a bin/libimlang.a ${ALL_BINS} main/*.o
+	make -C gcc clean
 
 complete_clean:
 	$(MAKE) clean

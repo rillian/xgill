@@ -594,7 +594,7 @@ void CheckerFrame::AssertPointGuard(PPoint point)
 
   // add any assumptions given to us by the summary/annots for the block.
   Vector<AssumeInfo> assume_list;
-  BlockSummary::GetAssumedBits(m_mcfg, &assume_list);
+  BlockSummary::GetAssumedBits(m_mcfg, point, &assume_list);
 
   for (size_t ind = 0; ind < assume_list.Size(); ind++) {
     const AssumeInfo &info = assume_list[ind];

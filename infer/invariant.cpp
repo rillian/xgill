@@ -136,7 +136,7 @@ struct InvariantTester
     // fill in assumed bits from existing invariants and annotations on
     // the block and its callees.
     Vector<AssumeInfo> assume_list;
-    BlockSummary::GetAssumedBits(sum->GetMemory(), &assume_list);
+    BlockSummary::GetAssumedBits(sum->GetMemory(), 0, &assume_list);
 
     for (size_t ind = 0; ind < assume_list.Size(); ind++) {
       const AssumeInfo &info = assume_list[ind];

@@ -1,21 +1,4 @@
 
-// Sixgill: Static assertion checker for C/C++ programs.
-// Copyright (C) 2009-2010  Stanford University
-// Author: Brian Hackett
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 #include "xgill.h"
 #include <c-common.h>
 #include <c-pragma.h>
@@ -33,8 +16,7 @@
 // and the order in which that information should be added. the general order:
 // - macro definitions.
 // - enum definitions.
-// - struct/typedef declarations. these have an order.
-// - function pointer typedefs.
+// - struct/typedef/fnptr declarations. these have an order.
 // - struct definitions. these have an order.
 // - function and variable declarations.
 // - the annotation function.
@@ -78,6 +60,12 @@ struct XIL_AnnotationDecl
   // and will have their names printed as is.
   tree decl;
 
+  // function pointer type to introduce a new typedef for. this may be
+  // specified instead of decl. we also include method types here,
+  // though their typedef will look like a regular function and they
+  // can't be called from annotations.
+  tree fnptr;
+
   // name to print when referring to this declaration. for types in a namespace
   // this does not include any namespace qualifiers.
   const char *name;
@@ -87,25 +75,6 @@ struct XIL_AnnotationDecl
   bool artificial;
 
   struct XIL_AnnotationDecl *next;
-};
-
-// information about a function pointer which needs a typedef. every time
-// the annotation needs to refer to a new function pointer type,
-// we'll introduce a new typedef (this excludes function pointers which were
-// already the target of a typedef). the syntax for function pointers is
-// pretty wonky and using this simplifies things.
-
-struct XIL_AnnotationFnptr
-{
-  // function pointer type to introduce a new typedef for. we also include
-  // method types here, though their typedef will look like a regular
-  // function and they can't be called from annotations.
-  tree type;
-
-  // name to use when referring to type.
-  const char *name;
-
-  struct XIL_AnnotationFnptr *next;
 };
 
 // information about a structure or enum to define. definitions must be
@@ -156,7 +125,6 @@ struct XIL_AnnotationState
   // all declarations and definitions to add to the annotation file.
   struct XIL_AnnotationMacro *macros;
   struct XIL_AnnotationDecl *decls;
-  struct XIL_AnnotationFnptr *fnptrs;
   struct XIL_AnnotationDef *defs;
   struct XIL_AnnotationVar *vars;
 
@@ -311,11 +279,9 @@ static void XIL_AddDef(tree type)
 }
 
 // define type if necessary, as well as all types which it depends on
-// (declared as fields of the type without a pointer). if must_insert is set
-// then either a definition must be added, or one must already have been added.
-// (otherwise there may be a scan of the type already occurring, with the
-// definition not yet added).
-void XIL_ScanDefineType(tree type, bool must_insert);
+// (declared as fields of the type without a pointer). if scan_context is set
+// then any structures in which type was defined will be scanned first.
+void XIL_ScanDefineType(tree type);
 
 // scan type and add any declarations and definitions which type depends on
 // before it can be printed. from_decl indicates that this came directly
@@ -372,20 +338,24 @@ void XIL_ScanPrintType(tree type, bool from_decl)
     if (!from_decl &&
         (TREE_CODE(target_type) == FUNCTION_TYPE ||
          TREE_CODE(target_type) == METHOD_TYPE)) {
-      struct XIL_AnnotationFnptr *fnptr = state->fnptrs;
-      while (fnptr) {
-        if (fnptr->type == type)
-          return;
-        fnptr = fnptr->next;
+      struct XIL_AnnotationDecl *last = state->decls;
+      while (last) {
+        if (last->fnptr == type) return;
+        if (!last->next) break;
+        last = last->next;
       }
-      fnptr = calloc(1, sizeof(struct XIL_AnnotationFnptr));
-      fnptr->type = type;
+      struct XIL_AnnotationDecl *info =
+        calloc(1, sizeof(struct XIL_AnnotationDecl));
+      info->fnptr = type;
 
-      fnptr->name = malloc(30);
-      sprintf((char*)fnptr->name, "__fnptr%d", ++state->artificial_count);
+      info->name = malloc(30);
+      sprintf((char*)info->name, "__fnptr%d", ++state->artificial_count);
+      info->artificial = true;
 
-      fnptr->next = state->fnptrs;
-      state->fnptrs = fnptr;
+      if (last)
+        last->next = info;
+      else
+        state->decls = info;
     }
 
     return;
@@ -411,11 +381,24 @@ void XIL_ScanPrintType(tree type, bool from_decl)
   }
 }
 
-void XIL_ScanDefineType(tree type, bool must_insert)
+void XIL_ScanDefineType(tree type)
 {
+  // if the type is an inner structure then define the parent structure too.
+  // this will end up scanning this structure recursively. we need this to
+  // go first so as to not force an ordering of definitions between
+  // the parent and inner structure (see below).
+  tree name = TYPE_NAME(type);
+  if (name && TREE_CODE(name) == TYPE_DECL) {
+    tree context = DECL_CONTEXT(name);
+    if (context &&
+        (TREE_CODE(context) == RECORD_TYPE ||
+         TREE_CODE(context) == UNION_TYPE))
+      XIL_ScanDefineType(context);
+  }
+
   // see if we scanned this type for defining before, associate a flag as
-  // with ScanPrintType. unlike ScanPrintType, ScanDefineType may recursively
-  // call itself so we need to identify and block that recursion here.
+  // with ScanPrintType. unlike ScanPrintType, ScanDefineType may call itself
+  // on the same type so we need to identify and block that recursion here.
   bool *scanned = (bool*) XIL_Associate(XIL_AscAnnotate, "ScanDefine", type);
   if (*scanned) return;
   *scanned = true;
@@ -441,16 +424,6 @@ void XIL_ScanDefineType(tree type, bool must_insert)
 
   if (TREE_CODE(type) != RECORD_TYPE && TREE_CODE(type) != UNION_TYPE)
     return;
-
-  // if the type is an inner structure then define the outer structure too.
-  tree name = TYPE_NAME(type);
-  if (name && TREE_CODE(name) == TYPE_DECL) {
-    tree context = DECL_CONTEXT(name);
-    if (context &&
-        (TREE_CODE(context) == RECORD_TYPE ||
-         TREE_CODE(context) == UNION_TYPE))
-      XIL_ScanDefineType(context);
-  }
 
   // scan and add definitions for all fields and types in the structure.
   // we will defer adding definitions for inner types/typedefs until
@@ -524,31 +497,51 @@ char* GetNameQuote(char **str)
   return res;
 }
 
+// if message follows the form "pre_text `quoted' post_text" then store
+// those three components of the string in pre, quoted and post.
+bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
+{
+  // scan for an open quote character.
+  char *pos = message;
+  while (*pos && *pos != (char) -30) pos++;
+  if (!*pos) return false;
+
+  char *quote_begin = pos;
+  char *str = GetNameQuote(&pos);
+  if (!str) return false;
+
+  *pre = malloc(quote_begin - message + 1);
+  memcpy(*pre, message, quote_begin - message);
+  (*pre)[quote_begin - message] = 0;
+
+  *quoted = str;
+  *post = strdup(pos);
+  return true;
+}
+
 // returns true if the error message was interpreted successfully and the
 // state was changed to fix the error.
 bool XIL_ProcessAnnotationError(char *error_message)
 { 
-  // look for a missing declaration. these look like:
-  // 'name' was undeclared (C++) or:
-  // 'name' undeclared (C)
-  char *chk_decl = error_message;
-  char *search_decl = GetNameQuote(&chk_decl);
+  char *pre, *quoted, *post;
+  if (!GetQuoteMessage(error_message, &pre, &quoted, &post))
+    return false;
 
-  const char *decl_msg_cxx = " was not declared in this scope";
-  const char *decl_msg = " undeclared";
+  // look for a missing declaration.
+  // different messages we can see, depending on the frontend and usage.
+  const char *decl_msg_1 = " undeclared";
+  const char *decl_msg_2 = " was not declared in this scope";
+  const char *decl_msg_3 = " has not been declared";
 
-  if (search_decl &&
-      strncmp(chk_decl, decl_msg_cxx, strlen(decl_msg_cxx)) &&
-      strncmp(chk_decl, decl_msg, strlen(decl_msg)))
-    search_decl = NULL;
-
-  if (search_decl) {
+  if (!strncmp(post, decl_msg_1, strlen(decl_msg_1)) ||
+      !strncmp(post, decl_msg_2, strlen(decl_msg_2)) ||
+      !strncmp(post, decl_msg_3, strlen(decl_msg_3))) {
     if (cpp_defined(parse_in,
-                    (unsigned char*) search_decl, strlen(search_decl))) {
+                    (unsigned char*) quoted, strlen(quoted))) {
       // the missing declaration is a macro.
       cpp_hashnode *node =
         cpp_lookup(parse_in,
-                   (unsigned char*) search_decl, strlen(search_decl));
+                   (unsigned char*) quoted, strlen(quoted));
       const char *macro = (const char*) cpp_macro_definition(parse_in, node);
 
       struct XIL_AnnotationMacro *info =
@@ -559,7 +552,7 @@ bool XIL_ProcessAnnotationError(char *error_message)
       return true;
     }
 
-    tree idnode = get_identifier(search_decl);
+    tree idnode = get_identifier(quoted);
     tree decl = lookup_name(idnode);
 
     if (decl) {
@@ -572,6 +565,25 @@ bool XIL_ProcessAnnotationError(char *error_message)
         info->decl = decl;
         info->next = state->vars;
         state->vars = info;
+        return true;
+      }
+
+      if (TREE_CODE(decl) == OVERLOAD) {
+        // the missing declaration is one of a number of overloaded functions.
+        while (decl) {
+          tree function = OVL_CURRENT(decl);
+          if (TREE_CODE(function) == FUNCTION_DECL) {
+            XIL_ScanPrintType(TREE_TYPE(function), true);
+
+            struct XIL_AnnotationVar *info =
+              calloc(1, sizeof(struct XIL_AnnotationVar));
+            info->decl = function;
+            info->next = state->vars;
+            state->vars = info;
+          }
+
+          decl = OVL_NEXT(decl);
+        }
         return true;
       }
 
@@ -598,33 +610,29 @@ bool XIL_ProcessAnnotationError(char *error_message)
     }
   }
 
-  // look for an incomplete type. these look like:
-  // invalid use of incomplete type 'name' (C++)
-  const char *incomplete_msg_cxx = "invalid use of incomplete type ";
+  // look for an incomplete type.
+  const char *incomplete_msg_1 = "invalid use of incomplete type ";
+  const char *incomplete_msg_2 = "incomplete type ";
 
-  if (!strncmp(error_message,
-               incomplete_msg_cxx, strlen(incomplete_msg_cxx))) {
-    char *inc_chk = error_message + strlen(incomplete_msg_cxx);
-    char *inc_name = GetNameQuote(&inc_chk);
-    if (inc_name) {
-      // eat any leading 'const ' and/or 'struct '.
-      if (!strncmp(inc_name,"const ",6)) inc_name += 6;
-      if (!strncmp(inc_name,"struct ",7)) inc_name += 7;
+  if (!strcmp(pre, incomplete_msg_1) ||
+      !strcmp(pre, incomplete_msg_2)) {
+    // eat any leading 'const ' and/or 'struct '.
+    if (!strncmp(quoted,"const ",6)) quoted += 6;
+    if (!strncmp(quoted,"struct ",7)) quoted += 7;
 
-      // find a matching typedef or struct.
-      struct XIL_AnnotationDecl *info = state->decls;
-      while (info) {
-        if (!strcmp(inc_name, info->name))
-          break;
-        info = info->next;
-      }
-
-      if (!info)
-        return false;
-
-      XIL_ScanDefineType(TREE_TYPE(info->decl));
-      return true;
+    // find a matching typedef or struct.
+    struct XIL_AnnotationDecl *info = state->decls;
+    while (info) {
+      if (!strcmp(quoted, info->name))
+        break;
+      info = info->next;
     }
+
+    if (!info)
+      return false;
+
+    XIL_ScanDefineType(TREE_TYPE(info->decl));
+    return true;
   }
 
   return false;
@@ -724,9 +732,9 @@ void XIL_PrintType(FILE *file, tree type)
     // be a function pointer typedef.
     if (TREE_CODE(target) == FUNCTION_TYPE ||
         TREE_CODE(target) == METHOD_TYPE) {
-      struct XIL_AnnotationFnptr *info = state->fnptrs;
+      struct XIL_AnnotationDecl *info = state->decls;
       while (info) {
-        if (info->type == type) {
+        if (info->fnptr == type) {
           fprintf(file, "%s", info->name);
           return;
         }
@@ -795,7 +803,6 @@ void XIL_PrintDeclaration(FILE *file, tree type, const char *name)
   // check for a declaration of a function or method or function pointer.
   if (TREE_CODE(type) == FUNCTION_TYPE || TREE_CODE(type) == METHOD_TYPE) {
     XIL_PrintFunctionType(file, type, function_pointer, name);
-    fprintf(file, ";\n");
     return;
   }
 
@@ -816,7 +823,7 @@ void XIL_PrintDeclaration(FILE *file, tree type, const char *name)
           // variable sized array. promote this to a pointer so the treatment
           // in the annotation and original source is consistent.
           XIL_PrintType(file, element_type);
-          fprintf(file, "* %s;", name);
+          fprintf(file, "* %s", name);
           return;
         }
 
@@ -825,16 +832,25 @@ void XIL_PrintDeclaration(FILE *file, tree type, const char *name)
       }
     }
 
-    XIL_PrintType(file, element_type);
-    if (count) fprintf(file, " %s[%d];", name, count);
-    else       fprintf(file, " %s[];", name);
+    // watch out for element types which are also arrays (multidimensional).
+    // these need to be special cased so that we don't do the wrong thing
+    // for arrays of function pointers.
+    if (TREE_CODE(element_type) == ARRAY_TYPE) {
+      XIL_PrintDeclaration(file, element_type, name);
+      fprintf(file, " [%d]", count);
+    }
+    else {
+      XIL_PrintType(file, element_type);
+      if (count) fprintf(file, " %s[%d]", name, count);
+      else       fprintf(file, " %s[]", name);
+    }
 
     return;
   }
 
   // plain integer/pointer/structure/etc. type.
   XIL_PrintType(file, type);
-  fprintf(file, " %s;", name);
+  fprintf(file, " %s", name);
 }
 
 void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
@@ -905,9 +921,8 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
       else {
         tree type = TREE_TYPE(field);
         XIL_PrintType(file, type);
-        fprintf(file, ";");
       }
-      fprintf(file, "\n");
+      fprintf(file, ";\n");
     }
     else if (TREE_CODE(field) == VAR_DECL) {
       // static member.
@@ -915,7 +930,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
       fprintf(file, "__attribute__((annot_global(\"%s\"))) static\n", name);
       XIL_PrintDeclaration(file, TREE_TYPE(field),
                            IDENTIFIER_POINTER(DECL_NAME(field)));
-      fprintf(file, "\n");
+      fprintf(file, ";\n");
     }
     else if (TREE_CODE(field) == TYPE_DECL) {
       // structure or typedef. inner structures were already marked
@@ -925,7 +940,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
         fprintf(file, "typedef ");
         XIL_PrintDeclaration(file, TREE_TYPE(field),
                              IDENTIFIER_POINTER(DECL_NAME(field)));
-        fprintf(file, "\n");
+        fprintf(file, ";\n");
       }
     }
 
@@ -960,7 +975,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
 
         const char *name = IDENTIFIER_POINTER(DECL_NAME(method));
         XIL_PrintDeclaration(file, method_type, name);
-        fprintf(file, "\n");
+        fprintf(file, ";\n");
 
         node = OVL_NEXT(node);
       }
@@ -1147,8 +1162,19 @@ void WriteAnnotationFile(FILE *file)
   // add any declarations.
   struct XIL_AnnotationDecl *decl = state->decls;
   while (decl) {
-    // skip enum declarations, these were already defined.
-    if (TREE_CODE(TREE_TYPE(decl->decl)) == ENUMERAL_TYPE) {
+    // handle function pointer typedefs we've introduced.
+    if (decl->fnptr) {
+      fprintf(file, "typedef ");
+      XIL_PrintDeclaration(file, decl->fnptr, decl->name);
+      fprintf(file, ";\n");
+      decl = decl->next;
+      continue;
+    }
+
+    tree target_type = DECL_RESULT_FLD(decl->decl);
+
+    // skip non-typedef enum declarations, these were already defined.
+    if (!target_type && TREE_CODE(TREE_TYPE(decl->decl)) == ENUMERAL_TYPE) {
       decl = decl->next;
       continue;
     }
@@ -1158,11 +1184,11 @@ void WriteAnnotationFile(FILE *file)
     if (!decl->artificial)
       namespace_count = XIL_PrintNamespaces(file, decl->decl);
 
-    tree target_type = DECL_RESULT_FLD(decl->decl);
     if (target_type) {
       // this is a typedef declaration.
       fprintf(file, "typedef ");
       XIL_PrintDeclaration(file, target_type, decl->name);
+      fprintf(file, ";");
     }
     else {
       // this is a struct/union/enum declaration.
@@ -1186,21 +1212,11 @@ void WriteAnnotationFile(FILE *file)
     }
 
     // close any namespaces we printed earlier.
-    fprintf(file, "\n");
     while (namespace_count--)
       fprintf(file, " }");
     fprintf(file, "\n");
 
     decl = decl->next;
-  }
-
-  // add any function pointer typedefs.
-  struct XIL_AnnotationFnptr *fnptr = state->fnptrs;
-  while (fnptr) {
-    fprintf(file, "typedef ");
-    XIL_PrintDeclaration(file, fnptr->type, fnptr->name);
-    fprintf(file, "\n");
-    fnptr = fnptr->next;
   }
 
   // add any struct/union definitions.
@@ -1239,7 +1255,7 @@ void WriteAnnotationFile(FILE *file)
     const char *name = IDENTIFIER_POINTER(DECL_NAME(var->decl));
 
     XIL_PrintDeclaration(file, type, name);
-    fprintf(file, "\n");
+    fprintf(file, ";\n");
     var = var->next;
   }
 
@@ -1270,7 +1286,7 @@ void WriteAnnotationFile(FILE *file)
         fprintf(file, "__attribute__((annot_param(%d))) extern\n", param_index);
         const char *param_name = IDENTIFIER_POINTER(DECL_NAME(param));
         XIL_PrintDeclaration(file, type, param_name);
-        fprintf(file, "\n");
+        fprintf(file, ";\n");
       }
       param = TREE_CHAIN(param);
       param_index++;
@@ -1282,7 +1298,7 @@ void WriteAnnotationFile(FILE *file)
       tree type = TREE_TYPE(result);
       fprintf(file, "__attribute__((annot_return)) extern\n");
       XIL_PrintDeclaration(file, type, "return");
-      fprintf(file, "\n");
+      fprintf(file, ";\n");
     }
   }
 
@@ -1293,7 +1309,7 @@ void WriteAnnotationFile(FILE *file)
     const char *full_name = XIL_GlobalName(state->decl);
     fprintf(file, "__attribute__((annot_global(\"%s\"))) extern\n", full_name);
     XIL_PrintDeclaration(file, type, name);
-    fprintf(file, "\n");
+    fprintf(file, ";\n");
   }
 
   // add any local variables in scope to the annotation.
@@ -1310,7 +1326,7 @@ void WriteAnnotationFile(FILE *file)
       fprintf(file, "__attribute__((annot_local(\"%s\"))) extern\n",
               local_full_name);
       XIL_PrintDeclaration(file, type, local_name);
-      fprintf(file, "\n");
+      fprintf(file, ";\n");
       local = local->scope_next;
     }
     scope = scope->parent;
@@ -1580,11 +1596,12 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   // TODO: there does not seem to be any location information available
   // for attributes.
-  XIL_Location loc = XIL_MakeLocation("<error>", 0);
+  XIL_Location error_loc = XIL_MakeLocation("<error>", 0);
 
   // make an annotation CFG so we remember this later (and don't try again
   // in another translation unit).
-  XIL_AddAnnotationMsg(annot_var, annot_name, annot_type, loc, error_buf);
+  XIL_AddAnnotationMsg(annot_var, annot_name, annot_type,
+                       error_loc, error_buf);
 
   state = NULL;
   XIL_ClearAssociate(XIL_AscAnnotate);

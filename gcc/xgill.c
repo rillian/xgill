@@ -231,24 +231,29 @@ void XIL_GenerateBlock(tree decl)
   xil_active_env.decl_name = XIL_GetVarName(xil_var);
   XIL_SetActiveBlock(xil_var, annotation_name, use_kind, annot_type);
 
-  const char *decl_file = NULL;
-  int decl_line = 0;
+  const char *decl_file = DECL_SOURCE_FILE(decl);
+  int decl_line = DECL_SOURCE_LINE(decl);
 
-  // get the begin file/line from the result for a function. sometimes the
-  // decl's location comes from a header file and not the definition we are
-  // interested in. there is a result even for functions returning void.
+  // get the begin file/line for a function definition. this is somewhat
+  // trickier than might be expected. the decl's location sometimes comes from
+  // a header file and not the definition we are interested in, while the
+  // result variable's location corresponds to the ')' for the function,
+  // not the function symbol which we want. solution: use the decl's location
+  // unless it looks like it came from a declaration (in a different file
+  // than the result, or many lines earlier).
+
   if (TREE_CODE(decl) == FUNCTION_DECL) {
     tree result = DECL_RESULT(decl);
     if (result) {
-      decl_file = DECL_SOURCE_FILE(result);
-      decl_line = DECL_SOURCE_LINE(result);
-    }
-  }
+      const char *res_decl_file = DECL_SOURCE_FILE(result);
+      int res_decl_line = DECL_SOURCE_LINE(result);
 
-  // otherwise use the decl's location itself.
-  if (!decl_file) {
-    decl_file = DECL_SOURCE_FILE(decl);
-    decl_line = DECL_SOURCE_LINE(decl);
+      if (strcmp(decl_file, res_decl_file) ||
+          res_decl_line > decl_line + 10) {
+        decl_file = res_decl_file;
+        decl_line = res_decl_line;
+      }
+    }
   }
 
   XIL_Location begin_loc = XIL_MakeLocation(decl_file, decl_line);
@@ -512,7 +517,7 @@ void gcc_plugin_pre_genericize(void *gcc_data, void *user_data)
   // check for annotations on this function.
   tree attr = DECL_ATTRIBUTES(decl);
   while (attr) {
-    XIL_ProcessAnnotation(decl, attr, 0);
+    XIL_ProcessAnnotation(decl, attr, NULL, NULL);
     attr = TREE_CHAIN(attr);
   }
 
@@ -555,7 +560,7 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
       if (strncmp(name, "__annotation", 12)) {
         tree attr = DECL_ATTRIBUTES(decl);
         while (attr) {
-          XIL_ProcessAnnotation(decl, attr, 0);
+          XIL_ProcessAnnotation(decl, attr, NULL, NULL);
           attr = TREE_CHAIN(attr);
         }
       }

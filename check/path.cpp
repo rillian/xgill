@@ -425,7 +425,7 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
   // get all assumptions used for the block. we will extract and display all
   // relevant annotations from here.
   Vector<AssumeInfo> assume_list;
-  BlockSummary::GetAssumedBits(mcfg, &assume_list);
+  BlockSummary::GetAssumedBits(mcfg, 0, &assume_list);
 
   // add the baseline annotation hook. for functions this is a precondition,
   // for loops a loop invariant.
