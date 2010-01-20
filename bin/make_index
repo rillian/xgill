@@ -49,11 +49,10 @@ foreach my $report (@reports)
     $report =~ /(.*?)\$(.*?)\$(.*)/ or die;
     my $kind = $1;
     my $file = $2;
-    my $name = $3;
 
     die unless ($assertkind eq $kind);
 
-    push(@{$file_hash{$file}}, $name);
+    push(@{$file_hash{$file}}, $report);
 
     my $node = $file;
     while ($node ne "") {
@@ -179,14 +178,14 @@ sub recursive_traverse {
     }
 
     if (defined $file_hash{$node}) {
-        my @names = sort @{$file_hash{$node}};
+        my @file_reports = sort @{$file_hash{$node}};
 
         # figure out which names are duplicates. these will be adjacent to each other
         # in the sorted list of reports.
         my %duplicates;
         my $last = "";
-        for my $name (@names) {
-            my $namestr = report_printable($name);
+        for my $report (@file_reports) {
+            my $namestr = report_printable($report);
             $duplicates{$namestr} = 1 if ($namestr eq $last);
             $last = $namestr;
         }
@@ -194,9 +193,9 @@ sub recursive_traverse {
         $last = "";
         my $last_count = 0;
 
-        for my $name (@names) {
-            my $nameid = report_file($name);
-            my $namestr = report_printable($name);
+        for my $report (@file_reports) {
+            my $nameid = report_file($report);
+            my $namestr = report_printable($report);
 
             if ($last eq $namestr) {
                 $last_count++;
@@ -216,8 +215,10 @@ sub recursive_traverse {
             }
             $last_name = $nameid;
 
+            $namestr = html_escape($namestr);
+
             print INDEX "<span class='errors'>$padstr</span>";
-            print INDEX "<a href='reports/$nameid.html' class='report'>$namestr</a><br>\n";
+            print INDEX "<a href='$nameid.html' class='report'>$namestr</a><br>\n";
         }
     }
 
@@ -236,10 +237,7 @@ print "Wrote $assertkind/index.html\n";
 foreach my $report (@reports)
 {
     chomp $report;
-
-    $report =~ /([^\$]+)\$(.*)/ or die;
-    my $name = $2;
-    my $nameid = report_file($name);
+    my $nameid = report_file($report);
 
     my $output = "$assertkind/$nameid.html";
 
@@ -265,7 +263,11 @@ foreach my $report (@reports)
 # get the printable version of a report, stripping file and assert
 # identifier info.
 sub report_printable {
-    my ($name) = @_;
+    my ($report) = @_;
+
+    # remove assertion kind and file information.
+    $report =~ /(.*?)\$(.*?)\$(.*)/ or die;
+    my $name = $3;
 
     # report names look like 'name$loop?$assert' or 'file:name$loop?$assert'
     # where the name can look like:
@@ -291,15 +293,15 @@ sub report_printable {
 
 # get the name of the file used to print the specified report.
 sub report_file {
-    my ($name) = @_;
+    my ($report) = @_;
 
     # use the printable name of the report followed by a hash of
     # the whole string. if we don't use the hash we run into
     # file length restrictions.
-    my $namestr = report_printable($name);
+    my $namestr = report_printable($report);
     $namestr =~ s/[^a-zA-Z0-9]/_/g;
 
-    my $hash = string_hash($name);
+    my $hash = string_hash($report);
     $namestr .= "_$hash";
 
     return $namestr;
@@ -314,4 +316,15 @@ sub string_hash {
         $hash = 31*$hash+ord($_);
     }
     return abs($hash);
+}
+
+# shared with make_report
+sub html_escape {
+    my ($text) = @_;
+
+    $text =~ s/\&/\&amp;/g;
+    $text =~ s/\</\&lt;/g;
+    $text =~ s/\>/\&gt;/g;
+
+    return $text;
 }
