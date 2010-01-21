@@ -358,3 +358,6 @@ complete:
 complete_debug:
 	$(MAKE) debug
 	make -C elsa debug
+
+config.mk:
+	touch config.mk
