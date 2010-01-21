@@ -1000,12 +1000,28 @@ void XIL_PrintEnum(FILE *file, const char *enum_name, tree type)
   tree value = TYPE_VALUES(type);
   while (value) {
     tree decl = TREE_VALUE(value);
-    TREE_CHECK(decl, CONST_DECL);
 
-    tree initial = DECL_INITIAL(decl);
-    gcc_assert(initial && TREE_CODE(initial) == INTEGER_CST);
-    const char *str = XIL_TreeIntString(initial);
-    fprintf(file, "%s = %s,\n", IDENTIFIER_POINTER(DECL_NAME(decl)), str);
+    // enums look different in C vs. C++. C enums use a purpose/value pair,
+    // C++ enums use a CONST_DECL for the value.
+    if (TREE_CODE(decl) == INTEGER_CST) {
+      tree purpose = TREE_PURPOSE(value);
+      if (purpose && TREE_CODE(purpose) == IDENTIFIER_NODE) {
+        const char *str = XIL_TreeIntString(decl);
+        fprintf(file, "%s = %s,\n", IDENTIFIER_POINTER(purpose), str);
+      }
+      else {
+        TREE_UNEXPECTED(value);
+      }
+    }
+    else if (TREE_CODE(decl) == CONST_DECL) {
+      tree initial = DECL_INITIAL(decl);
+      gcc_assert(initial && TREE_CODE(initial) == INTEGER_CST);
+      const char *str = XIL_TreeIntString(initial);
+      fprintf(file, "%s = %s,\n", IDENTIFIER_POINTER(DECL_NAME(decl)), str);
+    }
+    else {
+      TREE_UNEXPECTED(decl);
+    }
 
     value = TREE_CHAIN(value);
   }
