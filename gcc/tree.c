@@ -1148,6 +1148,79 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
   gcc_unreachable();
 }
 
+// if we are in an annotation and node is a call to a special annotation function,
+// generate the corresponding analysis expression for env and return true.
+bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
+{
+  // annotation calls can only appear in annotations.
+  if (!xil_has_annotation) return false;
+
+  tree function = TREE_OPERAND(node, 1);
+  if (TREE_CODE(function) != ADDR_EXPR) return false;
+
+  tree function_var = TREE_OPERAND(function, 0);
+  if (TREE_CODE(function_var) != FUNCTION_DECL) return false;
+
+  tree function_name = DECL_NAME(function_var);
+  if (!function_name || TREE_CODE(function_name) != IDENTIFIER_NODE) return false;
+  const char *name = IDENTIFIER_POINTER(function_name);
+
+  if (strcmp(name,"ubound") && strcmp(name,"lbound") &&
+      strcmp(name,"zterm") && strcmp(name,"__loop_entry"))
+    return false;
+
+  // this is an annotation function call. get the argument being passed.
+  tree arg = TREE_OPERAND(node, 3);
+  if (!arg) return false;
+
+  XIL_Exp xil_arg = NULL;
+  MAKE_ENV(arg_env, env->point, NULL);
+  arg_env.result_rval = &xil_arg;
+  XIL_TranslateTree(&arg_env, arg);
+
+  if (!strcmp(name,"__loop_entry")) {
+    // the LoopEntry needs to be applied to the address of the argument (i.e. the
+    // lvalue which was actually passed in). if the argument is not an lvalue then punt
+    // (we will detect the error later).
+    XIL_Exp address = XIL_ExpAddress(xil_arg);
+    if (address) {
+      XIL_Exp result = XIL_ExpLoopEntry(address);
+      XIL_ProcessResult(env, result);
+      return true;
+    }
+    return false;
+  }
+  else {
+    // some expression which needs a stride type. get this from the argument tree.
+
+    // if there is a leading cast then remove it. the annotation functions have a
+    // void* argument type and an implicit cast will be inserted for arguments that
+    // are not actually of type void*.
+    if (TREE_CODE(arg) == NOP_EXPR)
+      arg = TREE_OPERAND(arg, 0);
+
+    tree type = TREE_TYPE(arg);
+    if (TREE_CODE(type) != POINTER_TYPE) return false;
+
+    XIL_Type stride_type = XIL_TranslateType(TREE_TYPE(type));
+
+    XIL_Exp result = NULL;
+    if (!strcmp(name,"ubound"))
+      result = XIL_ExpUBound(xil_arg, stride_type);
+    else if (!strcmp(name,"lbound"))
+      result = XIL_ExpLBound(xil_arg, stride_type);
+    else if (!strcmp(name,"zterm"))
+      result = XIL_ExpZTerm(xil_arg, stride_type);
+    else
+      gcc_assert(false);
+
+    XIL_ProcessResult(env, result);
+    return true;
+  }
+
+  gcc_unreachable();
+}
+
 void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
 {
   XIL_Location loc = XIL_TryUpdateLocation(*env->point, node);
@@ -1709,6 +1782,10 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
   case AGGR_INIT_EXPR: {
     tree function = TREE_OPERAND(node, 1);
     XIL_Exp xil_function = NULL;
+
+    // check for special annotation functions being called.
+    if (XIL_TranslateAnnotationCall(env, node))
+      return;
 
     // get the signature of the function. the function expression should be
     // of function pointer type.

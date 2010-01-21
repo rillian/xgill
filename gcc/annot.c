@@ -1122,8 +1122,8 @@ int XIL_PrintNamespaces(FILE *file, tree decl)
 
 void WriteAnnotationFile(FILE *file)
 {
-  // add macro for special return variable.
-  fprintf(file,"#define return __return\n");
+  // add macro for return variable.
+  fprintf(file, "#define return __return\n");
 
   // add any extra macros.
   struct XIL_AnnotationMacro *macro = state->macros;
@@ -1131,6 +1131,13 @@ void WriteAnnotationFile(FILE *file)
     fprintf(file, "#define %s\n", macro->macro);
     macro = macro->next;
   }
+
+  // add declarations for annotation functions.
+  fprintf(file, "long ubound(void*);\n");
+  fprintf(file, "long lbound(void*);\n");
+  fprintf(file, "long zterm(void*);\n");
+  fprintf(file, "long __loop_entry(signed long);\n");
+  fprintf(file, "#define loop_entry(X) __loop_entry((signed long)X)\n");
 
   // add any enum definitions. enum definitions have to go before declarations
   // because enums cannot be declared in the way structs or unions are.

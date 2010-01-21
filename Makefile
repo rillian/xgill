@@ -269,7 +269,7 @@ endif
 %.o: %.cpp ${INCLUDE}
 	${CC} ${CFLAGS} -c $< -o $@
 
-all: .have_yices .have_cvc3 build-libevent ${ALL_LIBS} gcc/xgill.so ${ALL_BINS} # build-elsa
+all: .have_yices .have_cvc3 build-libevent build-plugin ${ALL_LIBS} ${ALL_BINS} # build-elsa
 
 debug:
 	$(MAKE) all "DEBUG=1"
@@ -289,10 +289,10 @@ bin/libxcheck.a: ${CHK_OBJS}
 	ar -r $@ ${CHK_OBJS}
 
 ifdef GCCDIR
-gcc/xgill.so:
+build-plugin:
 	make -C gcc
 else
-gcc/xgill.so:
+build-plugin:
 endif
 
 bin/xdbfind: main/xdbfind.o ${ALL_LIBS}
