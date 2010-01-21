@@ -321,8 +321,11 @@ bin/xmanager: main/xmanager.o ${ALL_LIBS}
 
 # libevent stuff
 
-build-libevent:
+build-libevent: libevent/Makefile
 	make -C libevent
+
+libevent/Makefile:
+	cd libevent && ./configure
 
 # Elsa frontend stuff
 
