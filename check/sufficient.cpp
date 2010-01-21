@@ -52,7 +52,7 @@ struct SufficientTester
       propagate_list(_propagate_list)
   {
     char buf[40];
-    sprintf(buf, "%d", propagate->m_id);
+    sprintf(buf, "%zd", propagate->m_id);
 
     if (checker_sufficient.IsSpecified() &&
         (strcmp(checker_sufficient.StringValue(), "all") == 0 ||

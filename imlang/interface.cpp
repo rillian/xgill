@@ -128,7 +128,7 @@ struct AssociateKey {
 
   static uint32_t Hash(uint32_t hash, const AssociateKey &key) {
     hash = Hash32(hash, key.kind->Hash());
-    return Hash32(hash, (uint32_t) key.value);
+    return Hash32(hash, (uint32_t) (size_t) key.value);
   }
 
   bool operator == (const AssociateKey &okey) const {
