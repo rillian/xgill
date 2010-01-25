@@ -24,11 +24,14 @@
 
 #include "stream.h"
 
-// use the standard allocator only for release builds. for debug builds we
+// use the custom allocator only for release builds. for debug builds we
 // want valgrind to work without getting confused.
-#ifdef DEBUG
+//#ifdef DEBUG
+//#define USE_STANDARD_ALLOCATOR
+//#endif
+
+// TODO: the custom allocator does not work in all configurations. fix it?
 #define USE_STANDARD_ALLOCATOR
-#endif
 
 // total number of heap-allocated bytes. this is a delta from the
 // last time ResetAllocs() was called, so it could be negative
@@ -68,9 +71,6 @@ inline void* operator new(size_t size)
   void *pbase = malloc(nsize);
   *((uint32_t*)pbase) = nsize;
   g_alloc_total += nsize;
-
-  cout << "NEW " << pbase << " " << size << endl << flush;
-
   return ((uint8_t*)pbase) + 4;
 }
 
@@ -87,9 +87,6 @@ inline void operator delete(void *p)
 {
   if (p) {
     void *pbase = ((uint8_t*)p) - 4;
-
-    cout << "DELETE " << pbase << " " << endl << flush;
-
     g_alloc_total -= *((uint32_t*)pbase);
     free(pbase);
   }

@@ -1,0 +1,11 @@
+# USE_YICES: whether the Yices solver should be enabled.
+USE_YICES=@USE_YICES@
+YICES_DIR=@YICES_DIR@
+
+# CVC3 solver support
+USE_CVC3=@USE_CVC3@
+CVC3_LIBS=@CVC3_LIBS@
+
+# GCC plugin support
+GCC_PLUGIN_SUPPORT=@GCC_PLUGIN_SUPPORT@
+GCC_PLUGIN_HEADERS=@GCC_PLUGIN_HEADERS@
