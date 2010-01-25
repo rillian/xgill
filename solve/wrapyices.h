@@ -23,7 +23,7 @@
 
 #include <util/assert.h>
 #include <util/ostream.h>
-#include <yices/include/yices_c.h>
+#include <yices_c.h>
 
 // #define YICES_DEBUG_CALLS
 

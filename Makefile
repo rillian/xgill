@@ -18,14 +18,7 @@
 
 CC = g++
 
-# this file includes any custom configuration for this environment.
-# settings of interest:
-# USE_YICES: whether the Yices solver should be enabled.
-# USE_CVC3: whether the CVC3 solver should be enabled.
-# GCCDIR: GCC source directory for building xgill plugin.
-#         xgill plugin will only be built if this is set.
-# GCCBUILD: GCC build directory for building xgill plugin.
-#           e.g. $(GCCDIR)/host-i686-pc-linux-gnu
+# this file includes the results of the autoconf run
 include config.mk
 
 # run 'make debug'
@@ -245,31 +238,27 @@ ALL_BINS = \
 	bin/xmanager
 
 # additional settings for Yices.
-ifdef USE_YICES
-CFLAGS += -DSOLVER_YICES=1
+ifeq ($(USE_YICES),yes)
+CFLAGS += -DSOLVER_YICES=1 -I${YICES_DIR}/include
 INCLUDE += solve/solver-yices.h solve/wrapyices.h
 CHK_OBJS += solve/solver-yices.o solve/wrapyices.o
-ALL_LIBS += yices/lib/libyices.a
-.have_yices: yices/lib/libyices.a yices/include/yices_c.h
+ALL_LIBS += ${YICES_DIR}/lib/libyices.a
+.have_yices: ${YICES_DIR}/lib/libyices.a ${YICES_DIR}/include/yices_c.h
 else
 .have_yices:
 endif
 
 # additional settings for CVC3.
-ifdef USE_CVC3
-CFLAGS += -DSOLVER_CVC3=1
+ifeq ($(USE_CVC3),yes)
+CFLAGS += -DSOLVER_CVC3=1 ${CVC3_CFLAGS}
 INCLUDE += solve/solver-cvc3.h solve/cvc3_interface.h
 CHK_OBJS += solve/solver-cvc3.o solve/cvc3_interface.o
-ALL_LIBS += cvc3/lib/libcvc3.a
-.have_cvc3: cvc3/lib/libcvc3.a cvc3/src/include/vc.h
-else
-.have_cvc3:
 endif
 
 %.o: %.cpp ${INCLUDE}
-	${CC} ${CFLAGS} -c $< -o $@
+	${CC} ${CFLAGS} -fPIC -c $< -o $@
 
-all: .have_yices .have_cvc3 build-libevent build-plugin ${ALL_LIBS} ${ALL_BINS} # build-elsa
+all: .have_yices build-libevent ${ALL_LIBS} ${ALL_BINS} build-plugin # build-elsa
 
 debug:
 	$(MAKE) all "DEBUG=1"
@@ -288,7 +277,7 @@ bin/libxcheck.a: ${CHK_OBJS}
 	rm -f $@
 	ar -r $@ ${CHK_OBJS}
 
-ifdef GCCDIR
+ifeq ($(GCC_PLUGIN_SUPPORT),yes)
 build-plugin:
 	make -C gcc
 else
@@ -296,28 +285,28 @@ build-plugin:
 endif
 
 bin/xdbfind: main/xdbfind.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xdbkeys: main/xdbkeys.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xsource: main/xsource.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xmemlocal: main/xmemlocal.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xbrowse: main/xbrowse.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xinfer: main/xinfer.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xcheck: main/xcheck.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xmanager: main/xmanager.o ${ALL_LIBS}
-	${CC} libevent/*.o $< -o $@ ${LDFLAGS} ${ALL_LIBS}
+	${CC} libevent/*.o $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 # libevent stuff
 
@@ -344,8 +333,14 @@ endif # DEBUG
 # other
 
 clean:
-	rm -f ${LIB_OBJS} ${CHK_OBJS} bin/libmemory.a bin/libimlang.a ${ALL_BINS} main/*.o
+	rm -f ${LIB_OBJS} ${CHK_OBJS} bin/libmemory.a bin/libimlang.a bin/libxgill.a bin/libxcheck.a ${ALL_BINS} main/*.o
+	rm -f config.log config.status
 	make -C gcc clean
+	make -C libevent clean
+
+distclean: clean
+	rm -f config.mk config.h
+	make -C libevent distclean
 
 complete_clean:
 	$(MAKE) clean
@@ -358,6 +353,3 @@ complete:
 complete_debug:
 	$(MAKE) debug
 	make -C elsa debug
-
-config.mk:
-	touch config.mk

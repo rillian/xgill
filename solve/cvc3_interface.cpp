@@ -22,8 +22,8 @@
 // from the remainder of the XGill headers.
 #include "cvc3_interface.h"
 
-#include <cvc3/src/include/vc.h>
-#include <cvc3/src/include/command_line_flags.h>
+#include <cvc3/vc.h>
+#include <cvc3/command_line_flags.h>
 
 /////////////////////////////////////////////////////////////////////
 // Utility

@@ -18,17 +18,16 @@
 
 include ../config.mk
 
-GCC_INCLUDE= -I$(GCCBUILD)/gcc -I$(GCCDIR)/gcc -I$(GCCDIR)/include -I$(GCCDIR)/libcpp/include -I$(GCCDIR)/libcpp -I$(GCCDIR)/libdecnumber -I$(GCCDIR)/libdecnumber/bid
-
 XGILL_OBJS= xgill.o type.o variable.o tree.o annot.o missing.o
 
 all: xgill.so
 
 xgill.so: $(XGILL_OBJS) ../bin/libxgill.a
-	gcc -shared -o $@ $+ ../bin/libxgill.a -lstdc++ -lz
+	gcc -shared -fPIC -o $@ $+ ../bin/libxgill.a -lstdc++ -lz
 
 %.o: %.c xgill.h
-	gcc -g -Werror -Wall -c -o $@ $< $(GCC_INCLUDE)
+	gcc -g -fPIC -Werror -Wall -c -o $@ $< -I$(GCC_PLUGIN_HEADERS)
+
 
 clean:
 	rm -f *.o *.so

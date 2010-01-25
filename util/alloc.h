@@ -68,6 +68,9 @@ inline void* operator new(size_t size)
   void *pbase = malloc(nsize);
   *((uint32_t*)pbase) = nsize;
   g_alloc_total += nsize;
+
+  cout << "NEW " << pbase << " " << size << endl << flush;
+
   return ((uint8_t*)pbase) + 4;
 }
 
@@ -84,6 +87,9 @@ inline void operator delete(void *p)
 {
   if (p) {
     void *pbase = ((uint8_t*)p) - 4;
+
+    cout << "DELETE " << pbase << " " << endl << flush;
+
     g_alloc_total -= *((uint32_t*)pbase);
     free(pbase);
   }
