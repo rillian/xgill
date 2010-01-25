@@ -164,9 +164,9 @@ inline void wrap_yices_display_model(yices_model model)
   yices_display_model(model);
 }
 
-inline yices_type wrap_yices_mk_type(yices_context cxt, char *name)
+inline yices_type wrap_yices_mk_type(yices_context cxt, const char *name)
 {
-  yices_type t = yices_mk_type(cxt, name);
+  yices_type t = yices_mk_type(cxt, const_cast<char*>(name));
   YICES_TYPE_CALL(t, "yices_mk_type(cxt, \"" << name << "\")");
   return t;
 }
