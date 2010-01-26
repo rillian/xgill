@@ -5,6 +5,9 @@ AC_CONFIG_HEADER([config.h])
 AC_PROG_CC
 AC_PROG_CXX
 
+dnl *** check for zlib ***
+AC_CHECK_HEADERS( zlib.h, [], [AC_MSG_ERROR(Zlib must be installed)] )
+
 dnl ***********************
 dnl CVC3 support
 dnl ***********************
