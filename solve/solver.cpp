@@ -477,7 +477,7 @@ Solver::Solver(const char *name)
   const char *solver_name = solver_use.StringValue();
   if (!strcmp(solver_name,"yices")) {
 #ifdef SOLVER_YICES
-    m_base = new SolverYices();
+    m_base = new SolverYices(this);
 #else
     logout << "ERROR: Not compiled to use Yices" << endl << flush;
     abort();
@@ -485,7 +485,7 @@ Solver::Solver(const char *name)
   }
   else if (!strcmp(solver_name,"cvc3")) {
 #ifdef SOLVER_CVC3
-    m_base = new SolverCVC3(false);
+    m_base = new SolverCVC3(this);
 #else
     logout << "ERROR: Not compiled to use CVC3" << endl << flush;
     abort();
@@ -495,8 +495,8 @@ Solver::Solver(const char *name)
 #ifdef SOLVER_YICES
 #ifdef SOLVER_CVC3
     Vector<BaseSolver*> solvers;
-    solvers.PushBack(new SolverYices());
-    solvers.PushBack(new SolverCVC3(false));
+    solvers.PushBack(new SolverYices(this));
+    solvers.PushBack(new SolverCVC3(this));
     m_base = new SolverMUX(this, solvers);
 #else
     logout << "ERROR: Not compiled to use CVC3" << endl << flush;
@@ -895,8 +895,8 @@ class CheckSatisfiableVisitor : public SolverHashTableVisitor<Bit,SlvExpr>
     solver->AsnBitValue(frame, bit, &res);
 
     if (!res) {
-      logout << "ERROR: Asserted bit does not hold under assignment: "
-             << bit << endl;
+      logout << "ERROR: Asserted bit does not hold under assignment: #"
+             << frame << " " << bit << endl;
       solver->PrintRawAssignment();
       abort();
     }

@@ -62,6 +62,10 @@ int CVC_Query(CVC_VC, CVC_Exp exp);
 void CVC_GetConcreteModel(CVC_VC, long *psize,
                           CVC_Exp **pvars, CVC_Exp **pvals);
 
+// get a string representation of the integer value of exp, according to the
+// most recent concrete model. exp is a value which was stored in pvals.
+const char* CVC_ExpModelInteger(CVC_Exp exp);
+
 // if the context is inconsistent (Query returned valid on a false expression),
 // store an unsat core in size/asserts. this requires a debug build of CVC3.
 void CVC_Inconsistent(CVC_VC, long *psize, CVC_Exp **pexps);

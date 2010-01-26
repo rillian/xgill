@@ -24,6 +24,7 @@
 
 #include <cvc3/vc.h>
 #include <cvc3/command_line_flags.h>
+#include <cvc3/theory_arith.h>
 
 /////////////////////////////////////////////////////////////////////
 // Utility
@@ -159,6 +160,7 @@ extern "C" int CVC_Query(CVC_VC vc, CVC_Exp exp)
 // arrays for returning assignment data.
 static CVC_Exp *model_vars = NULL;
 static CVC_Exp *model_vals = NULL;
+long model_size = 0;
 
 extern "C" void CVC_GetConcreteModel(CVC_VC vc, long *psize,
                                      CVC_Exp **pvars, CVC_Exp **pvals)
@@ -172,6 +174,7 @@ extern "C" void CVC_GetConcreteModel(CVC_VC vc, long *psize,
     unsigned needed = sizeof(CVC_Exp) * model.size();
     model_vars = (CVC_Exp*) realloc(model_vars, needed);
     model_vals = (CVC_Exp*) realloc(model_vals, needed);
+    model_size = model.size();
 
     unsigned n = 0;
     CVC3::ExprMap<CVC3::Expr>::iterator it = model.begin();
@@ -186,6 +189,71 @@ extern "C" void CVC_GetConcreteModel(CVC_VC vc, long *psize,
     *psize = model.size();
     *pvars = model_vars;
     *pvals = model_vals;
+  } catch (CVC3::Exception ex) {
+    ExceptionFail(ex);
+  }
+}
+
+// store the rational representation of exp into rat, according to the
+// most recently generated model.
+static bool ExpModelRational(const CVC3::Expr &exp, CVC3::Rational &rat)
+{
+  // usual case, the expression is already an integer. it would be nice if
+  // this was the 'always' case (except with assignments for function symbols,
+  // which shouldn't get here), but it is not.
+  if (exp.isRational()) {
+    rat = exp.getRational();
+    return true;
+  }
+
+  if (isPlus(exp)) {
+    if (!ExpModelRational(exp[0], rat))
+      return false;
+    for (int i = 1; i < exp.arity(); i++) {
+      CVC3::Rational crat;
+      if (!ExpModelRational(exp[i], crat))
+        return false;
+      rat += crat;
+    }
+    return true;
+  }
+
+  if (isMult(exp)) {
+    if (!ExpModelRational(exp[0], rat))
+      return false;
+    for (int i = 1; i < exp.arity(); i++) {
+      CVC3::Rational crat;
+      if (!ExpModelRational(exp[i], crat))
+        return false;
+      rat *= crat;
+    }
+    return true;
+  }
+
+  // see if this is a key in the model we generated.
+  for (long i = 0; i < model_size; i++) {
+    if (model_vars[i] == ToExp(exp))
+      return ExpModelRational(FromExp(model_vals[i]), rat);
+  }
+
+  // printf("ERROR: Unknown expression from model: %s\n",
+  //        exp.toString().c_str());
+
+  return false;
+}
+
+extern "C" const char* CVC_ExpModelInteger(CVC_Exp exp)
+{
+  try {
+    CVC3::Expr nexp = FromExp(exp);
+    static std::string tmp;
+
+    CVC3::Rational rat;
+    if (ExpModelRational(nexp, rat)) {
+      tmp = rat.toString();
+      return tmp.c_str();
+    }
+    return NULL;
   } catch (CVC3::Exception ex) {
     ExceptionFail(ex);
   }

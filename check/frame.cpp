@@ -959,6 +959,9 @@ void CheckerState::SetReport(CheckerPropagate *propagate, ReportKind kind)
   // pin the solver's assignment in place for generating the path.
   m_solver->PinAssign();
 
+  // check and make sure this is a correct assignment.
+  m_solver->CheckAssignmentBits();
+
   if (checker_assign.IsSpecified())
     m_solver->PrintRawAssignment();
 

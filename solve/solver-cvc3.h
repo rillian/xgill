@@ -32,7 +32,7 @@ NAMESPACE_XGILL_BEGIN
 class SolverCVC3 : public BaseSolver
 {
  public:
-  SolverCVC3(bool trace);
+  SolverCVC3(Solver *parent, bool trace = false);
 
   const char* Name() const { return "CVC3"; }
 
@@ -86,6 +86,10 @@ class SolverCVC3 : public BaseSolver
   // inverse of m_decl_table, mapping names of CVC3 variables to
   // the expressions/frames used to construct those variables.
   SolverHashTable<String,FrameExp> m_decl_names;
+
+  // number of variables we have generated for this VC, including ones that
+  // have gone out of scope due to a context pop.
+  size_t m_var_count;
 
   // type of integral values.
   CVC_Type m_int_type;

@@ -63,10 +63,6 @@ class SolverMUX : public BaseSolver
   void PrintRawData(SlvExpr exp, bool is_boolean);
 
  private:
-
-  // parent solver using this as its backend. used only for debugging.
-  Solver *m_parent;
-
   // all the backend solvers we are comparing.
   Vector<BaseSolver*> m_solvers;
 

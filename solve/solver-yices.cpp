@@ -28,8 +28,8 @@ NAMESPACE_XGILL_BEGIN
 // SolverYices
 /////////////////////////////////////////////////////////////////////
 
-SolverYices::SolverYices()
-  : m_context(NULL)
+SolverYices::SolverYices(Solver *parent)
+  : BaseSolver(parent), m_context(NULL)
 {
 #ifdef DEBUG
   static bool enabled_typecheck = false;

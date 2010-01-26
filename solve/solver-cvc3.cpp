@@ -28,8 +28,8 @@ NAMESPACE_XGILL_BEGIN
 // SolverCVC3
 /////////////////////////////////////////////////////////////////////
 
-SolverCVC3::SolverCVC3(bool trace)
-  : m_trace(trace), m_vc(NULL)
+SolverCVC3::SolverCVC3(Solver *parent, bool trace)
+  : BaseSolver(parent), m_trace(trace), m_vc(NULL), m_var_count(0)
 {
   // all other initialization is done in Clear().
   Clear();
@@ -101,8 +101,7 @@ SlvDecl SolverCVC3::MakeDeclaration(FrameId frame, Exp *exp)
   scratch_buf.Reset();
 
   BufferOutStream out(&scratch_buf);
-  out << "#" << frame << " " << exp
-      << " [" << (void*) exp << "]" << '\0';
+  out << "v" << ++m_var_count << " #" << frame << " " << exp << '\0';
 
   char *pos = (char*) scratch_buf.base;
   while  (*pos) {
@@ -221,26 +220,29 @@ bool SolverCVC3::BaseCheck()
 {
   GetVC();
 
-  // workaround for bug in current CVC3. querying the satisfiability
-  // of a context can change the formulas it subsequently regards
-  // as satisfiable, so wrap the queries in a push/pop to make sure
-  // the state gets restored. ugh.
+  // querying the satisfiability of a context can change the formulas
+  // it subsequently regards as satisfiable, so wrap the queries
+  // in a push/pop to make sure the state gets restored.
 
   CVC_Push(m_vc);
   int res = CVC_Query(m_vc, m_false);
   CVC_Pop(m_vc);
 
   if (m_trace)
-    logout << "CHECKSAT TRUE;" << endl;
+    logout << "PUSH; CHECKSAT TRUE; POP;" << endl;
 
   if (res) {
     // implied by the asserted exprs, thus the system
     // is unsatisfiable (false implies false).
+    //if (m_trace)
+    //  logout << "Unsatisfiable." << endl;
     return false;
   }
   else {
     // not implied by the asserted exprs, thus the system
     // is satisfiable.
+    //if (m_trace)
+    //  logout << "Satisfiable." << endl;
     return true;
   }
 }
@@ -250,7 +252,7 @@ void SolverCVC3::GetAssignment(const SolverDeclTable &decl_table,
 {
   Assert(m_vc);
 
-  // get the assignment. because of the workaround in BaseCheck,
+  // get the assignment. because of the push/pop in BaseCheck,
   // the assignment is no longer around when we get here so we have
   // to redo the SAT query.
   CVC_Push(m_vc);
@@ -268,28 +270,30 @@ void SolverCVC3::GetAssignment(const SolverDeclTable &decl_table,
     CVC_Exp var = vars[ind];
     CVC_Exp val = vals[ind];
 
-    if (!CVC_ExpIsInteger(val)) {
-      // TODO: figure out why complex exprs show up in the model.
-      continue;
-    }
-
     const char *var_str = CVC_ExpToString(var);
     String *var_key = String::Make(var_str);
 
     FrameExp *pinfo = m_decl_names.Lookup(0, var_key, false);
+    var_key->DecRef();
 
-    if (pinfo) {
-      Vector<mpz_value> *values = assign.Lookup(*pinfo, true);
-      Assert(values->Empty());
+    if (!pinfo)
+      continue;
 
-      values->PushBack(mpz_value());
-      mpz_init(values->At(0).n);
+    const char *val_str = CVC_ExpModelInteger(val);
 
-      const char *val_str = CVC_ExpToString(val);
-      Try(StringToInt(val_str, values->At(0).n));
+    if (!val_str) {
+      logout << "ERROR: Could not extract value from assignment: "
+             << CVC_ExpToString(val) << endl;
+      continue;
     }
 
-    var_key->DecRef();
+    Vector<mpz_value> *values = assign.Lookup(*pinfo, true);
+    Assert(values->Empty());
+
+    values->PushBack(mpz_value());
+    mpz_init(values->At(0).n);
+
+    Try(StringToInt(val_str, values->At(0).n));
   }
 
   CVC_Pop(m_vc);
@@ -355,13 +359,25 @@ void SolverCVC3::GetVC()
   CVC_Type binary_args[] = { m_int_type, m_int_type };
   CVC_Type binary_type = CVC_TypeFunc(m_vc, m_int_type, binary_args, 2);
 
-  char scratch[100];
+  const char* unop_names[XIL_UNOP_COUNT];
+  memset(unop_names, 0, sizeof(unop_names));
+
+#define SET_UNOP_NAME(NAME, INDEX)  unop_names[INDEX] = "unop_" #NAME;
+  XIL_ITERATE_UNOP(SET_UNOP_NAME)
+#undef SET_UNOP_NAME
+
+  const char* binop_names[XIL_BINOP_COUNT];
+  memset(binop_names, 0, sizeof(binop_names));
+
+#define SET_BINOP_NAME(NAME, INDEX)  binop_names[INDEX] = "binop_" #NAME;
+  XIL_ITERATE_BINOP(SET_BINOP_NAME)
+#undef SET_BINOP_NAME
 
   for (size_t ind = 0; ind < XIL_UNOP_COUNT; ind++) {
-    const char *unop_str = UnopString((UnopKind) ind);
-    if (unop_str) {
-      sprintf(scratch, "unop.%s", unop_str);
-      m_unary_functions[ind] = CVC_NewOp(m_vc, scratch, unary_type);
+    if (unop_names[ind]) {
+      m_unary_functions[ind] = CVC_NewOp(m_vc, unop_names[ind], unary_type);
+      if (m_trace)
+        logout << unop_names[ind] << ": (INT) -> INT;" << endl;
     }
     else {
       m_unary_functions[0] = NULL;
@@ -369,10 +385,10 @@ void SolverCVC3::GetVC()
   }
 
   for (size_t ind = 0; ind < XIL_BINOP_COUNT; ind++) {
-    const char *binop_str = BinopString((BinopKind) ind);
-    if (binop_str) {
-      sprintf(scratch, "binop.%s", binop_str);
-      m_binary_functions[ind] = CVC_NewOp(m_vc, scratch, binary_type);
+    if (binop_names[ind]) {
+      m_binary_functions[ind] = CVC_NewOp(m_vc, binop_names[ind], binary_type);
+      if (m_trace)
+        logout << binop_names[ind] << ": (INT,INT) -> INT;" << endl;
     }
     else {
       m_binary_functions[ind] = NULL;

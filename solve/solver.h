@@ -77,6 +77,9 @@ struct mpz_value {
   mpz_t n;
 };
 
+// forward declaration.
+class Solver;
+
 // type of a solver assignment, mapping Frame/Exp pairs to the value
 // assigned to them.
 typedef HashTable<FrameExp,mpz_value,FrameExp> SolverAssignment;
@@ -91,6 +94,8 @@ typedef SolverHashTable<Bit,SlvExpr> SolverBitTable;
 class BaseSolver
 {
  public:
+  BaseSolver(Solver *parent) : m_parent(parent) {}
+
   // a BaseSolver will be destroyed only after calling Clear on it.
   virtual ~BaseSolver() {}
 
@@ -173,13 +178,19 @@ class BaseSolver
   virtual void DebugPrintDecl(SlvDecl decl, bool is_boolean) {}
   virtual void DebugPrintAssign(SlvDecl decl, const mpz_t value) {}
   virtual void DebugPrintAssert(SlvExpr expr) {}
+
+ protected:
+  Solver *m_parent;
 };
 
 // solver providing additional functionality over a BaseSolver to answer
 // queries and generate satisfying assignments for Bits and Exps.
 class Solver
 {
-  // SolverMUX will need to reach into this class for cross-checking.
+  // make the base solver implementations friends so they can see the private
+  // data in this class. this is mostly for debugging.
+  friend class SolverYices;
+  friend class SolverCVC3;
   friend class SolverMUX;
 
  public:

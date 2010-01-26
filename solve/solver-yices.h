@@ -32,7 +32,7 @@ NAMESPACE_XGILL_BEGIN
 class SolverYices : public BaseSolver
 {
  public:
-  SolverYices();
+  SolverYices(Solver *parent);
 
   const char* Name() const { return "Yices"; }
 

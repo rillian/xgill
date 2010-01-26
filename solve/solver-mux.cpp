@@ -25,7 +25,7 @@ NAMESPACE_XGILL_BEGIN
 /////////////////////////////////////////////////////////////////////
 
 SolverMUX::SolverMUX(Solver *parent, const Vector<BaseSolver*> &solvers)
-  : m_parent(parent), m_assign_solver(0)
+  : BaseSolver(parent), m_assign_solver(0)
 {
   Assert(!solvers.Empty());
 
