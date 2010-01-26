@@ -1022,10 +1022,11 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     XIL_PPoint start_point = *env->point;
     XIL_PPoint after_point = XIL_CFGAddPoint(loc);
     XIL_PPoint body_point = XIL_CFGAddPoint(loc);
+    XIL_PPoint expr_point = XIL_CFGAddPoint(loc);
     XIL_CFGAddLoopHead(start_point, NULL);
 
     XIL_ActivePushScope();
-    xil_active_scope->continue_point = start_point;
+    xil_active_scope->continue_point = expr_point;
     xil_active_scope->break_point = after_point;
 
     if (cond) {
@@ -1043,12 +1044,14 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     MAKE_ENV(body_env, &body_point, NULL);
     XIL_TranslateTree(&body_env, body);
 
+    XIL_CFGEdgeSkip(body_point, expr_point);
+
     if (expr) {
-      MAKE_ENV(expr_env, &body_point, NULL);
+      MAKE_ENV(expr_env, &expr_point, NULL);
       XIL_TranslateTree(&expr_env, expr);
     }
 
-    XIL_CFGEdgeSkip(body_point, start_point);
+    XIL_CFGEdgeSkip(expr_point, start_point);
     XIL_ActivePopScope();
 
     *env->point = after_point;

@@ -1231,7 +1231,12 @@ class ConstraintListenerUnintBinop : public ConstraintListener
     if (ExpInt *int_exp = entry->exp->IfInt()) {
       bool is_left = (entry->key == m_left_equal_key);
       bool is_right = (entry->key == m_right_equal_key);
-      Assert(is_left != is_right);
+      Assert(is_left || is_right);
+
+      // this may be a constant operand to *both* binop operands if e.g.
+      // the binop is 'x * x'. in this case prioritize the right operand.
+      if (is_left && is_right)
+        is_left = false;
 
       // whether we can model the operation exactly with the integer
       // substituted in.
