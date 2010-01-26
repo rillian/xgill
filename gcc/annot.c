@@ -1383,6 +1383,18 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   if (!annot_kind)
     return;
 
+  // make sure annotations which expect a program point are attached to one,
+  // and annotations which don't expect a point aren't. annotations not meeting
+  // these criteria are silently dropped; in the future we should warn.
+
+  bool expect_point = false;
+  if (annot_kind == XIL_AK_Assert || annot_kind == XIL_AK_Assume ||
+      annot_kind == XIL_AK_AssertRuntime)
+    expect_point = true;
+
+  if (expect_point && !point) return;
+  if (!expect_point && point) return;
+
   if (!annot_text) {
     TREE_UNEXPECTED(attr);
     return;

@@ -553,16 +553,10 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
   if (is_global || TREE_CODE(decl) == FUNCTION_DECL) {
     tree idnode = DECL_NAME(decl);
     if (idnode && TREE_CODE(idnode) == IDENTIFIER_NODE) {
-      const char *name = IDENTIFIER_POINTER(idnode);
-
-      // skip any annotations on the __annotation fake variables introduced
-      // for assertions.
-      if (strncmp(name, "__annotation", 12)) {
-        tree attr = DECL_ATTRIBUTES(decl);
-        while (attr) {
-          XIL_ProcessAnnotation(decl, attr, NULL, NULL);
-          attr = TREE_CHAIN(attr);
-        }
+      tree attr = DECL_ATTRIBUTES(decl);
+      while (attr) {
+        XIL_ProcessAnnotation(decl, attr, NULL, NULL);
+        attr = TREE_CHAIN(attr);
       }
     }
   }
