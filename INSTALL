@@ -5,8 +5,9 @@ and enables additional features if they are available. The easiest way
 to build sixgill is:
 
 1. Unpack the distribution tarball
-2. Run "./configure" and check the output
-3. Run "make" to build the various parts of sixgill
+2. Run "sh autogen.sh" to generate the configure script
+3. Run "./configure" and check the output
+4. Run "make" to build the various parts of sixgill
 
 There are three key dependencies - GCC, CVC3 and Yices
 
