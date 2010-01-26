@@ -31,7 +31,7 @@ system("rm -rf $assertkind") if (-d $assertkind);
 mkdir($assertkind);
 
 # get all reports of the kind we are interested in.
-my @reports = `xdbkeys report_$assertkind.xdb`;
+my @reports = `xdbkeys report_$assertkind.xdb` or die;
 
 # map from each file to the array of reports in that file
 my %file_hash;
