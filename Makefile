@@ -16,8 +16,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-CC = g++
-
 # this file includes the results of the autoconf run
 include config.mk
 
@@ -256,7 +254,7 @@ CHK_OBJS += solve/solver-cvc3.o solve/cvc3_interface.o
 endif
 
 %.o: %.cpp ${INCLUDE}
-	${CC} ${CFLAGS} -fPIC -c $< -o $@
+	${CXX} ${CFLAGS} -fPIC -c $< -o $@
 
 all: .have_yices build-libevent ${ALL_LIBS} ${ALL_BINS} build-plugin # build-elsa
 
@@ -285,28 +283,28 @@ build-plugin:
 endif
 
 bin/xdbfind: main/xdbfind.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xdbkeys: main/xdbkeys.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xsource: main/xsource.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xmemlocal: main/xmemlocal.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xbrowse: main/xbrowse.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xinfer: main/xinfer.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xcheck: main/xcheck.o ${ALL_LIBS}
-	${CC} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 bin/xmanager: main/xmanager.o ${ALL_LIBS}
-	${CC} libevent/*.o $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} libevent/*.o $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
 
 # libevent stuff
 

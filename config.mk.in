@@ -1,3 +1,6 @@
+# General build support
+CXX=@CXX@
+
 # USE_YICES: whether the Yices solver should be enabled.
 USE_YICES=@USE_YICES@
 YICES_DIR=@YICES_DIR@
