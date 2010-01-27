@@ -405,8 +405,8 @@ int main(int argc, const char **argv)
   checker_sufficient.Enable();
   checker_assign.Enable();
   checker_dump.Enable();
+  checker_depth.Enable();
   // checker_fixup.Enable();
-  // checker_depth.Enable();
 
   solver_use.Enable();
   solver_verbose.Enable();

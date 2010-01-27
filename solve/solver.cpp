@@ -598,12 +598,15 @@ void Solver::AddSideConditions(FrameId frame, Bit *bit)
 
 void Solver::AddConstraint(FrameId frame, Bit *bit)
 {
-  if (m_verbose)
-    logout << "SOLVER: Constraint: " << frame << ": " << bit << endl;
-
   ConvertState state(frame, false);
   SlvExpr expr = ConvertBit(state, bit);
   PushAssert(expr);
+
+  if (m_verbose) {
+    logout << "SOLVER: Constraint: " << frame << ": " << bit << endl;
+    m_base->PrintRawData(expr, true);
+    logout << endl;
+  }
 
   bit->DecRef();
 }

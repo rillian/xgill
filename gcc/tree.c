@@ -580,7 +580,7 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
     }
 
     XIL_Exp bytes_exp = XIL_ExpInt(bytes);
-    XIL_Exp diff = XIL_ExpBinop(XIL_B_MinusPI, xil_left, xil_right,
+    XIL_Exp diff = XIL_ExpBinop(XIL_B_MinusPP, xil_left, xil_right,
                                 xil_stride_type, 0, true);
     XIL_Exp result = XIL_ExpBinop(XIL_B_Mult, diff, bytes_exp, NULL, 0, true);
     XIL_ProcessResult(env, result);

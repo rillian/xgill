@@ -29,7 +29,7 @@ NAMESPACE_XGILL_BEGIN
 ConfigOption checker_verbose(CK_Flag, "ck-verbose", NULL,
                              "print taken steps for path checker");
 
-ConfigOption checker_depth(CK_UInt, "ck-depth", "2",
+ConfigOption checker_depth(CK_UInt, "ck-depth", "3",
                            "maximum recursive depth for a func/loop");
 
 // returns whether the error condition is satisfiable within frame.
@@ -787,7 +787,7 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
           recurse_frames.PushBack(other_frame);
       }
 
-      if (recurse_frames.Size() > depth) {
+      if (recurse_frames.Size() >= depth) {
         state->SetReport(propagate, RK_Recursion);
         return true;
       }
