@@ -33,10 +33,6 @@ sub build_project {
     system("make");
 }
 
-# directory to receive logs and generated databases. must exist.
-my $xgill_dir = "/path/to/output";
-die "Need output directory: $xgill_dir\n" if (not (-d $xgill_dir));
-
 # directory containing gcc wrapper scripts.
 my $wrap_dir = "/path/to/wrap_gcc";
 die "Bad wrapper directory: $wrap_dir" if (not (-e "$wrap_dir/basecc"));
@@ -48,13 +44,14 @@ my $memory_limit = 0;
 # general purpose script #
 ##########################
 
+my $usage = "USAGE: build_xgill result-dir\n";
+my $result_dir = shift or die $usage;
+die "Need output directory: $result_dir\n" if (not (-d $result_dir));
+
 # make sure we're running from the expected directory.
 my $cwd = `pwd`;
 chomp $cwd;
 die "Bad working directory, run from: $use_cwd\n" if ($cwd ne $use_cwd);
-
-# remove any existing build output.
-system("rm -f $xgill_dir/*");
 
 # fork so we can run the manager and build in separate processes.
 defined(my $pid = fork) or die "Can't fork";
@@ -62,14 +59,14 @@ if (!$pid) {
     # this is the child process, start the manager.
 
     # change to the output directory so all the databases end up there.
-    chdir $xgill_dir or die;
+    chdir $result_dir or die;
 
     my $mem_str = "";
     $mem_str = "-memory-limit=$memory_limit" if ($memory_limit != 0);
 
     # redirecting the output here means that $pid in the parent refers to
     # a shell process rather than an xmanager process directly.
-    exec("xmanager $mem_str > $xgill_dir/xmanager.log");
+    exec("xmanager $mem_str > $result_dir/build_manager.log");
 }
 
 # this is the parent process, perform the build.
@@ -78,14 +75,14 @@ if (!$pid) {
 # we need to read the manager's log file, will be the first line.
 # give the manager one second to start up, any longer and something's broken.
 sleep(1);
-my $manager_log = `cat $xgill_dir/xmanager.log`;
+my $manager_log = `cat $result_dir/build_manager.log`;
 $manager_log =~ /Listening on ([\.\:0-9]*)/ or die "Missing manager";
 my $address = $1;
 
 # write the configuration file for the wrapper script.
 open(CONFIG, "> $wrap_dir/xgill.config");
 print CONFIG "$use_cwd\n";
-print CONFIG "$xgill_dir/xgill.log\n";
+print CONFIG "$result_dir/build_xgill.log\n";
 print CONFIG "$address\n";
 close(CONFIG);
 
@@ -97,7 +94,7 @@ build_project();
 
 # signal the manager that it's over. we need to send a SIGTERM to the manager
 # process but the pid we have is for a shell process. the manager will be
-# a direct child of this process, so look that up with this bit of ugliness.
+# a direct child of the pid we have, so look it up with this ugliness.
 my @childpids = grep(/$pid$/, `ps a -o pid,ppid`);
 my $childpid = shift @childpids or die;
 $childpid =~ /(\d+)[^\d]*$pid$/ or die;
