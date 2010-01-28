@@ -422,6 +422,12 @@ static struct attribute_spec annotation_this_attribute = {
   .handler = annotation_this_handler
 };
 
+static struct attribute_spec annotation_this_var_attribute = {
+  .name = "annot_this_var",
+  .min_length = 1,
+  .max_length = 1
+};
+
 // attribute attached to global functions/variables, indicating the full name.
 static struct attribute_spec annotation_global_attribute = {
   .name = "annot_global",
@@ -472,9 +478,10 @@ void gcc_plugin_attributes(void *gcc_data, void *user_data)
   XIL_ITERATE_ANNOT(XIL_MAKE_ATTR)
 #undef XIL_MAKE_ATTR
 
-  // attributes used in special annotation files.
+  // attributes used in the files emitted during annotation processing.
   register_attribute(&annotation_name_attribute);
   register_attribute(&annotation_this_attribute);
+  register_attribute(&annotation_this_var_attribute);
   register_attribute(&annotation_global_attribute);
   register_attribute(&annotation_param_attribute);
   register_attribute(&annotation_return_attribute);

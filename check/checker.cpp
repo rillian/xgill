@@ -186,7 +186,7 @@ bool CheckFrameList(CheckerState *state, CheckerFrame *frame,
         PrintTime(TimerAlarm::ActiveElapsed());
         logout << endl;
 
-        state->SetReport(&propagate, RK_Timeout);
+        state->SetReport(RK_Timeout);
         return true;
       }
 
@@ -421,6 +421,21 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
   callee->DecRef();
 
   if (callee_frame == NULL) {
+    // we can get this either because we failed to analyze the memory in
+    // the callee (emit a warning), or because we never saw a definition
+    // for the callee (report is finished). figure out which case this is.
+
+    BlockCFG *cfg = GetBlockCFG(callee);
+    if (!cfg) {
+      if (checker_verbose.IsSpecified())
+        logout << "CHECK: " << frame
+               << ": Postcondition on external callee" << endl;
+
+      state->SetReport(RK_Finished);
+      return true;
+    }
+    cfg->DecRef();
+
     logout << "WARNING: Missing callee memory: '" << callee << "'" << endl;
     return false;
   }
@@ -548,7 +563,7 @@ bool CheckSingleHeapWrite(CheckerState *state, CheckerFrame *frame,
       CheckerPropagate propagate(write_frame, exit_point, false);
       state->m_stack.PushBack(&propagate);
 
-      state->SetReport(&propagate, RK_UnknownCSU);
+      state->SetReport(RK_UnknownCSU);
       return true;
     }
 
@@ -766,7 +781,7 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
     else {
       if (checker_verbose.IsSpecified())
         logout << "CHECK: " << frame << ": Propagation failed" << endl;
-      state->SetReport(propagate, kind);
+      state->SetReport(kind);
       return true;
     }
   }
@@ -788,7 +803,7 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
       }
 
       if (recurse_frames.Size() >= depth) {
-        state->SetReport(propagate, RK_Recursion);
+        state->SetReport(RK_Recursion);
         return true;
       }
     }
@@ -939,7 +954,7 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
       logout << "CHECK: " << frame
              << ": Nothing to expand, finishing" << endl;
 
-    state->SetReport(propagate, RK_Finished);
+    state->SetReport(RK_Finished);
     return true;
   }
 

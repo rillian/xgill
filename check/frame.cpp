@@ -868,13 +868,13 @@ class CheckerTraitVisitor : public ExpVisitor
   }
 };
 
-void CheckerState::SetReport(CheckerPropagate *propagate, ReportKind kind)
+void CheckerState::SetReport(ReportKind kind)
 {
   Assert(m_report_kind == RK_None);
   Assert(!m_base_bits.Empty());
 
-  Assert(propagate);
-  Assert(propagate == m_stack.Back());
+  // get the last propagation we were taking when the error occurred.
+  CheckerPropagate *propagate = m_stack.Back();
 
   // clear the alarm if there is one. at this point we're committed to making
   // the report and don't want the alarm interfering with the memory and

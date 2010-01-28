@@ -290,9 +290,13 @@ void RunAnalysis(const Vector<const char*> &checks)
       for (size_t ind = 0; ind < assert_count; ind++) {
         const AssertInfo &info = asserts->At(ind);
 
-        // only look at assertions with a kind we're interested in.
-        if (strcmp(AssertKindString(info.kind), check_kind.StringValue()))
-          continue;
+        // only look at assertions with a kind we're interested in,
+        // unless we have an explicit list of checks (in which case we'll
+        // look at all those specified).
+        if (checks.Empty()) {
+          if (strcmp(AssertKindString(info.kind), check_kind.StringValue()))
+            continue;
+        }
 
         // ignore trivial and redundant assertions.
         if (info.cls != ASC_Check) {

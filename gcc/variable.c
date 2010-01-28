@@ -276,8 +276,9 @@ XIL_Var generate_TranslateVar(tree decl)
       if (purpose && !strcmp(purpose, "annot_local") && text_value)
         return XIL_VarLocal(text_value, name, true);
 
-      if (purpose && !strcmp(purpose, "annot_field")) {
+      if (purpose && !strcmp(purpose, "annot_this_var")) {
         // should have already found and filtered these.
+        XIL_PrintStack();
         gcc_unreachable();
       }
 

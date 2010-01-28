@@ -99,6 +99,21 @@ struct XIL_AnnotationDef
   struct XIL_AnnotationDef *next;
 };
 
+// information about a structure to give an empty definition. this is a hack
+// to get around the 'dereferencing pointer to incomplete type' errors
+// which gcc emits but doesn't indicate the type being dereferenced.
+// instead we'll emit empty types and watch out for 'has no member' errors.
+// this is only an issue with the C frontend. TODO: this hack breaks sizeof
+// handling and this should really be fixed within gcc itself.
+
+struct XIL_AnnotationEmptyDef
+{
+  // type being given an empty definition.
+  tree type;
+
+  struct XIL_AnnotationEmptyDef *next;
+};
+
 // information about a function or variable to declare.
 
 struct XIL_AnnotationVar
@@ -120,6 +135,9 @@ struct XIL_AnnotationState
   // this and decl will be specified.
   tree type;
 
+  // whether to add declarations of all local variables in scope.
+  bool add_locals;
+
   // name of the annotation.
   const char *name;
 
@@ -130,6 +148,7 @@ struct XIL_AnnotationState
   struct XIL_AnnotationMacro *macros;
   struct XIL_AnnotationDecl *decls;
   struct XIL_AnnotationDef *defs;
+  struct XIL_AnnotationEmptyDef *emptydefs;
   struct XIL_AnnotationVar *vars;
 
   // number of artificial names that have been declared.
@@ -332,6 +351,26 @@ void XIL_ScanPrintType(tree type, bool from_decl)
   }
 
   switch (TREE_CODE(type)) {
+  case RECORD_TYPE:
+  case UNION_TYPE: {
+    // add an empty definition. if we end up adding a real definition later,
+    // the empty definition will not be printed out.
+    if (c_dialect_cxx() || !TYPE_FIELDS(type) ||
+        !name || TREE_CODE(name) == TYPE_DECL)
+      return;
+
+    struct XIL_AnnotationEmptyDef *empty = state->emptydefs;
+    while (empty) {
+      if (TYPE_FIELDS(empty->type) == TYPE_FIELDS(type)) return;
+      empty = empty->next;
+    }
+    empty = calloc(1, sizeof(struct XIL_AnnotationEmptyDef));
+    empty->type = type;
+    empty->next = state->emptydefs;
+    state->emptydefs = empty;
+    return;
+  }
+
   case POINTER_TYPE:
   case REFERENCE_TYPE:
   case ARRAY_TYPE: {
@@ -518,6 +557,12 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
   memcpy(*pre, message, quote_begin - message);
   (*pre)[quote_begin - message] = 0;
 
+  // eat any leading 'const ', 'struct ' and/or 'union ' from the quoted
+  // portion of the string.
+  if (!strncmp(str,"const ",6)) str += 6;
+  if (!strncmp(str,"struct ",7)) str += 7;
+  if (!strncmp(str,"union ",6)) str += 6;
+
   *quoted = str;
   *post = strdup(pos);
   return true;
@@ -620,10 +665,6 @@ bool XIL_ProcessAnnotationError(char *error_message)
 
   if (!strcmp(pre, incomplete_msg_1) ||
       !strcmp(pre, incomplete_msg_2)) {
-    // eat any leading 'const ' and/or 'struct '.
-    if (!strncmp(quoted,"const ",6)) quoted += 6;
-    if (!strncmp(quoted,"struct ",7)) quoted += 7;
-
     // find a matching typedef or struct.
     struct XIL_AnnotationDecl *info = state->decls;
     while (info) {
@@ -636,6 +677,25 @@ bool XIL_ProcessAnnotationError(char *error_message)
       return false;
 
     XIL_ScanDefineType(TREE_TYPE(info->decl));
+    return true;
+  }
+
+  // look for an incomplete type for C frontend hack.
+  const char *nomember_msg = " has no member named ";
+
+  if (!strncmp(post, nomember_msg, strlen(nomember_msg))) {
+    // find a matching empty definition.
+    struct XIL_AnnotationEmptyDef *empty = state->emptydefs;
+    while (empty) {
+      if (!strcmp(quoted, IDENTIFIER_POINTER(TYPE_NAME(empty->type))))
+        break;
+      empty = empty->next;
+    }
+
+    if (!empty)
+      return false;
+
+    XIL_ScanDefineType(empty->type);
     return true;
   }
 
@@ -678,6 +738,17 @@ void XIL_PrintContext(FILE *file, tree decl)
   }
 }
 
+// print any struct/union/enum prefix for type.
+void XIL_PrintStructPrefix(FILE *file, tree type)
+{
+  switch (TREE_CODE(type)) {
+  case RECORD_TYPE:   fprintf(file, "struct "); break;
+  case UNION_TYPE:    fprintf(file, "union "); break;
+  case ENUMERAL_TYPE: fprintf(file, "enum "); break;
+  default: TREE_UNEXPECTED(type);
+  }
+}
+
 void XIL_PrintType(FILE *file, tree type)
 {
   // make sure we previously scanned this type.
@@ -702,12 +773,7 @@ void XIL_PrintType(FILE *file, tree type)
   case ENUMERAL_TYPE: {
     if (name && TREE_CODE(name) == IDENTIFIER_NODE) {
       // regular name, use it but add a prefix according to the kind.
-      switch (TREE_CODE(type)) {
-      case RECORD_TYPE:   fprintf(file, "struct "); break;
-      case UNION_TYPE:    fprintf(file, "union "); break;
-      case ENUMERAL_TYPE: fprintf(file, "enum "); break;
-      default: TREE_UNEXPECTED(type);
-      }
+      XIL_PrintStructPrefix(file, type);
       fprintf(file, "%s", IDENTIFIER_POINTER(name));
     }
     else if (TREE_CODE(type) == ENUMERAL_TYPE) {
@@ -859,20 +925,30 @@ void XIL_PrintDeclaration(FILE *file, tree type, const char *name)
 
 void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
 {
-  if (!csu_name) csu_name = "";
+  gcc_assert(state);
+  XIL_PrintStructPrefix(file, type);
 
   // whether we are printing the 'this' structure.
   bool this_struct = false;
-  if (state && type == state->type)
+
+  if (state->type && TYPE_FIELDS(type) == TYPE_FIELDS(state->type)) {
     this_struct = true;
 
-  // add an annot_this attribute for the 'this' structure.
-  const char *this_str = this_struct ? "__attribute__((annot_this)) " : "";
-  switch (TREE_CODE(type)) {
-  case RECORD_TYPE: fprintf(file, "struct %s%s", this_str, csu_name); break;
-  case UNION_TYPE:  fprintf(file, "union %s%s", this_str, csu_name); break;
-  default: TREE_UNEXPECTED(type);
+    // mark the structure with an attribute.
+    fprintf(file, "__attribute__((annot_this))");
+
+    // type invariants in C always use a special '__this' name in case they
+    // are anonymous. an annot_global attribute indicates the real type name.
+    if (!c_dialect_cxx()) {
+      const char *full_name = XIL_CSUName(type, NULL);
+      gcc_assert(full_name);
+      fprintf(file, " __attribute__((annot_global(\"%s\")))", full_name);
+      csu_name = "__this";
+    }
   }
+
+  if (csu_name)
+    fprintf(file, " %s", csu_name);
 
   // look for any base classes. these are anonymous fields with names,
   // and tend to appear at the beginning of the type's fields (except in
@@ -1220,13 +1296,7 @@ void WriteAnnotationFile(FILE *file)
     else {
       // this is a struct/union/enum declaration.
       tree type = TREE_TYPE(decl->decl);
-
-      if (TREE_CODE(type) == RECORD_TYPE)
-        fprintf(file, "struct ");
-      else if (TREE_CODE(type) == UNION_TYPE)
-        fprintf(file, "union ");
-      else
-        gcc_unreachable();
+      XIL_PrintStructPrefix(file, type);
 
       // mark the name we are using in the generated blocks for structs/unions.
       if (TREE_CODE(type) == RECORD_TYPE || TREE_CODE(type) == UNION_TYPE) {
@@ -1269,6 +1339,26 @@ void WriteAnnotationFile(FILE *file)
       fprintf(file, "\n");
     }
     def = def->next;
+  }
+
+  struct XIL_AnnotationEmptyDef *empty = state->emptydefs;
+  while (empty) {
+    // check if we added a real definition for this type.
+    bool defined = false;
+    def = state->defs;
+    while (def) {
+      if (TYPE_FIELDS(def->type) == TYPE_FIELDS(empty->type))
+        defined = true;
+      def = def->next;
+    }
+
+    if (!defined) {
+      XIL_PrintStructPrefix(file, empty->type);
+      const char *name = IDENTIFIER_POINTER(TYPE_NAME(empty->type));
+      fprintf(file, " %s { };\n", name);
+    }
+
+    empty = empty->next;
   }
 
   // add any variable declarations.
@@ -1357,24 +1447,47 @@ void WriteAnnotationFile(FILE *file)
     fprintf(file, ";\n");
   }
 
-  // add any local variables in scope to the annotation.
+  if (state->add_locals) {
+    // add any local variables in scope to the annotation.
 
-  struct XIL_ScopeEnv *scope = xil_active_scope;
-  while (scope) {
-    struct XIL_LocalData *local = scope->locals;
-    while (local) {
-      tree type = TREE_TYPE(local->decl);
-      XIL_Var xil_decl = XIL_TranslateVar(local->decl);
-      const char *local_full_name = XIL_GetVarName(xil_decl);
-      const char *local_name = IDENTIFIER_POINTER(DECL_NAME(local->decl));
+    struct XIL_ScopeEnv *scope = xil_active_scope;
+    while (scope) {
+      struct XIL_LocalData *local = scope->locals;
+      while (local) {
+        tree type = TREE_TYPE(local->decl);
+        XIL_Var xil_decl = XIL_TranslateVar(local->decl);
+        const char *local_full_name = XIL_GetVarName(xil_decl);
+        const char *local_name = IDENTIFIER_POINTER(DECL_NAME(local->decl));
 
-      fprintf(file, "__attribute__((annot_local(\"%s\"))) extern\n",
-              local_full_name);
-      XIL_PrintDeclaration(file, type, local_name);
-      fprintf(file, ";\n");
-      local = local->scope_next;
+        fprintf(file, "__attribute__((annot_local(\"%s\"))) extern\n",
+                local_full_name);
+        XIL_PrintDeclaration(file, type, local_name);
+        fprintf(file, ";\n");
+        local = local->scope_next;
+      }
+      scope = scope->parent;
     }
-    scope = scope->parent;
+  }
+
+  if (!c_dialect_cxx() && state->type) {
+    // type invariant on a C structure. since this is not a member function
+    // the fields are not in scope. make a 'this' variable and individual
+    // variables for each field, so that C++-like syntax works.
+    fprintf(file, "__attribute__((annot_this_var(0)))\n");
+    XIL_PrintStructPrefix(file, state->type);
+    fprintf(file, "__this *this;\n");
+
+    tree field = TYPE_FIELDS(state->type);
+    while (field) {
+      if (TREE_CODE(field) == FIELD_DECL && DECL_NAME(field)) {
+        const char *name = IDENTIFIER_POINTER(DECL_NAME(field));
+
+        fprintf(file, "__attribute__((annot_this_var(1)))\n");
+        XIL_PrintDeclaration(file, TREE_TYPE(field), name);
+        fprintf(file, ";\n");
+      }
+      field = TREE_CHAIN(field);
+    }
   }
 
   fprintf(file, "int __value__ = 0 != (%s);\n", state->text);
@@ -1560,6 +1673,7 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
     // also look at local vars for intermediate assertions.
     if (point) {
+      state->add_locals = true;
       struct XIL_ScopeEnv *scope = xil_active_scope;
       while (scope) {
         struct XIL_LocalData *local = scope->locals;

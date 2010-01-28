@@ -407,8 +407,8 @@ class CheckerState
   ReportKind GetReportKind() const { return m_report_kind; }
 
   // set the report kind for this check, and constructs a display path
-  // for the current checker stack. propagate is at the top of the stack.
-  void SetReport(CheckerPropagate *propagate, ReportKind kind);
+  // for the current checker stack.
+  void SetReport(ReportKind kind);
 
   // CheckerState methods.
 

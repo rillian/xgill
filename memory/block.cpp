@@ -365,7 +365,13 @@ public:
       Variable *var = exp->AsVar()->GetVariable();
       BlockId *id = var->GetId();
 
-      // should not refer to any variables from the annotation CFG.
+      // the bit should not refer to any variables from the annotation CFG.
+      // there is an exception for the 'this' variable, which is used in
+      // type invariant annotation CFGs.
+
+      if (var->Kind() == VK_This)
+        return;
+
       if (id) {
         switch (id->Kind()) {
         case B_AnnotationFunc:

@@ -204,6 +204,43 @@ void XIL_TranslateDeclaration(struct XIL_TreeEnv *env, tree node)
     return;
   }
 
+  // if we're processing an annotation file, watch for variables which are
+  // fields of the type we are making an invariant for. these are only used
+  // for type invariants in C.
+  tree attr = DECL_ATTRIBUTES(node);
+  while (attr) {
+    int value;
+    const char *purpose = XIL_DecodeAttribute(attr, NULL, &value);
+    if (purpose && !strcmp(purpose, "annot_this_var")) {
+      XIL_Var this_var = XIL_VarThis(false);
+      XIL_Exp this_exp = XIL_ExpVar(this_var);
+      XIL_Exp this_drf = XIL_ExpDrf(this_exp);
+
+      // value is a flag. if nonzero then a field of the 'this' type,
+      // if zero then the 'this' type itself.
+      if (!value) {
+        XIL_ProcessResult(env, this_drf);
+        return;
+      }
+
+      const char *name = IDENTIFIER_POINTER(DECL_NAME(node));
+
+      gcc_assert(xil_annotation_this);
+      const char *csu_name = XIL_CSUName(xil_annotation_this, NULL);
+      gcc_assert(csu_name);
+
+      XIL_Type xil_type = XIL_TranslateType(TREE_TYPE(node));
+      XIL_Field field = XIL_MakeField(name, name, csu_name, xil_type, false);
+
+      XIL_Exp this_fld = XIL_ExpFld(this_drf, field);
+      XIL_Exp result = XIL_ExpDrf(this_fld);
+
+      XIL_ProcessResult(env, result);
+      return;
+    }
+    attr = TREE_CHAIN(attr);
+  }
+
   XIL_Var var = XIL_TranslateVar(node);
   XIL_Exp var_exp = XIL_ExpVar(var);
   XIL_Exp result = XIL_ExpDrf(var_exp);
@@ -644,6 +681,11 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
 
     // skip 'using' declarations within a function.
     if (TREE_CODE(decl) == USING_DECL)
+      return;
+
+    // skip declarations we see while processing annotation files,
+    // unless there is an explicit initializer.
+    if (xil_has_annotation && !DECL_INITIAL(decl))
       return;
 
     // if there is an annotation hanging off this decl then process it.

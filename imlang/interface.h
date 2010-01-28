@@ -147,7 +147,7 @@ void XIL_CSUSetWidth(int width);
 void XIL_CSUSetBeginLocation(XIL_Location begin_loc);
 void XIL_CSUSetEndLocation(XIL_Location end_loc);
 void XIL_CSUAddBaseClass(const char *base_class);
-  void XIL_CSUAddDataField(XIL_Field field, int offset);
+void XIL_CSUAddDataField(XIL_Field field, int offset);
 void XIL_CSUAddFunctionField(XIL_Field field, XIL_Var function);
 
 /////////////////////////////////////////////////////////////////////
