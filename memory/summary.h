@@ -33,6 +33,9 @@ enum AssertKind {
   ASK_Annotation = 1,
   ASK_AnnotationRuntime = 2,
 
+  // annotation conditions to defer until the end of the block.
+  ASK_Invariant = 3,
+
   // checking for a buffer write overflow/underflow.
   ASK_WriteOverflow = 10,
   ASK_WriteUnderflow = 11,
@@ -68,6 +71,7 @@ inline const char* AssertKindString(AssertKind kind)
 
   case ASK_Annotation:         return "annotation";
   case ASK_AnnotationRuntime:  return "annotation_runtime";
+  case ASK_Invariant:          return "invariant";
 
   case ASK_WriteOverflow:    return "write_overflow";
   case ASK_WriteUnderflow:   return "write_underflow";

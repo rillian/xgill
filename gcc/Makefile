@@ -25,7 +25,7 @@ all: xgill.so
 xgill.so: $(XGILL_OBJS) ../bin/libxgill.a
 	gcc -shared -fPIC -o $@ $+ ../bin/libxgill.a -lstdc++ -lz
 
-%.o: %.c xgill.h
+%.o: %.c xgill.h ../imlang/interface.h
 	gcc -g -fPIC -Werror -Wall -c -o $@ $< -I$(GCC_PLUGIN_HEADERS)
 
 

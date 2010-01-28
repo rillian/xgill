@@ -22,6 +22,14 @@
 
 NAMESPACE_XGILL_BEGIN
 
+// copy the begin/end locations and declared variables from old_cfg to new_cfg.
+void CopyCFGLocationsVariables(BlockCFG *old_cfg, BlockCFG *new_cfg);
+
+// copy the points, edges, and loop heads from old_cfg to new_cfg.
+// this plus CopyLocationsVariables covers all data in an initial CFG
+// besides the block identifier.
+void CopyCFGPointsEdges(BlockCFG *old_cfg, BlockCFG *new_cfg);
+
 // trim away points and edges from cfg for which either there is no path from
 // the entry point, or no path to the exit point. if flatten_skips is set,
 // flattens away any Skip() edges from the final CFG. consumes a reference

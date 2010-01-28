@@ -318,7 +318,8 @@ void XIL_WriteGenerated();
 int XIL_HasAnnotation(XIL_Var var, const char *annot_name, int annot_type);
 
 // write an annotation CFG indicating a processing error.
-void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name, int annot_type,
+void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
+                          XIL_AnnotationKind annot_kind, int annot_type,
                           XIL_Location loc, const char *annot_message);
 
 #ifdef __cplusplus

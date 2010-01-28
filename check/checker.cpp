@@ -1090,13 +1090,28 @@ CheckerState* CheckAssertion(BlockId *id, const AssertInfo &info)
   CheckerFrame *base_frame = state->MakeFrame(id);
   Assert(base_frame);
 
-  base_frame->AssertPointGuard(info.point);
+  // point to translate the assertion at.
+  PPoint use_point = 0;
+
+  if (info.kind == ASK_Invariant) {
+    // for invariants we assert at exit from the block. the path must still
+    // go through the point where the write occurred.
+    Bit *guard = base_frame->Memory()->GetGuard(info.point);
+    base_frame->AddAssert(guard);
+    use_point = base_frame->Memory()->GetCFG()->GetExitPoint();
+  }
+  else {
+    // the assert must hold at the point of the assertion (!).
+    use_point = info.point;
+  }
+
+  base_frame->AssertPointGuard(use_point);
 
   // get safe bits for the initial assertion.
   GuardBitVector base_safe_list;
-  Where::GetAssertBits(base_frame, info.point, info.bit, &base_safe_list);
+  Where::GetAssertBits(base_frame, use_point, info.bit, &base_safe_list);
 
-  CheckFrameList(state, base_frame, info.point,
+  CheckFrameList(state, base_frame, use_point,
                  false, true, info.bit, base_safe_list);
 
   return state;

@@ -302,6 +302,27 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
   // 2. there is an isomorphic assertion within an inner loop. it is
   //    sufficient to check just the inner assertion.
 
+  // implication works differently for invariants vs. other assertions,
+  // since the invariant condition will be asserted at block exit.
+
+  // for regular assertions, an bit is redundant if (guard ==> bit)
+  // is implied by the (oguard ==> obit) for other assertions:
+
+  // VALID((oguard ==> obit) ==> (guard ==> bit))
+  // !SAT(!((oguard ==> obit) ==> (guard ==> bit)))
+  // !SAT(!(!(oguard ==> obit) || (guard ==> bit)))
+  // !SAT((oguard ==> obit) && !(guard ==> bit))
+  // !SAT((oguard ==> obit) && !(!guard || bit))
+  // !SAT((oguard ==> obit) && guard && !bit)
+
+  // for invariants, a bit is redundant if guard implies the oguard
+  // for other invariants with the same asserted bit:
+
+  // VALID(guard ==> oguard)
+  // !SAT(!(guard ==> oguard))
+  // !SAT(!(!guard || oguard))
+  // !SAT(guard && !oguard)
+
   Solver *solver = new Solver("redundant");
 
   for (size_t ind = 0; ind < asserts.Size(); ind++) {
@@ -310,20 +331,22 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
 
     Assert(info.cls == ASC_Check);
 
-    // assert the guard at point.
+    // assert guard.
     Bit *guard = mcfg->GetGuard(info.point);
     solver->AddAssert(0, guard);
 
-    // assert the negation of the bit at point.
+    if (info.kind != ASK_Invariant) {
+      // assert !bit.
 
-    info.bit->IncRef();
-    Bit *not_bit = Bit::MakeNot(info.bit);
+      info.bit->IncRef();
+      Bit *not_bit = Bit::MakeNot(info.bit);
 
-    Bit *result_not_bit;
-    mcfg->TranslateBit(TRK_Point, info.point, not_bit, &result_not_bit);
-    solver->AddAssert(0, result_not_bit);
-    not_bit->DecRef();
-    result_not_bit->DecRef(&result_not_bit);
+      Bit *result_not_bit;
+      mcfg->TranslateBit(TRK_Point, info.point, not_bit, &result_not_bit);
+      solver->AddAssert(0, result_not_bit);
+      not_bit->DecRef();
+      result_not_bit->DecRef(&result_not_bit);
+    }
 
     if (!solver->IsSatisfiable()) {
       // the assert is tautological or is proved by the guard, thus trivial.
@@ -351,18 +374,30 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
       if (oinfo.kind != info.kind)
         continue;
 
-      // make an implication: guard at opoint => obit.
+      Bit *oguard = mcfg->GetGuard(oinfo.point);
 
-      Bit *other_guard = mcfg->GetGuard(oinfo.point);
-      other_guard->IncRef();
+      if (info.kind == ASK_Invariant) {
+        // only compare with other invariants for the same bit.
+        if (oinfo.bit != info.bit)
+          continue;
 
-      Bit *result_other_bit;
-      mcfg->TranslateBit(TRK_Point, oinfo.point, oinfo.bit, &result_other_bit);
-      result_other_bit->MoveRef(&result_other_bit, NULL);
+        // assert !oguard
+        oguard->IncRef();
+        Bit *not_oguard = Bit::MakeNot(oguard);
+        solver->AddAssert(0, not_oguard);
+        not_oguard->DecRef();
+      }
+      else {
+        // assert (oguard ==> obit).
+        Bit *result_obit;
+        mcfg->TranslateBit(TRK_Point, oinfo.point, oinfo.bit, &result_obit);
+        result_obit->MoveRef(&result_obit, NULL);
 
-      Bit *imply_bit = Bit::MakeImply(other_guard, result_other_bit);
-      solver->AddAssert(0, imply_bit);
-      imply_bit->DecRef();
+        oguard->IncRef();
+        Bit *imply_bit = Bit::MakeImply(oguard, result_obit);
+        solver->AddAssert(0, imply_bit);
+        imply_bit->DecRef();
+      }
     }
 
     if (!solver->IsSatisfiable()) {
@@ -493,6 +528,100 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
         }
       }
 
+      // add assertions for any invariants affected by a write.
+
+      Exp *left = NULL;
+      if (PEdgeAssign *nedge = edge->IfAssign())
+        left = nedge->GetLeftSide();
+      if (PEdgeCall *nedge = edge->IfCall())
+        left = nedge->GetReturnValue();
+
+      // for now our detection of affected invariants is pretty crude;
+      // writes to fields can affect type invariants on the field's type
+      // which use that field, and writes to global variables can affect
+      // invariants on that global. TODO: pin this down once we draw a
+      // precise line between which invariants can and can't be checked.
+
+      if (left && left->IsFld()) {
+        ExpFld *nleft = left->AsFld();
+        String *csu_name = nleft->GetField()->GetCSUType()->GetCSUName();
+        Vector<BlockCFG*> *comp_annot_list = CompAnnotCache.Lookup(csu_name);
+
+        for (size_t aind = 0; comp_annot_list &&
+                              aind < comp_annot_list->Size(); aind++) {
+          BlockCFG *annot_cfg = comp_annot_list->At(aind);
+
+          if (annot_cfg->GetAnnotationKind() != AK_Invariant)
+            continue;
+          Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
+          if (!bit) continue;
+
+          Vector<Exp*> lval_list;
+          LvalListVisitor visitor(&lval_list);
+          bit->DoVisit(&visitor);
+
+          bool uses_field = false;
+          for (size_t ind = 0; ind < lval_list.Size(); ind++) {
+            if (ExpFld *lval = lval_list[ind]->IfFld()) {
+              if (lval->GetField() == nleft->GetField())
+                uses_field = true;
+            }
+          }
+
+          if (uses_field) {
+            // this is a type invariant which uses the field being written
+            // as an lvalue. we need to assert this write preserves
+            // the invariant.
+            BlockId *id = annot_cfg->GetId();
+            id->IncRef();
+            Variable *this_var = Variable::Make(id, VK_This, NULL, 0, NULL);
+            Exp *this_exp = Exp::MakeVar(this_var);
+            Exp *this_drf = Exp::MakeDrf(this_exp);
+
+            Bit *new_bit = BitReplaceExp(bit, this_drf, nleft->GetTarget());
+            this_drf->DecRef();
+
+            AssertInfo info;
+            info.kind = ASK_Invariant;
+            info.cls = ASC_Check;
+            info.point = point;
+            info.bit = new_bit;
+            asserts.PushBack(info);
+          }
+
+          DecRefVector<Exp>(lval_list, &lval_list);
+        }
+
+        CompAnnotCache.Release(csu_name);
+      }
+
+      if (left && left->IsVar()) {
+        Variable *var = left->AsVar()->GetVariable();
+        if (var->Kind() == VK_Glob) {
+          Vector<BlockCFG*> *glob_annot_list =
+            InitAnnotCache.Lookup(var->GetName());
+
+          for (size_t aind = 0; glob_annot_list &&
+                                aind < glob_annot_list->Size(); aind++) {
+            BlockCFG *annot_cfg = glob_annot_list->At(aind);
+
+            Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
+            if (!bit) continue;
+
+            bit->IncRef();
+
+            AssertInfo info;
+            info.kind = ASK_Invariant;
+            info.cls = ASC_Check;
+            info.point = point;
+            info.bit = bit;
+            asserts.PushBack(info);
+          }
+
+          InitAnnotCache.Release(var->GetName());
+        }
+      }
+
       if (PEdgeCall *nedge = edge->IfCall()) {
         // add assertions for any callee preconditions.
 
@@ -506,12 +635,14 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
           CallEdgeSet *callees = CalleeCache.Lookup(function);
 
           if (callees) {
-            for (size_t eind = 0; eind < callees->GetEdgeCount(); eind++) {
-              const CallEdge &edge = callees->GetEdge(eind);
+            for (size_t cind = 0; cind < callees->GetEdgeCount(); cind++) {
+              const CallEdge &edge = callees->GetEdge(cind);
               if (edge.where.id == cfg->GetId() && edge.where.point == point)
                 callee_names.PushBack(edge.callee);
             }
           }
+
+          // CalleeCache release is below.
         }
 
         for (size_t cind = 0; cind < callee_names.Size(); cind++) {

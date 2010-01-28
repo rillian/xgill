@@ -422,7 +422,6 @@ PPoint FollowSkipEdges(BlockCFG *cfg, PPoint point)
   return cur;
 }
 
-// copy the begin/end locations and declared variables from old_cfg to new_cfg.
 void CopyCFGLocationsVariables(BlockCFG *old_cfg, BlockCFG *new_cfg)
 {
   Location *begin_loc = old_cfg->GetBeginLocation();
@@ -444,9 +443,6 @@ void CopyCFGLocationsVariables(BlockCFG *old_cfg, BlockCFG *new_cfg)
   }
 }
 
-// copy the points, edges, and loop heads from old_cfg to new_cfg.
-// this plus CopyLocationsVariables covers all data in an initial CFG
-// besides the block identifier.
 void CopyCFGPointsEdges(BlockCFG *old_cfg, BlockCFG *new_cfg)
 {
   // duplicate the CFG's points list.

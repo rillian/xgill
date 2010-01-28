@@ -559,14 +559,9 @@ void BlockCFG::SetAnnotationKind(AnnotationKind kind)
 
 void BlockCFG::SetAnnotationBit(Bit *bit)
 {
+  Assert(m_annotation_kind);
   Assert(!m_annotation_computed);
   m_annotation_computed = true;
-
-  // workaround: frontend currently marks error annotations with invalid kind.
-  if (!m_annotation_kind) {
-    Assert(!bit);
-    return;
-  }
 
   if (bit) {
     bit->MoveRef(NULL, this);

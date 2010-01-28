@@ -234,19 +234,24 @@ public:
 
   void LookupInsert(Cache_Annotation *cache, String *name)
   {
+    // use a separate scratch buffer for annotation CFG lookups.
+    // reading information about bounds can cause a lookup on the block
+    // or initializer CFGs.
+    static Buffer annot_buf;
+
     name->IncRef(cache);
 
-    if (!DoLookupTransaction(m_db_name, name->Value(), &scratch_buf)) {
+    if (!DoLookupTransaction(m_db_name, name->Value(), &annot_buf)) {
       cache->Insert(name, NULL);
       return;
     }
 
     Vector<BlockCFG*> *cfg_list = new Vector<BlockCFG*>();
 
-    Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
+    Buffer read_buf(annot_buf.base, annot_buf.pos - annot_buf.base);
     BlockCFG::ReadList(&read_buf, cfg_list);
 
-    scratch_buf.Reset();
+    annot_buf.Reset();
 
     for (size_t ind = 0; ind < cfg_list->Size(); ind++)
       cfg_list->At(ind)->MoveRef(NULL, cfg_list);

@@ -1780,7 +1780,7 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   // make an annotation CFG so we remember this later (and don't try again
   // in another translation unit).
-  XIL_AddAnnotationMsg(annot_var, annot_name, annot_type,
+  XIL_AddAnnotationMsg(annot_var, annot_name, annot_kind, annot_type,
                        error_loc, error_buf);
 
   state = NULL;

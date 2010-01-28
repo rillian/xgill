@@ -1618,15 +1618,66 @@ extern "C" void XIL_WriteGenerated()
       Vector<BlockCFG*> split_cfgs;
       SplitLoops(cfg, &split_cfgs);
 
-      // if there were actually loops, only write out the non-loop CFG.
-      BlockCFG::Write(&g_data_buf, split_cfgs.Back());
+      // if there were actually loops, only look at the non-loop CFG.
+      // this will be the last entry in the split list.
+      BlockCFG *base_cfg = split_cfgs.Back();
 
-      TOperand *data = TOperandString::Compress(t, &g_data_buf);
-      g_data_buf.Reset();
+      String *name = base_cfg->GetId()->Loop();
+      Assert(name);
 
-      BACKEND_CALL(BlockWriteAnnot, 0);
-      call->PushArgument(data);
-      t->PushAction(call);
+      // list of CFGs to write out. this is usually just the one we just got,
+      // but in the case of global invariants will include CFGs with identical
+      // bodies for every global mentioned in the annotation.
+      Vector<BlockCFG*> write_list;
+      write_list.PushBack(base_cfg);
+
+      if (base_cfg->GetId()->Kind() == B_AnnotationInit) {
+        Vector<Exp*> lval_list;
+        LvalListVisitor visitor(&lval_list);
+        for (size_t eind = 0; eind < base_cfg->GetEdgeCount(); eind++)
+          base_cfg->GetEdge(eind)->DoVisit(&visitor);
+
+        // clone the CFG for all global variables we find in the annotation.
+        // TODO: this doesn't account for cases where globals are mentioned
+        // in functions called by the annotation.
+        for (size_t lind = 0; lind < lval_list.Size(); lind++) {
+          Variable *root = lval_list[lind]->Root();
+          if (root && root->Kind() == VK_Glob) {
+            // check if there is already an annotation CFG for this variable.
+            bool have_cfg = false;
+            for (size_t ind = 0; ind < write_list.Size(); ind++) {
+              if (root == write_list[ind]->GetId()->BaseVar())
+                have_cfg = true;
+            }
+
+            if (!have_cfg) {
+              // clone the base CFG for the new variable.
+              root->IncRef();
+              name->IncRef();
+              BlockId *new_id = BlockId::Make(B_AnnotationInit, root, name);
+              BlockCFG *new_cfg = BlockCFG::Make(new_id);
+              new_cfg->SetAnnotationKind(base_cfg->GetAnnotationKind());
+              CopyCFGLocationsVariables(base_cfg, new_cfg);
+              CopyCFGPointsEdges(base_cfg, new_cfg);
+              write_list.PushBack(new_cfg);
+            }
+          }
+        }
+
+        DecRefVector<Exp>(lval_list, &lval_list);
+      }
+
+      // write out all the CFGs we generated.
+      for (size_t ind = 0; ind < write_list.Size(); ind++) {
+        BlockCFG::Write(&g_data_buf, write_list[ind]);
+
+        TOperand *data = TOperandString::Compress(t, &g_data_buf);
+        g_data_buf.Reset();
+
+        BACKEND_CALL(BlockWriteAnnot, 0);
+        call->PushArgument(data);
+        t->PushAction(call);
+      }
 
       SubmitTransaction(t);
     }
@@ -1786,7 +1837,8 @@ int XIL_HasAnnotation(XIL_Var var, const char *annot_name, int annot_type)
 }
 
 extern "C"
-void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name, int annot_type,
+void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
+                          XIL_AnnotationKind annot_kind, int annot_type,
                           XIL_Location loc, const char *annot_message)
 {
   GET_OBJECT(Variable, var);
@@ -1808,6 +1860,7 @@ void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name, int annot_type,
   }
 
   BlockCFG *cfg = BlockCFG::Make(cfg_id);
+  cfg->SetAnnotationKind((AnnotationKind) annot_kind);
 
   // make a single local variable '__error__'.
   cfg_id->IncRef();
