@@ -14,7 +14,7 @@
 
 // define this to keep output files for annotations we failed to process.
 // for debugging. this also makes the names of the output files deterministic.
-#define KEEP_ANNOTATION_FILES
+// #define KEEP_ANNOTATION_FILES
 
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
