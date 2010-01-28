@@ -14,7 +14,7 @@
 
 // define this to keep output files for annotations we failed to process.
 // for debugging. this also makes the names of the output files deterministic.
-// #define KEEP_ANNOTATION_FILES
+#define KEEP_ANNOTATION_FILES
 
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
@@ -1302,6 +1302,25 @@ void WriteAnnotationFile(FILE *file)
     tree param = DECL_ARGUMENTS(state->decl);
     int param_index = 0;
 
+    // use the parameter declaration list we've constructed for function
+    // declarations in C. these won't have an arguments list.
+    if (!param) {
+      struct XIL_ParamDecl *param_decl = xil_pending_param_decls;
+      while (param_decl) {
+        tree type = TREE_TYPE(param_decl->decl);
+        if (DECL_NAME(param_decl->decl)) {
+          fprintf(file, "__attribute__((annot_param(%d))) extern\n",
+                  param_index);
+          const char *param_name =
+            IDENTIFIER_POINTER(DECL_NAME(param_decl->decl));
+          XIL_PrintDeclaration(file, type, param_name);
+          fprintf(file, ";\n");
+        }
+        param_decl = param_decl->next;
+        param_index++;
+      }
+    }
+
     // skip any implicit 'this' variable so the param index is correct,
     // see variable.c
     if (TREE_CODE(TREE_TYPE(state->decl)) == METHOD_TYPE)
@@ -1320,11 +1339,10 @@ void WriteAnnotationFile(FILE *file)
     }
 
     // add any return variable to the annotation.
-    tree result = DECL_RESULT(state->decl);
-    if (result && TREE_CODE(TREE_TYPE(result)) != VOID_TYPE) {
-      tree type = TREE_TYPE(result);
+    tree result_type = TREE_TYPE(TREE_TYPE(state->decl));
+    if (TREE_CODE(result_type) != VOID_TYPE) {
       fprintf(file, "__attribute__((annot_return)) extern\n");
-      XIL_PrintDeclaration(file, type, "return");
+      XIL_PrintDeclaration(file, result_type, "return");
       fprintf(file, ";\n");
     }
   }
@@ -1522,14 +1540,23 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   if (state->decl && TREE_CODE(state->decl) == FUNCTION_DECL) {
     // scan for any structs/typedefs used in parameter/return vars.
     tree param = DECL_ARGUMENTS(state->decl);
+
+    if (!param) {
+      struct XIL_ParamDecl *param_decl = xil_pending_param_decls;
+      while(param_decl) {
+        XIL_ScanDefineType(TREE_TYPE(param_decl->decl));
+        param_decl = param_decl->next;
+      }
+    }
+
     while (param) {
       XIL_ScanDefineType(TREE_TYPE(param));
       param = TREE_CHAIN(param);
     }
 
-    tree result = DECL_RESULT(state->decl);
-    if (result && TREE_CODE(TREE_TYPE(result)) != VOID_TYPE)
-      XIL_ScanDefineType(TREE_TYPE(result));
+    tree result_type = TREE_TYPE(TREE_TYPE(state->decl));
+    if (TREE_CODE(result_type) != VOID_TYPE)
+      XIL_ScanDefineType(result_type);
 
     // also look at local vars for intermediate assertions.
     if (point) {

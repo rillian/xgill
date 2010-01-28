@@ -47,6 +47,8 @@ int xil_pointer_width = 0;
 struct XIL_ScopeEnv *xil_active_scope = NULL;
 struct XIL_BlockEnv xil_active_env;
 
+struct XIL_ParamDecl *xil_pending_param_decls = NULL;
+
 void XIL_ActivePushScope()
 {
   struct XIL_ScopeEnv *scope = malloc(sizeof(struct XIL_ScopeEnv));
@@ -522,12 +524,29 @@ void gcc_plugin_pre_genericize(void *gcc_data, void *user_data)
   }
 
   XIL_GenerateBlock(decl);
+
+  // future parameter declarations will be for a different function.
+  xil_pending_param_decls = NULL;
 }
 
 void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
 {
   tree decl = (tree) gcc_data;
   tree type = TREE_TYPE(decl);
+
+  // push this onto the pending parameters if necessary.
+  if (TREE_CODE(decl) == PARM_DECL) {
+    // we should only see parameter declarations for C.
+    gcc_assert(!c_dialect_cxx());
+
+    struct XIL_ParamDecl *last = xil_pending_param_decls;
+    while (last && last->next) last = last->next;
+
+    struct XIL_ParamDecl *param_decl = calloc(1, sizeof(struct XIL_ParamDecl));
+    param_decl->decl = decl;
+    if (last) last->next = param_decl;
+    else xil_pending_param_decls = param_decl;
+  }
 
   // check for typedefs on structures, and assign the structure a name
   // if one is found.
@@ -559,6 +578,9 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
         attr = TREE_CHAIN(attr);
       }
     }
+
+    // future parameter declarations will be for a different function.
+    xil_pending_param_decls = NULL;
   }
 
   if (!is_global)

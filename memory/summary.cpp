@@ -288,9 +288,9 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
                                BlockId *callee, bool indirect,
                                Vector<AssumeInfo> *assume_list)
 {
-  BlockSummary *sum = GetBlockSummary(callee);
-
   // add inferred assumptions from the callee.
+
+  BlockSummary *sum = GetBlockSummary(callee);
 
   const Vector<Bit*> *assumes = sum->GetAssumes();
   size_t assume_count = VectorSize<Bit*>(assumes);
@@ -308,7 +308,13 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
     assume_list->PushBack(info);
   }
 
+  sum->DecRef();
+
   // add annotated postconditions from the callee.
+
+  // only do this for call edges.
+  if (!edge->IsCall())
+    return;
 
   Vector<BlockCFG*> *annot_list = BodyAnnotCache.Lookup(callee->Function());
 
@@ -336,7 +342,6 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
   }
 
   BodyAnnotCache.Release(callee->Function());
-  sum->DecRef();
 }
 
 void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,

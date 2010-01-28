@@ -261,6 +261,16 @@ struct XIL_BlockEnv
 // the active block environment.
 extern struct XIL_BlockEnv xil_active_env;
 
+// information about parameter declarations we have seen for the upcoming
+// function declaration. this is needed for the C frontend, where function
+// declarations do not have their parameter declarations as children.
+struct XIL_ParamDecl
+{
+  tree decl;
+  struct XIL_ParamDecl *next;
+};
+extern struct XIL_ParamDecl *xil_pending_param_decls;
+
 // get the unique name to use for a global symbol. this may be a global
 // variable/function, static unit scope variable, or static function
 // scope variable.
