@@ -631,6 +631,24 @@ extern "C" int XIL_GetExpInt(XIL_Exp exp, long *value)
   return 0;
 }
 
+extern "C" XIL_Exp XIL_ExpSign(XIL_Exp exp, int bits, bool sign)
+{
+  GET_OBJECT(Exp, exp);
+
+  ExpInt *nexp = new_exp->IfInt();
+  if (!nexp) return exp;
+
+  mpz_t value;
+  mpz_init(value);
+
+  nexp->GetMpzValue(value);
+
+  Exp *res = Exp::MakeIntMpz(value, (size_t) bits, sign);
+  mpz_clear(value);
+
+  return (XIL_Exp) res;
+}
+
 extern "C" XIL_Exp XIL_ExpAddress(XIL_Exp target)
 {
   GET_OBJECT(Exp, target);

@@ -527,6 +527,31 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
   right_env.result_rval = &xil_right;
   XIL_TranslateTree(&right_env, right);
 
+  // if one of the operands is a constant with its high bit set,
+  // see if we want to treat that operand as a signed or unsigned value.
+  // gcc doesn't always do what we'd like, e.g. x - 1 becomes x + 4294967295
+  // if x is unsigned.
+
+  tree type = TREE_TYPE(node);
+  int bits = TYPE_SIZE(type) ?
+    TREE_UINT(TYPE_SIZE(type)) : TYPE_PRECISION(type);
+
+  switch (TREE_CODE(node)) {
+  case PLUS_EXPR:
+    xil_left = XIL_ExpSign(xil_left, bits, true);
+    xil_right = XIL_ExpSign(xil_right, bits, true);
+    break;
+
+  case BIT_IOR_EXPR:
+  case BIT_XOR_EXPR:
+  case BIT_AND_EXPR:
+    xil_left = XIL_ExpSign(xil_left, bits, false);
+    xil_right = XIL_ExpSign(xil_right, bits, false);
+    break;
+
+  default: break;
+  }
+
   // if we can use a binop directly then do that.
   XIL_BinopKind binop = 0;
 

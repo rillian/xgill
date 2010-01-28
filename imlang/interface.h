@@ -268,6 +268,12 @@ XIL_Exp XIL_ExpZTerm(XIL_Exp target, XIL_Type stride_type);
 // otherwise return 0.
 int XIL_GetExpInt(XIL_Exp exp, long *value);
 
+// for an integer expression with its high bit set, transform it into the
+// equivalent signed or unsigned integer, otherwise return the expression.
+// XIL_ExpSign(4294967295, 32, true) == -1
+// XIL_ExpSign(-1, 32, false) == 4294967295
+XIL_Exp XIL_ExpSign(XIL_Exp exp, int bits, bool sign);
+
 // take the address of target, if possible. NULL otherwise.
 XIL_Exp XIL_ExpAddress(XIL_Exp target);
 

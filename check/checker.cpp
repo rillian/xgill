@@ -283,7 +283,7 @@ bool CheckSingleCaller(CheckerState *state, CheckerFrame *frame,
     caller_frame = state->MakeFrame(where.id);
 
     if (caller_frame == NULL) {
-      logout << "WARNING: Missing caller memory: '" << where.id << "'" << endl;
+      logout << "WARNING: Missing memory: '" << where.id << "'" << endl;
       return false;
     }
 
@@ -399,7 +399,8 @@ bool CheckSkipLoop(CheckerState *state, CheckerFrame *frame, PPoint point,
 
 // consumes a reference on callee.
 bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
-                       WherePostcondition *postcondition, BlockId *callee)
+                       WherePostcondition *postcondition,
+                       BlockId *callee, bool direct)
 {
   Assert(postcondition);
   Assert(postcondition->GetPoint() == point);
@@ -421,15 +422,21 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
   callee->DecRef();
 
   if (callee_frame == NULL) {
-    // we can get this either because we failed to analyze the memory in
-    // the callee (emit a warning), or because we never saw a definition
-    // for the callee (report is finished). figure out which case this is.
+    // there are two ways we can get here:
+    // 1. we saw the definition but timed out generating the memory.
+    //    emit a warning.
+    // 2. we never saw a definition. emit a warning in the indirect call case,
+    //    make a report in the direct call case. we should really make a report
+    //    in all cases, but the indirect callgraph needs some more work.
 
     BlockCFG *cfg = GetBlockCFG(callee);
     if (!cfg) {
-      if (checker_verbose.IsSpecified())
-        logout << "CHECK: " << frame
-               << ": Postcondition on missing callee" << endl;
+      const char *kind = direct ? "direct" : "indirect";
+      logout << "WARNING: Missing " << kind
+             << " callee: '" << callee << "'" << endl;
+
+      if (!direct)
+        return false;
 
       // make an empty propagation for before the call.
       CheckerPropagate propagate(frame, point, false);
@@ -440,7 +447,7 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
     }
     cfg->DecRef();
 
-    logout << "WARNING: Missing callee memory: '" << callee << "'" << endl;
+    logout << "WARNING: Missing memory: '" << callee << "'" << endl;
     return false;
   }
 
@@ -602,7 +609,7 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
   BlockMemory *mcfg = GetBlockMemory(id);
 
   if (mcfg == NULL) {
-    logout << "WARNING: Missing write memory: '" << id << "'" << endl;
+    logout << "WARNING: Missing memory: '" << id << "'" << endl;
     return;
   }
 
@@ -847,7 +854,7 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
 
       state->PushContext();
 
-      if (CheckSingleCallee(state, frame, point, nwhere, callee))
+      if (CheckSingleCallee(state, frame, point, nwhere, callee, true))
         return true;
 
       state->PopContext();
@@ -875,7 +882,8 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
 
             state->PushContext();
 
-            if (CheckSingleCallee(state, frame, point, nwhere, callee)) {
+            if (CheckSingleCallee(state, frame, point,
+                                  nwhere, callee, false)) {
               CalleeCache.Release(function);
               return true;
             }

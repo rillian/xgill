@@ -1347,7 +1347,8 @@ void WriteAnnotationFile(FILE *file)
     bool defined = false;
     def = state->defs;
     while (def) {
-      if (TYPE_FIELDS(def->type) == TYPE_FIELDS(empty->type))
+      if (TREE_CODE(def->type) != ENUMERAL_TYPE &&
+          TYPE_FIELDS(def->type) == TYPE_FIELDS(empty->type))
         defined = true;
       def = def->next;
     }
