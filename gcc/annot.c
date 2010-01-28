@@ -12,6 +12,10 @@
 // to the annotation. we'll then ask gcc to parse the file we constructed,
 // and recover the syntax for the annotation from that parse.
 
+// define this to keep output files for annotations we failed to process.
+// for debugging. this also makes the names of the output files deterministic.
+// #define KEEP_ANNOTATION_FILES
+
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
 // - macro definitions.
@@ -1465,12 +1469,12 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
     strcpy(annotation_file, "tmp.XXXXXX");
   mktemp(annotation_file);
 
-  // debug, get a deterministic file.
-  /*
+  // get a deterministic file if we might leave it behind.
+#ifdef KEEP_ANNOTATION_FILES
   static int file_count = 0;
   file_count++;
   sprintf(annotation_file + strlen(annotation_file) - 6, "%d", file_count);
-  */
+#endif
 
   char *out_file = malloc(strlen(annotation_file) + 10);
   sprintf(out_file, "%s.out", annotation_file);
@@ -1640,4 +1644,10 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   state = NULL;
   XIL_ClearAssociate(XIL_AscAnnotate);
+
+  // remove the output files unless we're keeping all failed annotations.
+#ifndef KEEP_ANNOTATION_FILES
+  remove(out_file);
+  remove(annotation_file);
+#endif
 }
