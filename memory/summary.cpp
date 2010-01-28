@@ -248,12 +248,8 @@ static Bit* GetCallerAssume(BlockMemory *mcfg, PEdge *edge,
   if (!mcfg->CanTranslateCalleeBit(call_point, bit))
     return NULL;
 
-  TranslateKind kind = TRK_Callee;
-  if (edge->IsLoop())
-    kind = TRK_CalleeExit;
-
   Bit *caller_bit;
-  mcfg->TranslateBit(kind, call_point, bit, &caller_bit);
+  mcfg->TranslateBit(TRK_CalleeExit, call_point, bit, &caller_bit);
   caller_bit->MoveRef(&caller_bit, NULL);
 
   if (indirect) {

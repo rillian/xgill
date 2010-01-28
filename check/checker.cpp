@@ -429,9 +429,13 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
     if (!cfg) {
       if (checker_verbose.IsSpecified())
         logout << "CHECK: " << frame
-               << ": Postcondition on external callee" << endl;
+               << ": Postcondition on missing callee" << endl;
 
-      state->SetReport(RK_Finished);
+      // make an empty propagation for before the call.
+      CheckerPropagate propagate(frame, point, false);
+      state->m_stack.PushBack(&propagate);
+
+      state->SetReport(RK_NoCallee);
       return true;
     }
     cfg->DecRef();

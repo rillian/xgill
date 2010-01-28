@@ -452,8 +452,9 @@ const char* XIL_DecodeAttribute(tree attr,
 
 // if attribute indicates an annotation, consume it and add it to the backend
 // databases. attribute is attached to node (either the active function
-// or the active type).
-void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
+// or the active type). return value indicates whether this is actually
+// an annotation attribute.
+bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
                            XIL_Location loc);
 
 #endif // XIL_MAIN

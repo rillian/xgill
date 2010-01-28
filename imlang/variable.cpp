@@ -244,7 +244,7 @@ void Variable::Print(OutStream &out) const
     out << "__arg" << m_index;
     break;
   case VK_Return:
-    out << "__return";
+    out << "return";
     break;
   case VK_This:
     out << "this";

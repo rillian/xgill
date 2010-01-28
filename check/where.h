@@ -119,7 +119,10 @@ enum ReportKind
   RK_Unexpected,
 
   // could not identify base object for type invariant.
-  RK_UnknownCSU
+  RK_UnknownCSU,
+
+  // depends on a postcondition for a callee with no implementation.
+  RK_NoCallee
 };
 
 inline const char* ReportString(ReportKind kind)
@@ -131,6 +134,7 @@ inline const char* ReportString(ReportKind kind)
   case RK_Recursion:   return "Recursion";
   case RK_Unexpected:  return "Unexpected";
   case RK_UnknownCSU:  return "UnknownCSU";
+  case RK_NoCallee:    return "NoCallee";
   }
 
   Assert(false);

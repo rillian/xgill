@@ -203,6 +203,8 @@ void WhereNone::PrintUI(OutStream &out) const
     out << "Unknown lvalue in goal, could not figure out dependent"; break;
   case RK_UnknownCSU:
     out << "Could not find base object for type invariant"; break;
+  case RK_NoCallee:
+    out << "Depends on a callee with no known implementation"; break;
   default:
     // should not get here with RK_None.
     Assert(false);

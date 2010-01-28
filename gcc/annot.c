@@ -1498,14 +1498,14 @@ void WriteAnnotationFile(FILE *file)
 // before giving up.
 #define PROCESS_MAX_TRIES 8
 
-void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
+bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
                            XIL_Location loc)
 {
   const char *annot_text = NULL;
   const char *purpose = XIL_DecodeAttribute(attr, &annot_text, NULL);
 
   if (!purpose)
-    return;
+    return false;
 
   // figure out the kind of annotation, if this is an annotation.
   XIL_AnnotationKind annot_kind = 0;
@@ -1516,7 +1516,7 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 #undef XIL_CHECK_ATTR
 
   if (!annot_kind)
-    return;
+    return false;
 
   // make sure annotations which expect a program point are attached to one,
   // and annotations which don't expect a point aren't. annotations not meeting
@@ -1527,19 +1527,19 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
       annot_kind == XIL_AK_AssertRuntime)
     expect_point = true;
 
-  if (expect_point && !point) return;
-  if (!expect_point && point) return;
+  if (expect_point && !point) return true;
+  if (!expect_point && point) return true;
 
   if (!annot_text) {
     TREE_UNEXPECTED(attr);
-    return;
+    return true;
   }
 
   gcc_assert(xil_plugin_path);
   if (!xil_gcc_path) {
     fprintf(xil_log,
       "ERROR: Can't process annotation without -fplugin-arg-xgill-gcc\n");
-    return;
+    return true;
   }
 
   // get the class, name and target of the annotation.
@@ -1584,7 +1584,7 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   if (XIL_HasAnnotation(annot_var, annot_name, annot_type)) {
     // we've seen this annotation before, don't need to process it again.
-    return;
+    return true;
   }
 
   fprintf(xil_log, "Annotation: %s: %s: %s\n",
@@ -1719,7 +1719,7 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
       remove(out_file);
       remove(annotation_file);
       state = NULL;
-      return;
+      return true;
     }
 
     // parse the first error from the output file. this is the text
@@ -1791,4 +1791,6 @@ void XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   remove(out_file);
   remove(annotation_file);
 #endif
+
+  return true;
 }
