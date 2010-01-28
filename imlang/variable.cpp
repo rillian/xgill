@@ -220,7 +220,7 @@ void Variable::Print(OutStream &out) const
 
 #else // VARIABLE_PRINT_DECORATED
 
-  if (m_source_name) {
+  if (m_source_name && m_kind != VK_Local) {
     out << m_source_name->Value();
     return;
   }

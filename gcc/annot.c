@@ -14,7 +14,7 @@
 
 // define this to keep output files for annotations we failed to process.
 // for debugging. this also makes the names of the output files deterministic.
-// #define KEEP_ANNOTATION_FILES
+// #define ANNOTATION_DEBUG
 
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
@@ -1228,10 +1228,16 @@ void WriteAnnotationFile(FILE *file)
     macro = macro->next;
   }
 
-  // add declarations for annotation functions.
-  fprintf(file, "long ubound(void*);\n");
-  fprintf(file, "long lbound(void*);\n");
-  fprintf(file, "long zterm(void*);\n");
+  // add declarations for annotation functions. these need to be wrapped
+  // in macros to ensure they can be passed any type without casts and that
+  // we see whichever type was used for the bound functions.
+  fprintf(file, "typedef struct __bound__ __bound__;\n");
+  fprintf(file, "long __ubound(__bound__*);\n");
+  fprintf(file, "#define ubound(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __ubound((__bound__*)(__bval)); })\n");
+  fprintf(file, "long __lbound(struct __bound__*);\n");
+  fprintf(file, "#define lbound(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __lbound((__bound__*)(__bval)); })\n");
+  fprintf(file, "long __zterm(struct __bound__*);\n");
+  fprintf(file, "#define zterm(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __zterm((__bound__*)(__bval)); })\n");
   fprintf(file, "long __loop_entry(signed long);\n");
   fprintf(file, "#define loop_entry(X) __loop_entry((signed long)X)\n");
 
@@ -1602,7 +1608,7 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   mktemp(annotation_file);
 
   // get a deterministic file if we might leave it behind.
-#ifdef KEEP_ANNOTATION_FILES
+#ifdef ANNOTATION_DEBUG
   static int file_count = 0;
   file_count++;
   sprintf(annotation_file + strlen(annotation_file) - 6, "%d", file_count);
@@ -1650,6 +1656,10 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
           "%s -fplugin-arg-xgill-annot=%s:%s %s -o %s > /dev/null 2> %s",
           plugin_buf, annot_class, purpose,
           annotation_file, object_file, out_file);
+
+#ifdef ANNOTATION_DEBUG
+  fprintf(xil_log, "%s\n", system_buf);
+#endif
 
   if (state->decl && TREE_CODE(state->decl) == FUNCTION_DECL) {
     // scan for any structs/typedefs used in parameter/return vars.
@@ -1717,8 +1727,12 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
     if (res == 0) {
       // successfully processed the annotation file.
       XIL_ClearAssociate(XIL_AscAnnotate);
+
+#ifndef ANNOTATION_DEBUG
       remove(out_file);
       remove(annotation_file);
+#endif
+
       state = NULL;
       return true;
     }
@@ -1772,8 +1786,8 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   if (tries == PROCESS_MAX_TRIES)
     sprintf(error_buf, "Tries threshold reached for annotation");
 
-  // keep the annotation file and log the command we tried to run on it.
-  fprintf(xil_log, "%s\nERROR: %s\n\n", system_buf, error_buf);
+  // log the error message.
+  fprintf(xil_log, "ERROR: %s\n\n", error_buf);
 
   // TODO: there does not seem to be any location information available
   // for attributes.
@@ -1788,7 +1802,7 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   XIL_ClearAssociate(XIL_AscAnnotate);
 
   // remove the output files unless we're keeping all failed annotations.
-#ifndef KEEP_ANNOTATION_FILES
+#ifndef ANNOTATION_DEBUG
   remove(out_file);
   remove(annotation_file);
 #endif

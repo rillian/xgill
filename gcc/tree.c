@@ -1236,8 +1236,8 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   if (!function_name || TREE_CODE(function_name) != IDENTIFIER_NODE) return false;
   const char *name = IDENTIFIER_POINTER(function_name);
 
-  if (strcmp(name,"ubound") && strcmp(name,"lbound") &&
-      strcmp(name,"zterm") && strcmp(name,"__loop_entry"))
+  if (strcmp(name,"__ubound") && strcmp(name,"__lbound") &&
+      strcmp(name,"__zterm") && strcmp(name,"__loop_entry"))
     return false;
 
   // this is an annotation function call. get the argument being passed.
@@ -1250,9 +1250,9 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   XIL_TranslateTree(&arg_env, arg);
 
   if (!strcmp(name,"__loop_entry")) {
-    // the LoopEntry needs to be applied to the address of the argument (i.e. the
-    // lvalue which was actually passed in). if the argument is not an lvalue then punt
-    // (we will detect the error later).
+    // the LoopEntry needs to be applied to the address of the argument
+    // (i.e. the lvalue which was actually passed in). if the argument
+    // is not an lvalue then punt (we will detect the error later).
     XIL_Exp address = XIL_ExpAddress(xil_arg);
     if (address) {
       XIL_Exp result = XIL_ExpLoopEntry(address);
@@ -1262,11 +1262,15 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
     return false;
   }
   else {
-    // some expression which needs a stride type. get this from the argument tree.
+    // some expression which needs a stride type. get this from
+    // the argument tree.
 
-    // if there is a leading cast then remove it. the annotation functions have a
-    // void* argument type and an implicit cast will be inserted for arguments that
-    // are not actually of type void*.
+    print_node(stdout,"",node,0);
+    printf("\n\n");
+
+    // if there is a leading cast then remove it. the annotation functions
+    // have a fake __bound__* argument type and casts to this type should
+    // be inserted for every use.
     if (TREE_CODE(arg) == NOP_EXPR)
       arg = TREE_OPERAND(arg, 0);
 
@@ -1276,14 +1280,14 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
     XIL_Type stride_type = XIL_TranslateType(TREE_TYPE(type));
 
     XIL_Exp result = NULL;
-    if (!strcmp(name,"ubound"))
+    if (!strcmp(name,"__ubound"))
       result = XIL_ExpUBound(xil_arg, stride_type);
-    else if (!strcmp(name,"lbound"))
+    else if (!strcmp(name,"__lbound"))
       result = XIL_ExpLBound(xil_arg, stride_type);
-    else if (!strcmp(name,"zterm"))
+    else if (!strcmp(name,"__zterm"))
       result = XIL_ExpZTerm(xil_arg, stride_type);
     else
-      gcc_assert(false);
+      gcc_unreachable();
 
     XIL_ProcessResult(env, result);
     return true;
