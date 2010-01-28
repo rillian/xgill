@@ -1852,13 +1852,25 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     XIL_Exp result_lval = NULL;
 
     // whether we're done processing the result after the call.
-    bool result_done = 0;
+    bool result_done = false;
+
+    // for methods, the object to invoke the method on.
+    XIL_Exp instance_object = NULL;
 
     if (XIL_TreeResultUsed(env)) {
       if (env->result_assign) {
-        // we can store the call result directly into the lvalue our env needs.
-        result_lval = env->result_assign;
-        result_done = 1;
+        if(TREE_CODE(node) == AGGR_INIT_EXPR &&
+           AGGR_INIT_VIA_CTOR_P(node)) {
+          // this case shows up with operator new; the result of the ctor
+          // is supposed to get assigned somewhere. instead, invoke the ctor
+          // on the target of the assign (the result of the memory allocation).
+          instance_object = env->result_assign;
+        }
+        else {
+          // store the call result directly into the lvalue our env needs.
+          result_lval = env->result_assign;
+        }
+        result_done = true;
       }
       else {
         tree type = TREE_TYPE(node);
@@ -1926,13 +1938,14 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
       args[ind] = xil_arg;
     }
 
-    XIL_Exp instance_object = NULL;
-
     // if the call's type is a method, the first arg is the instance object.
     // fixup the arguments we just constructed.
     if (TREE_CODE(function_type) == METHOD_TYPE) {
       gcc_assert(arg_count);
-      instance_object = args[0];
+
+      if (!instance_object)
+        instance_object = args[0];
+
       for (ind = 0; ind < arg_count - 1; ind++)
         args[ind] = args[ind + 1];
       arg_count--;

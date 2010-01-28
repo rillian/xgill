@@ -171,7 +171,6 @@ void RunAnalysis(const Vector<const char*> &functions)
 
   while (true) {
     Timer _timer(&analysis_timer);
-    ResetTimeout(20);
 
     g_alloc_counter++;
     g_alloc_counter %= PRINT_ALLOC_FREQUENCY;
@@ -268,9 +267,8 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     // generate memory information and (possibly) modsets for each CFG.
     for (size_t cind = 0; cind < block_cfgs.Size(); cind++) {
-      ResetTimeout(20);
-
       // set a soft timeout for memory/modset computation.
+      // we don't set a hard timeout as these break the indirect callgraph.
       if (uint32_t timeout = GetTimeout())
         TimerAlarm::StartActive(timeout);
 
@@ -336,7 +334,10 @@ void RunAnalysis(const Vector<const char*> &functions)
       logout << endl;
 
       if (TimerAlarm::ActiveExpired()) {
-        logout << "ERROR: Timeout while generating memory: " << id << endl;
+        logout << "ERROR: Timeout while generating memory: ";
+	PrintTime(TimerAlarm::ActiveElapsed());
+	logout << endl;
+
         had_timeout = true;
       }
 
@@ -361,9 +362,6 @@ void RunAnalysis(const Vector<const char*> &functions)
     for (size_t find = 0; find < block_mods.Size(); find++)
       block_mods[find]->DecRef();
   }
-
-  // disable any pending timeout alarm.
-  alarm(0);
 
   // flush the callgraph caches.
   while (!MergeCachesEmpty(false))
