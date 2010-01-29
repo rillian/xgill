@@ -77,27 +77,21 @@ class MemoryAliasBuffer : public MemoryAlias
 
     ExpTerminate *nkind = kind->AsTerminate();
 
-    // only look at the type of the update; if it is compatible with
-    // the stride type then consider this a definite alias.
+    // if the type of the update is incompatible with the stride type
+    // then there is no aliasing.
     Type *type = update->GetType();
-
     if (!type || !nkind->IsCompatibleStrideType(type))
       return NULL;
 
-    // the lvalues are aliased if their base buffers might alias.
+    // reject aliasing if the updated lvalue is a plain variable.
+    // these can't have terminators in any meaningful way.
+    if (update->IsVar())
+      return NULL;
 
-    Exp *update_buf = mcfg->GetBaseBuffer(update, type);
-    Exp *lval_buf = mcfg->GetBaseBuffer(lval, type);
-
-    bool equals = (update_buf == lval_buf);
-
-    update_buf->DecRef();
-    lval_buf->DecRef();
-
-    if (equals)
-      return Bit::MakeConstant(true);
-
-    return NULL;
+    // otherwise consider this a definite alias. we're free to overapproximate,
+    // if the updated lvalue is in a different buffer then we won't be
+    // able to prove anything about its offset in relation to lval.
+    return Bit::MakeConstant(true);
   }
 };
 

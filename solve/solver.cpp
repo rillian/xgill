@@ -1572,9 +1572,8 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
 
   if (offset_type) {
     Exp *target = exp->GetLvalTarget();
-    Assert(target);
 
-    if (offset_upper) {
+    if (target && offset_upper) {
       mpz_t base_val;
       mpz_init(base_val);
       bool base_asn = AsnOffset(frame, target, offset_type, base_val);
@@ -1592,8 +1591,8 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
       return base_asn && upper_asn;
     }
     else {
-      // processing an offset bound where we never assigned a value.
-      // use the default value of 0.
+      // processing an offset or absolute bound which was never
+      // assigned a value. use the default value of 0.
       return false;
     }
   }
@@ -1896,18 +1895,22 @@ void Solver::GetExpOffset(Exp *exp, Type **offset_type, Exp **offset_upper)
   *offset_type = NULL;
   *offset_upper = NULL;
 
+  bool has_target = (exp->GetLvalTarget() != NULL);
+
   if (ExpBound *nexp = exp->IfBound()) {
     *offset_type = nexp->GetStrideType();
     BoundKind bound = nexp->GetBoundKind();
 
     // leave offset_upper as NULL for BND_Offset, we will not do a difference.
-    if (bound != BND_Offset)
+    if (bound != BND_Offset && has_target)
       *offset_upper = exp->ReplaceLvalTarget(NULL);
   }
 
   if (ExpTerminate *nexp = exp->IfTerminate()) {
     *offset_type = nexp->GetStrideType();
-    *offset_upper = exp->ReplaceLvalTarget(NULL);
+
+    if (has_target)
+      *offset_upper = exp->ReplaceLvalTarget(NULL);
   }
 }
 
@@ -1965,8 +1968,6 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
     else {
       // absolute bound/terminate. fall through to the lvalue case and
       // make a declaration for this expression.
-      Assert(offset_upper == exp);
-      offset_upper->DecRef();
     }
   }
 
