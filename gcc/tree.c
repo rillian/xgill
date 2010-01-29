@@ -620,8 +620,8 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
 
       if (TREE_CODE(left_type) == POINTER_TYPE &&
           TREE_CODE(right_type) == POINTER_TYPE) {
-        int left_bytes = GetPointerStrideSize(left_type);
-        int right_bytes = GetPointerStrideSize(right_type);
+        int left_bytes = GetPointerStrideSize(TREE_TYPE(left_type));
+        int right_bytes = GetPointerStrideSize(TREE_TYPE(right_type));
 
         if (left_bytes == right_bytes) {
           xil_stride_type = XIL_TranslateType(TREE_TYPE(left_type));
@@ -1264,9 +1264,6 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   else {
     // some expression which needs a stride type. get this from
     // the argument tree.
-
-    print_node(stdout,"",node,0);
-    printf("\n\n");
 
     // if there is a leading cast then remove it. the annotation functions
     // have a fake __bound__* argument type and casts to this type should
