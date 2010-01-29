@@ -134,9 +134,9 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
     break;
   }
-  case EK_LoopEntry: {
-    const ExpLoopEntry *nexp0 = exp0->AsLoopEntry();
-    const ExpLoopEntry *nexp1 = exp1->AsLoopEntry();
+  case EK_Initial: {
+    const ExpInitial *nexp0 = exp0->AsInitial();
+    const ExpInitial *nexp1 = exp1->AsInitial();
     TryCompareObjects(nexp0->GetTarget(), nexp1->GetTarget(), Exp);
     TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
     break;
@@ -215,7 +215,7 @@ Exp* Exp::Copy(const Exp *exp)
 
     COPY_EXP(Clobber);
     COPY_EXP(Exit);
-    COPY_EXP(LoopEntry);
+    COPY_EXP(Initial);
 
     COPY_EXP(Val);
     COPY_EXP(Guard);
@@ -338,8 +338,8 @@ void Exp::Write(Buffer *buf, const Exp *exp)
       Exp::Write(buf, nexp->GetValueKind());
     break;
   }
-  case EK_LoopEntry: {
-    const ExpLoopEntry *nexp = exp->AsLoopEntry();
+  case EK_Initial: {
+    const ExpInitial *nexp = exp->AsInitial();
     Exp::Write(buf, nexp->GetTarget());
     if (nexp->GetValueKind())
       Exp::Write(buf, nexp->GetValueKind());
@@ -541,8 +541,8 @@ Exp* Exp::Read(Buffer *buf)
   case EK_Exit:
     res = MakeExit(exp0, exp1);
     break;
-  case EK_LoopEntry:
-    res = MakeLoopEntry(exp0, exp1);
+  case EK_Initial:
+    res = MakeInitial(exp0, exp1);
     break;
 
   case EK_Val:
@@ -1261,6 +1261,14 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       return SimplifyExp(exp, li.exp);
     }
 
+    // input:  exp * 1
+    // output: exp
+
+    if (i.b_kind == B_Mult && ri.has_value && mpz_cmp_si(ri.value, 1) == 0) {
+      li.exp->IncRef();
+      return SimplifyExp(exp, li.exp);
+    }
+
     // input:  0 - exp
     // output: -exp
 
@@ -1273,19 +1281,24 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     // input:  exp - exp
     //    or:  exp != exp
+    //    or:  exp < exp
     // output: 0
 
     if (li.exp == ri.exp &&
         (i.b_kind == B_Minus || i.b_kind == B_MinusPP ||
-         i.b_kind == B_NotEqual)) {
+         i.b_kind == B_NotEqual ||
+         i.b_kind == B_LessThan || i.b_kind == B_LessThanP)) {
       Exp *new_exp = MakeInt(0);
       return SimplifyExp(exp, new_exp);
     }
 
     // input:  exp == exp
+    //    or:  exp <= exp
     // output: 1
 
-    if (li.exp == ri.exp && i.b_kind == B_Equal) {
+    if (li.exp == ri.exp &&
+        (i.b_kind == B_Equal ||
+         i.b_kind == B_LessEqual || i.b_kind == B_LessEqualP)) {
       Exp *new_exp = MakeInt(1);
       return SimplifyExp(exp, new_exp);
     }
@@ -1772,10 +1785,10 @@ ExpExit* Exp::MakeExit(Exp *target, Exp *value_kind)
   return g_table.Lookup(xexp)->AsExit();
 }
 
-ExpLoopEntry* Exp::MakeLoopEntry(Exp *target, Exp *value_kind)
+ExpInitial* Exp::MakeInitial(Exp *target, Exp *value_kind)
 {
-  ExpLoopEntry xexp(target, value_kind);
-  return g_table.Lookup(xexp)->AsLoopEntry();
+  ExpInitial xexp(target, value_kind);
+  return g_table.Lookup(xexp)->AsInitial();
 }
 
 ExpVal* Exp::MakeVal(Exp *lval, Exp *value_kind, PPoint point, bool relative)
@@ -3654,11 +3667,11 @@ void ExpExit::DecMoveChildRefs(ORef ov, ORef nv)
 }
 
 /////////////////////////////////////////////////////////////////////
-// ExpLoopEntry
+// ExpInitial
 /////////////////////////////////////////////////////////////////////
 
-ExpLoopEntry::ExpLoopEntry(Exp *target, Exp *value_kind)
-  : Exp(EK_LoopEntry), m_target(target), m_value_kind(value_kind)
+ExpInitial::ExpInitial(Exp *target, Exp *value_kind)
+  : Exp(EK_Initial), m_target(target), m_value_kind(value_kind)
 {
   Assert(m_target);
 
@@ -3667,34 +3680,34 @@ ExpLoopEntry::ExpLoopEntry(Exp *target, Exp *value_kind)
     m_hash = Hash32(m_hash, m_value_kind->Hash());
 }
 
-Type* ExpLoopEntry::GetType() const
+Type* ExpInitial::GetType() const
 {
   return GetValueType(m_target, m_value_kind);
 }
 
-Exp* ExpLoopEntry::GetLvalTarget() const
+Exp* ExpInitial::GetLvalTarget() const
 {
   return m_target;
 }
 
-Exp* ExpLoopEntry::ReplaceLvalTarget(Exp *new_target)
+Exp* ExpInitial::ReplaceLvalTarget(Exp *new_target)
 {
   if (m_value_kind)
     m_value_kind->IncRef();
-  return MakeLoopEntry(new_target, m_value_kind);
+  return MakeInitial(new_target, m_value_kind);
 }
 
-void ExpLoopEntry::Print(OutStream &out) const
+void ExpInitial::Print(OutStream &out) const
 {
-  out << "loop_entry(" << m_target;
+  out << "initial(" << m_target;
   if (m_value_kind)
     out << "," << m_value_kind;
   out << ")";
 }
 
-void ExpLoopEntry::PrintUI(OutStream &out, bool parens) const
+void ExpInitial::PrintUI(OutStream &out, bool parens) const
 {
-  out << "loop_entry(";
+  out << "initial(";
 
   m_target->IncRef();
   Exp *new_exp = NULL;
@@ -3712,7 +3725,7 @@ void ExpLoopEntry::PrintUI(OutStream &out, bool parens) const
   out << ")";
 }
 
-void ExpLoopEntry::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpInitial::DecMoveChildRefs(ORef ov, ORef nv)
 {
   m_target->DecMoveRef(ov, nv);
   if (m_value_kind)

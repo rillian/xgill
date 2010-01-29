@@ -347,13 +347,20 @@ void BlockMemory::ReadList(Buffer *buf, Vector<BlockMemory*> *mcfgs)
   }
 }
 
-// visitor to check that a computed annotation bit is entirely functional,
-// i.e. it does not refer to clobbered values or temporaries.
+// visitor to check that a computed annotation bit is good,
+// namely that it obeys the following constraints:
+// 1. does not refer to clobbered values or temporaries,
+//    i.e. it is entirely functional.
+// 2. initial expressions are only used for assertions or postconditions.
+// TODO: other constraints need to be checked here.
 class AnnotationBitVisitor : public ExpVisitor
 {
 public:
+  AnnotationKind kind;
   Exp *exclude;
-  AnnotationBitVisitor() : ExpVisitor(VISK_All), exclude(NULL) {}
+  AnnotationBitVisitor(AnnotationKind _kind)
+    : ExpVisitor(VISK_All), kind(_kind), exclude(NULL)
+  {}
 
   void Visit(Exp *exp)
   {
@@ -391,7 +398,22 @@ public:
     case EK_Index:
     case EK_Bound:
     case EK_Terminate:
-    case EK_LoopEntry:
+      return;
+
+    case EK_Initial:
+      // initial expressions can only appear in assertions and postconditions.
+      switch (kind) {
+      case AK_Postcondition:
+      case AK_PostconditionAssume:
+      case AK_Assert:
+      case AK_Assume:
+      case AK_AssertRuntime:
+        break;
+      default:
+        exclude = exp;
+        break;
+      }
+      exp->GetLvalTarget()->DoVisit(this);
       return;
 
     default:
@@ -455,7 +477,7 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, ostream *msg_out)
   assign_bit->DecRef();
 
   // scan the bit to make sure it is functional.
-  AnnotationBitVisitor visitor;
+  AnnotationBitVisitor visitor(cfg->GetAnnotationKind());
   annot_bit->DoVisit(&visitor);
 
   if (visitor.exclude) {
@@ -1308,8 +1330,8 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     break;
   }
 
-  case EK_LoopEntry: {
-    ExpLoopEntry *nexp = exp->AsLoopEntry();
+  case EK_Initial: {
+    ExpInitial *nexp = exp->AsInitial();
     Exp *target = nexp->GetTarget();
     Exp *value_kind = nexp->GetValueKind();
 
@@ -1320,8 +1342,46 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       // this had better be a loop invocation.
       Assert(!m_cfg->PointEdgeIsCall(point));
 
-      // perform a callee translation to remove the LoopEntry.
+      // perform a callee translation to remove the Initial.
       TranslateExpVal(point, value_kind, target_res, true, false, res);
+    }
+    else if (kind == TRK_Point) {
+      if (m_cfg->IsLoopIsomorphic(point)) {
+        // the initial is relative to when the closest loop started.
+        // walk back and find that closest loop head. this is the innermost
+        // loop surrounding the point. the loop head should dominate this
+        // point, thus we only need to follow a single path backwards.
+        PPoint loop_point = point;
+        while (true) {
+          const Vector<PEdge*> &incoming = m_cfg->GetIncomingEdges(loop_point);
+          Assert(!incoming.Empty());
+          loop_point = incoming[0]->GetSource();
+          if (incoming[0]->IsLoop()) break;
+        }
+
+        // get the value of the expression when the loop was invoked.
+        TranslateExpVal(loop_point, value_kind, target_res, true, false, res);
+      }
+      else if (m_id->Kind() == B_Function) {
+        // the initial is relative to function entry.
+        TranslateExpVal(0, value_kind, target_res, false, false, res);
+      }
+      else {
+        // leave the initial alone. either we are in a loop and the initial
+        // is relative to the entry state of the loop, or we are generating
+        // the annotation bit itself.
+        Assert(m_id->Kind() == B_Loop || m_id->Kind() == B_AnnotationFunc);
+
+        for (size_t ind = 0; ind < target_res.Size(); ind++) {
+          const GuardExp &gt = target_res[ind];
+
+          gt.IncRef();
+          if (value_kind)
+            value_kind->IncRef();
+          Exp *new_exp = Exp::MakeInitial(gt.exp, value_kind);
+          res->PushBack(GuardExp(new_exp, gt.guard));
+        }
+      }
     }
     else {
       for (size_t ind = 0; ind < target_res.Size(); ind++) {
@@ -1330,7 +1390,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
         gt.IncRef();
         if (value_kind)
           value_kind->IncRef();
-        Exp *new_exp = Exp::MakeLoopEntry(gt.exp, value_kind);
+        Exp *new_exp = Exp::MakeInitial(gt.exp, value_kind);
         res->PushBack(GuardExp(new_exp, gt.guard));
       }
     }

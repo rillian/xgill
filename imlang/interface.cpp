@@ -587,10 +587,10 @@ XIL_Exp XIL_ExpBinop(XIL_BinopKind binop, XIL_Exp left_op, XIL_Exp right_op,
                    new_stride_type, (size_t) bits, (bool) sign);
 }
 
-extern "C" XIL_Exp XIL_ExpLoopEntry(XIL_Exp target)
+extern "C" XIL_Exp XIL_ExpInitial(XIL_Exp target)
 {
   GET_OBJECT(Exp, target);
-  return (XIL_Exp) Exp::MakeLoopEntry(new_target, NULL);
+  return (XIL_Exp) Exp::MakeInitial(new_target, NULL);
 }
 
 extern "C" XIL_Exp XIL_ExpLBound(XIL_Exp target, XIL_Type stride_type)
@@ -1884,6 +1884,8 @@ void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
   cfg_id->IncRef();
   String *error_name = String::Make("__error__");
   Variable *error_var = Variable::Make(cfg_id, VK_Local, error_name, 0, NULL);
+
+  error_var->IncRef();
   cfg->AddVariable(error_var, Type::MakeError());
 
   new_loc->IncRef();

@@ -916,9 +916,9 @@ Exp* GetInitialValue(InvariantTester *tester, Exp *lval)
     }
   }
 
-  // use ExpLoopEntry to make an expression for the value outside the loop.
+  // use ExpInitial to make an expression for the value outside the loop.
   lval->IncRef();
-  return Exp::MakeLoopEntry(lval, NULL);
+  return Exp::MakeInitial(lval, NULL);
 }
 
 // get an expression for (first - second) * delta.

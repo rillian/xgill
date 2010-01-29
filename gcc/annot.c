@@ -1231,15 +1231,20 @@ void WriteAnnotationFile(FILE *file)
   // add declarations for annotation functions. these need to be wrapped
   // in macros to ensure they can be passed any type without casts and that
   // we see whichever type was used for the bound functions.
-  fprintf(file, "typedef struct __bound__ __bound__;\n");
-  fprintf(file, "long __ubound(__bound__*);\n");
-  fprintf(file, "#define ubound(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __ubound((__bound__*)(__bval)); })\n");
-  fprintf(file, "long __lbound(struct __bound__*);\n");
-  fprintf(file, "#define lbound(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __lbound((__bound__*)(__bval)); })\n");
-  fprintf(file, "long __zterm(struct __bound__*);\n");
-  fprintf(file, "#define zterm(X) ({ typeof((X)[0]) *__bval = (typeof((X)[0])*) (X); __zterm((__bound__*)(__bval)); })\n");
-  fprintf(file, "long __loop_entry(signed long);\n");
-  fprintf(file, "#define loop_entry(X) __loop_entry((signed long)X)\n");
+  fprintf(file,
+"typedef struct __bound__ __bound__;\n"
+"long __ubound(__bound__*);\n"
+"#define ubound(X) "
+  "({ typeof((X)[0]) *__bval = (X); __ubound((__bound__*)(__bval)); })\n"
+"long __lbound(struct __bound__*);\n"
+"#define lbound(X) "
+  "({ typeof((X)[0]) *__bval = (X); __lbound((__bound__*)(__bval)); })\n"
+"long __zterm(struct __bound__*);\n"
+"#define zterm(X) "
+  "({ typeof((X)[0]) *__bval = (X); __zterm((__bound__*)(__bval)); })\n"
+"#define initial(X) "
+  "({ typeof(X) __initial = (X); __initial; })\n"
+  );
 
   // add any enum definitions. enum definitions have to go before declarations
   // because enums cannot be declared in the way structs or unions are.
@@ -1551,30 +1556,36 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   // get the class, name and target of the annotation.
   const char *annot_class = NULL;
-  char *annot_name = malloc(strlen(annot_text) + 20);
+  char *annot_name = malloc(strlen(annot_text) + 100);
   XIL_Var annot_var = NULL;
   bool annot_type = false;
 
   if (TREE_CODE(node) == FUNCTION_DECL) {
     annot_class = "func";
 
-    // function annotations are uniqued by the annotation count, not just
-    // the syntax. there may be multiple intermediate asserts with the same
-    // text but different meanings (i.e. duplicate local variables).
-    xil_active_env.annot_count++;
+    if (point) {
+      // distinguish annotations at points in the function by a count, not just
+      // the syntax. there may be multiple intermediate asserts with the same
+      // text but different meanings (i.e. duplicate local variables).
+      xil_active_env.annot_count++;
+      sprintf(annot_name, "%s:%d:(%s)", purpose,
+              xil_active_env.annot_count, annot_text);
+    }
+    else {
+      sprintf(annot_name, "%s:(%s)", purpose, annot_text);
+    }
 
-    sprintf(annot_name, "%d:(%s)", xil_active_env.annot_count, annot_text);
     annot_var = XIL_TranslateVar(node);
   }
   else if (TREE_CODE(node) == VAR_DECL) {
     annot_class = "init";
-    sprintf(annot_name, "(%s)", annot_text);
+    sprintf(annot_name, "%s:(%s)", purpose, annot_text);
     annot_var = XIL_TranslateVar(node);
   }
   else if (TREE_CODE(node) == RECORD_TYPE ||
            TREE_CODE(node) == UNION_TYPE) {
     annot_class = "comp";
-    sprintf(annot_name, "(%s)", annot_text);
+    sprintf(annot_name, "%s:(%s)", purpose, annot_text);
 
     const char *csu_name = XIL_CSUName(node, NULL);
     gcc_assert(csu_name);

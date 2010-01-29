@@ -76,7 +76,7 @@ public:
     case EK_Frame:
       return;
 
-    case EK_LoopEntry:
+    case EK_Initial:
       if (is_function)
         exclude = true;
       return;
@@ -458,9 +458,9 @@ Bit* TranslateHeapBit(Exp *old_lval, Exp *new_lval, bool use_exit, Bit *bit)
 
 Exp* ConvertCallsiteMapper::Map(Exp *value, Exp *old)
 {
-  // strip LoopEntry expressions if we're not unrolling a loop iteration.
+  // strip Initial expressions if we're not unrolling a loop iteration.
   if (!unrolling) {
-    if (ExpLoopEntry *nvalue = value->IfLoopEntry()) {
+    if (ExpInitial *nvalue = value->IfInitial()) {
       Exp *target = nvalue->GetTarget();
       target->IncRef();
 

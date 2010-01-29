@@ -259,7 +259,7 @@ XIL_Exp XIL_ExpUnop(XIL_UnopKind unop, XIL_Exp op,
 XIL_Exp XIL_ExpBinop(XIL_BinopKind binop, XIL_Exp left_op, XIL_Exp right_op,
                      XIL_Type stride_type, int bits, int sign);
 
-XIL_Exp XIL_ExpLoopEntry(XIL_Exp target);
+XIL_Exp XIL_ExpInitial(XIL_Exp target);
 XIL_Exp XIL_ExpLBound(XIL_Exp target, XIL_Type stride_type);
 XIL_Exp XIL_ExpUBound(XIL_Exp target, XIL_Type stride_type);
 XIL_Exp XIL_ExpZTerm(XIL_Exp target, XIL_Type stride_type);

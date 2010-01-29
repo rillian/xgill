@@ -71,7 +71,7 @@ enum ExpKind {
   // lvalue modifiers.
   EK_Clobber = 40,
   EK_Exit = 41,
-  EK_LoopEntry = 42,
+  EK_Initial = 42,
 
   // rvalue modifiers.
   EK_Val = 30,
@@ -104,7 +104,7 @@ class ExpFrame;
 
 class ExpClobber;
 class ExpExit;
-class ExpLoopEntry;
+class ExpInitial;
 
 class ExpBound;
 class ExpTerminate;
@@ -159,7 +159,7 @@ class Exp : public HashObject
   static ExpClobber* MakeClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
                                  PPoint point, Location *location);
   static ExpExit* MakeExit(Exp *target, Exp *value_kind);
-  static ExpLoopEntry* MakeLoopEntry(Exp *target, Exp *value_kind);
+  static ExpInitial* MakeInitial(Exp *target, Exp *value_kind);
 
   // rvalue modifier constructors.
   static ExpVal* MakeVal(Exp *lval, Exp *value_kind, PPoint point,
@@ -242,7 +242,7 @@ class Exp : public HashObject
 
   DOWNCAST_TYPE(Exp, EK_, Clobber)
   DOWNCAST_TYPE(Exp, EK_, Exit)
-  DOWNCAST_TYPE(Exp, EK_, LoopEntry)
+  DOWNCAST_TYPE(Exp, EK_, Initial)
 
   DOWNCAST_TYPE(Exp, EK_, Val)
   DOWNCAST_TYPE(Exp, EK_, Guard)
@@ -266,7 +266,7 @@ class Exp : public HashObject
     case EK_VPtr:
     case EK_Clobber:
     case EK_Exit:
-    case EK_LoopEntry:
+    case EK_Initial:
       return true;
     // analysis expressions which behave like lvalues.
     case EK_Bound:
@@ -755,7 +755,7 @@ class ExpExit : public Exp
   friend class Exp;
 };
 
-class ExpLoopEntry : public Exp
+class ExpInitial : public Exp
 {
  public:
   // get the lvalue whose value at initial loop entry is indicated
@@ -777,7 +777,7 @@ class ExpLoopEntry : public Exp
   Exp *m_target;
   Exp *m_value_kind;
 
-  ExpLoopEntry(Exp *target, Exp *value_kind);
+  ExpInitial(Exp *target, Exp *value_kind);
   friend class Exp;
 };
 

@@ -427,7 +427,7 @@ bool IsNonNegative(Exp *exp)
   switch (exp->Kind()) {
   case EK_Drf:
   case EK_Clobber:
-  case EK_LoopEntry:
+  case EK_Initial:
     target = exp->GetLvalTarget();
     break;
   case EK_Val:

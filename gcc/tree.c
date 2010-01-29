@@ -87,9 +87,22 @@ void XIL_ProcessResult(struct XIL_TreeEnv *env, XIL_Exp result)
 
   if (env->result_lval) {
     XIL_Exp address = XIL_ExpAddress(result);
-    gcc_assert(address);
 
-    *env->result_lval = address;
+    if (address) {
+      *env->result_lval = address;
+    }
+    else {
+      // this should only show up for malformed initial() applications.
+      // TODO: need a better way of logging these.
+      gcc_assert(xil_has_annotation);
+      XIL_Var error_var =
+        XIL_VarLocal("__initial_error", "__initial_error", false);
+
+      XIL_Type error_type = XIL_TypeError();
+      XIL_CFGAddVar(error_var, error_type, 0);
+
+      *env->result_lval = XIL_ExpVar(error_var);
+    }
     return;
   }
 
@@ -776,6 +789,25 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     if (!value)
       return;
 
+    // check if this declaration indicates the initial value of a location
+    // for an annotation we are processing. these show up as initializers
+    // for variables named __initial.
+    if (xil_has_annotation && DECL_NAME(decl) &&
+        !strcmp(IDENTIFIER_POINTER(DECL_NAME(decl)), "__initial")) {
+      XIL_Exp xil_value;
+      MAKE_ENV(initial_env, env->point, env->post_edges);
+      initial_env.result_lval = &xil_value;
+      XIL_TranslateTree(&initial_env, value);
+
+      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+      XIL_Exp value_init = XIL_ExpInitial(xil_value);
+      XIL_CFGEdgeAssign(*env->point, after_point,
+                        xil_type, exp_decl, value_init);
+
+      *env->point = after_point;
+      return;
+    }
+
     MAKE_ENV(initial_env, env->point, env->post_edges);
     initial_env.result_assign = exp_decl;
     initial_env.result_assign_type = xil_type;
@@ -1219,8 +1251,9 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
   gcc_unreachable();
 }
 
-// if we are in an annotation and node is a call to a special annotation function,
-// generate the corresponding analysis expression for env and return true.
+// if we are in an annotation and node is a call to a special annotation
+// function, generate the corresponding analysis expression for env
+// and return true.
 bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
 {
   // annotation calls can only appear in annotations.
@@ -1233,11 +1266,12 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   if (TREE_CODE(function_var) != FUNCTION_DECL) return false;
 
   tree function_name = DECL_NAME(function_var);
-  if (!function_name || TREE_CODE(function_name) != IDENTIFIER_NODE) return false;
+  if (!function_name || TREE_CODE(function_name) != IDENTIFIER_NODE)
+    return false;
   const char *name = IDENTIFIER_POINTER(function_name);
 
   if (strcmp(name,"__ubound") && strcmp(name,"__lbound") &&
-      strcmp(name,"__zterm") && strcmp(name,"__loop_entry"))
+      strcmp(name,"__zterm"))
     return false;
 
   // this is an annotation function call. get the argument being passed.
@@ -1249,48 +1283,31 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   arg_env.result_rval = &xil_arg;
   XIL_TranslateTree(&arg_env, arg);
 
-  if (!strcmp(name,"__loop_entry")) {
-    // the LoopEntry needs to be applied to the address of the argument
-    // (i.e. the lvalue which was actually passed in). if the argument
-    // is not an lvalue then punt (we will detect the error later).
-    XIL_Exp address = XIL_ExpAddress(xil_arg);
-    if (address) {
-      XIL_Exp result = XIL_ExpLoopEntry(address);
-      XIL_ProcessResult(env, result);
-      return true;
-    }
-    return false;
-  }
-  else {
-    // some expression which needs a stride type. get this from
-    // the argument tree.
+  // figure out the stride type to use for this bound.
 
-    // if there is a leading cast then remove it. the annotation functions
-    // have a fake __bound__* argument type and casts to this type should
-    // be inserted for every use.
-    if (TREE_CODE(arg) == NOP_EXPR)
-      arg = TREE_OPERAND(arg, 0);
+  // if there is a leading cast then remove it. the annotation functions
+  // have a fake __bound__* argument type and casts to this type should
+  // be inserted for every use.
+  if (TREE_CODE(arg) == NOP_EXPR)
+    arg = TREE_OPERAND(arg, 0);
 
-    tree type = TREE_TYPE(arg);
-    if (TREE_CODE(type) != POINTER_TYPE) return false;
+  tree type = TREE_TYPE(arg);
+  if (TREE_CODE(type) != POINTER_TYPE) return false;
 
-    XIL_Type stride_type = XIL_TranslateType(TREE_TYPE(type));
+  XIL_Type stride_type = XIL_TranslateType(TREE_TYPE(type));
 
-    XIL_Exp result = NULL;
-    if (!strcmp(name,"__ubound"))
-      result = XIL_ExpUBound(xil_arg, stride_type);
-    else if (!strcmp(name,"__lbound"))
-      result = XIL_ExpLBound(xil_arg, stride_type);
-    else if (!strcmp(name,"__zterm"))
-      result = XIL_ExpZTerm(xil_arg, stride_type);
-    else
-      gcc_unreachable();
+  XIL_Exp result = NULL;
+  if (!strcmp(name,"__ubound"))
+    result = XIL_ExpUBound(xil_arg, stride_type);
+  else if (!strcmp(name,"__lbound"))
+    result = XIL_ExpLBound(xil_arg, stride_type);
+  else if (!strcmp(name,"__zterm"))
+    result = XIL_ExpZTerm(xil_arg, stride_type);
+  else
+    gcc_unreachable();
 
-    XIL_ProcessResult(env, result);
-    return true;
-  }
-
-  gcc_unreachable();
+  XIL_ProcessResult(env, result);
+  return true;
 }
 
 void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
@@ -1476,13 +1493,11 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
 
     MAKE_ENV(left_env, env->point, post_edges);
     left_env.result_lval = &xil_left;
-
     XIL_TranslateTree(&left_env, left);
 
     MAKE_ENV(right_env, env->point, post_edges);
     right_env.result_assign = xil_left;
     right_env.result_assign_type = xil_type;
-
     XIL_TranslateTree(&right_env, right);
 
     XIL_ConnectPostPoint(env->point, post_local);
