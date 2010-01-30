@@ -1,5 +1,5 @@
 AC_PREREQ(2.57)
-AC_INIT(sixgill, 0.10, [bhackett at stanford.edu])
+AC_INIT(sixgill, 0.91, [sg-discuss@sixgill.org])
 AC_CONFIG_HEADER([config.h])
 
 AC_PROG_CC
