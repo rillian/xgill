@@ -260,10 +260,6 @@ foreach my $report (@reports)
     print("Wrote report to $output\n");
 }
 
-# finished making all the reports, make an archive for the output directory.
-system("tar -czf $assertkind.tgz $assertkind");
-print "Made report archive $assertkind.tgz\n";
-
 # get the printable version of a report, stripping file and assert
 # identifier info.
 sub report_printable {

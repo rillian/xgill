@@ -151,6 +151,10 @@ sub run_index
 
     system("make_index $kind > $name.log");
 
+    # make an archive for the output directory.
+    system("tar -czf $kind.tgz $kind");
+    system("rm -rf $kind");
+
     print OUT "$name finished: ";
     print OUT scalar(localtime());
     print OUT "\n";
