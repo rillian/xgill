@@ -37,13 +37,15 @@ extern TransactionBackend backend_Graph;
 // stage 1: nodes whose outgoing edges are all in stage 0
 // stage 2: nodes whose outgoing edges are all in stage 0 or 1
 // ...
-// stage last: all remaining nodes
+// stage last: all remaining nodes. also includes nodes from a second 'unknown'
+//             hash whose outgoing edges are not known (i.e. indirect calls).
 
 // access to the graph functions for sorting/storing a hash.
 // for use by the block backend.
 BACKEND_IMPL_BEGIN
 
-void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *db_name,
+void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *hash_unk,
+                           const uint8_t *db_name,
                            const uint8_t *sort_name, size_t stage_count);
 
 BACKEND_IMPL_END
@@ -55,7 +57,8 @@ NAMESPACE_BEGIN(Backend)
 // in the database db_name; the resulting sort will have exactly one entry
 // for each key in db_name. stores the resulting sort to disk.
 TAction* GraphSortHash(Transaction *t,
-                       const char *hash_name, const char *db_name,
+                       const char *hash_name, const char *hash_unk,
+                       const char *db_name,
                        const char *sort_name, size_t stage_count);
 
 // load a sort from disk. overwrites any existing sort. returns the number

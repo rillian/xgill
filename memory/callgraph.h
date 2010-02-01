@@ -104,8 +104,10 @@ class CallEdgeSet : public HashObject
 // from storage.h; flushing these caches will write out the modified data.
 
 // add to the append callgraph caches any direct call edges in cfg.
-// also adds those direct call edges to the callees list.
-void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees);
+// also adds those direct call edges to the callees list, and indicates
+// whether there are any indirect calls in cfg.
+void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
+                         bool *indirect);
 
 // add to the append callgraph caches the call edges for any indirect
 // calls in CFG. uses the escape analysis to find the possible targets.

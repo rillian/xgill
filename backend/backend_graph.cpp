@@ -96,13 +96,15 @@ struct SortDataString
   }
 };
 
-void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *db_name,
+void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *hash_unk,
+                           const uint8_t *db_name,
                            const uint8_t *sort_name, size_t stage_count)
 {
   Xdb *xdb = GetDatabase((const char*) db_name, true);
   Assert(xdb);
 
   DataStringHash *graph = GetNamedHash(hash_name);
+  DataStringHash *unknown_hash = GetNamedHash(hash_unk);
 
   // get the last stage, which will contain all entries that could not
   // be placed in earlier stages. during construction it will contain
@@ -143,6 +145,12 @@ void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *db_name,
           if (!stage_members.Lookup(entries->At(eind)))
             missed = true;
         }
+      }
+
+      if (unknown_hash && unknown_hash->Lookup(key, false)) {
+        // this key and everything which reaches it will end up in
+        // the last stage.
+        missed = true;
       }
 
       if (missed) {
@@ -202,11 +210,12 @@ bool GraphSortHash(Transaction *t, const Vector<TOperand*> &arguments,
 {
   BACKEND_ARG_COUNT(2);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
-  BACKEND_ARG_STRING(1, db_name, db_length);
-  BACKEND_ARG_STRING(2, sort_name, sort_length);
-  BACKEND_ARG_INTEGER(3, stage_count);
+  BACKEND_ARG_STRING(1, hash_unk, unk_length);
+  BACKEND_ARG_STRING(2, db_name, db_length);
+  BACKEND_ARG_STRING(3, sort_name, sort_length);
+  BACKEND_ARG_INTEGER(4, stage_count);
 
-  Backend_GraphSortHash(hash_name, db_name, sort_name, stage_count);
+  Backend_GraphSortHash(hash_name, hash_unk, db_name, sort_name, stage_count);
   return true;
 }
 
@@ -312,11 +321,13 @@ TransactionBackend backend_Graph(start_Graph, finish_Graph);
 NAMESPACE_BEGIN(Backend)
 
 TAction* GraphTopoSortHash(Transaction *t,
-                           const char *hash_name, const char *db_name,
+                           const char *hash_name, const char *hash_unk,
+                           const char *db_name,
                            const char *sort_name, size_t stage_count)
 {
   BACKEND_CALL(GraphTopoSortHash, 0);
   call->PushArgument(new TOperandString(t, hash_name));
+  call->PushArgument(new TOperandString(t, hash_unk));
   call->PushArgument(new TOperandString(t, db_name));
   call->PushArgument(new TOperandString(t, sort_name));
   call->PushArgument(new TOperandInteger(t, stage_count));

@@ -1468,6 +1468,7 @@ static void finish_Block()
 
   // sort and write out the callgraph hash.
   BACKEND_IMPL::Backend_GraphSortHash((const uint8_t*) CALLGRAPH_NAME,
+                                      (const uint8_t*) CALLGRAPH_INDIRECT,
                                       (const uint8_t*) BODY_DATABASE,
                                       (const uint8_t*) CALLGRAPH_NAME,
                                       CALLGRAPH_STAGES);
@@ -1761,11 +1762,12 @@ extern "C" void XIL_WriteGenerated()
 
     // remember the direct callees of this function.
     Vector<Variable*> callees;
+    bool indirect_callee = false;
 
     // do callgraph and escape processing.
     for (size_t cind = 0; cind < split_cfgs.Size(); cind++) {
       EscapeProcessCFG(split_cfgs[cind]);
-      CallgraphProcessCFG(split_cfgs[cind], &callees);
+      CallgraphProcessCFG(split_cfgs[cind], &callees, &indirect_callee);
     }
 
     // add the direct call edges to the callgraph hash. only do this for
@@ -1779,6 +1781,11 @@ extern "C" void XIL_WriteGenerated()
 
         t->PushAction(
           Backend::HashInsertValue(t, CALLGRAPH_NAME, key_arg, callee_arg));
+      }
+
+      if (indirect_callee) {
+        t->PushAction(
+          Backend::HashInsertKey(t, CALLGRAPH_INDIRECT, key_arg));
       }
     }
 

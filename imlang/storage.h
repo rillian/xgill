@@ -41,6 +41,9 @@ NAMESPACE_XGILL_BEGIN
 // hash name and sort for the callgraph we will topo sort from.
 #define CALLGRAPH_NAME "callgraph"
 
+// hash name for nodes in the callgraph containing indirect calls.
+#define CALLGRAPH_INDIRECT "callgraph_indirect"
+
 // database to receive contents of files.
 #define SOURCE_DATABASE "file_source.xdb"
 

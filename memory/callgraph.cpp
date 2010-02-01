@@ -244,7 +244,8 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
   callee_cset->AddEdge(CallEdge(where, callee));
 }
 
-void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees)
+void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
+                         bool *indirect)
 {
   for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
     PEdge *edge = cfg->GetEdge(eind);
@@ -259,6 +260,9 @@ void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees)
         if (!callees->Contains(callee))
           callees->PushBack(callee);
       }
+
+      if (!callee)
+        *indirect = true;
     }
   }
 }
