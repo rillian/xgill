@@ -109,7 +109,7 @@ void MergeExternalLookup<T,U,V>::WriteKeys(Transaction *nt, Transaction *t)
   for (size_t ind = 0; ind < m_flush_data.Size(); ind++) {
     MergeExternalData<T,U,V> *data = m_flush_data[ind];
 
-    TOperandString *data_arg = data_list->GetOperandString(ind);
+    TOperandString *data_arg = data_list->GetOperand(ind)->AsString();
     if (data_arg->GetDataLength() != 0)
       TOperandString::Uncompress(data_arg, &m_scratch_old);
 
@@ -173,7 +173,7 @@ void MergeExternalLookup<T,U,V>::CheckWrite(
   for (size_t ind = 0; ind < m_flush_data.Size(); ind++) {
     MergeExternalData<T,U,V> *data = m_flush_data[ind];
 
-    TOperandBoolean *bool_arg = success_list->GetOperandBoolean(ind);
+    TOperandBoolean *bool_arg = success_list->GetOperand(ind)->AsBoolean();
     if (bool_arg->IsTrue()) {
       // successfully inserted the data. clear out the new data.
 

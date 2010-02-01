@@ -67,6 +67,7 @@ class TOperandList;
 class TOperandString;
 class TOperandTimeStamp;
 class TOperandBoolean;
+class TOperandInteger;
 class TAction;
 
 // all information relating to a transaction, including the action it runs,
@@ -167,6 +168,7 @@ class Transaction
   TOperandString*    LookupString(size_t var, bool required = true);
   TOperandTimeStamp* LookupTimeStamp(size_t var, bool required = true);
   TOperandBoolean*   LookupBoolean(size_t var, bool required = true);
+  TOperandInteger*   LookupInteger(size_t var, bool required = true);
 
  private:
 

@@ -90,10 +90,6 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
     t->PushAction(
       Backend::Compound::HashCreateXdbKeys(
         t, WORKLIST_FUNC_HASH, BODY_DATABASE));
-
-    // load the initial worklist sort information.
-    t->PushAction(
-      Backend::GraphLoadSort(t, WORKLIST_FUNC_SORT, BODY_SORT_FILE));
   }
 
   SubmitTransaction(t);
@@ -124,8 +120,8 @@ void MakeFetchTransaction(Transaction *t, const Vector<const char*> &checks,
   else {
     // pull a new function off the worklist.
     t->PushAction(
-      Backend::Compound::HashPopXdbKeyWithSort(
-        t, WORKLIST_FUNC_SORT, WORKLIST_FUNC_HASH, BODY_DATABASE,
+      Backend::Compound::HashPopXdbKey(
+        t, WORKLIST_FUNC_HASH, BODY_DATABASE,
         body_key_result, body_data_result));
   }
 

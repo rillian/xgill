@@ -42,22 +42,13 @@ TAction* HashCreateXdbKeys(Transaction *t,
 // and returns that element along with its contents
 // in the specified database. this is normally used for removing items
 // from worklists whose keys are keys in a database, i.e. those
-// initialized with HashCreateXdbKeys. HashPopXdbKeyWithSort is
-// similar, taking an extra sort whose maximum element will be picked
-// if it is non-empty.
+// initialized with HashCreateXdbKeys.
 
 TAction* HashPopXdbKey(Transaction *t,
                        const char *hash_name,
                        const char *db_name,
                        size_t key_result,
                        size_t value_result);
-
-TAction* HashPopXdbKeyWithSort(Transaction *t,
-                               const char *sort_name,
-                               const char *hash_name,
-                               const char *db_name,
-                               size_t key_result,
-                               size_t value_result);
 
 // XdbReplaceConditional is useful for updating databases for which
 // entries might be written in multiple places, but contains few

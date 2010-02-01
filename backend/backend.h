@@ -85,9 +85,7 @@ class TransactionBackend
 
 // register a function NAME whose implementation is at BACKEND_IMPL::NAME.
 #define BACKEND_REGISTER(NAME)                                          \
-  do {                                                                  \
-    TransactionBackend::RegisterFunction(#NAME, Backend_IMPL::NAME);    \
-  } while (0)
+  TransactionBackend::RegisterFunction(#NAME, Backend_IMPL::NAME);
 
 // make a call to function NAME, storing the result (if any) in RESULT.
 #define BACKEND_CALL(NAME, RESULT)                                      \
@@ -97,73 +95,62 @@ class TransactionBackend
 
 // check that the number of arguments is exactly NUM.
 #define BACKEND_ARG_COUNT(NUM)                                  \
-  do {                                                          \
-    if (arguments.Size() != NUM) {                              \
-      logout << "ERROR: Expected " #NUM " arguments." << endl;  \
-      return false;                                             \
-    }                                                           \
-  } while (0)
+  if (arguments.Size() != NUM) {                                \
+    logout << "ERROR: Expected " #NUM " arguments." << endl;    \
+    return false;                                               \
+  }
 
 // get a NULL-terminated string from argument POS and store it in NAME/LEN.
 // LEN includes the NULL-terminator, i.e. it is strlen(NAME) + 1.
 #define BACKEND_ARG_STRING(POS, NAME, LEN)                              \
-  const uint8_t *NAME = NULL;                                           \
-  size_t LEN = 0;                                                       \
-  do {                                                                  \
-    if (arguments[POS]->Kind() != TO_String) {                          \
-      logout << "ERROR: Argument " #POS " must be a string." << endl;   \
-      return false;                                                     \
-    }                                                                   \
-    TOperandString *arg = (TOperandString*)arguments[POS];              \
-    NAME = arg->GetData();                                              \
-    LEN = arg->GetDataLength();                                         \
-    if (!ValidString(NAME, LEN)) {                                      \
-      logout << "ERROR: Argument " #POS " must be NULL-terminated: ";   \
-      PrintString(logout, NAME, LEN);                                   \
-      logout << endl;                                                   \
-      return false;                                                     \
-    }                                                                   \
-  } while (0)
+  if (arguments[POS]->Kind() != TO_String) {                            \
+    logout << "ERROR: Argument " #POS " must be a string." << endl;     \
+    return false;                                                       \
+  }                                                                     \
+  const uint8_t *NAME = arguments[POS]->AsString()->GetData();          \
+  size_t LEN = arguments[POS]->AsString()->GetDataLength();             \
+  if (!ValidString(NAME, LEN)) {                                        \
+    logout << "ERROR: Argument " #POS " must be NULL-terminated: ";     \
+    PrintString(logout, NAME, LEN);                                     \
+    logout << endl;                                                     \
+    return false;                                                       \
+  }
 
 // get an unformatted string from argument POS and store in DATA/LEN.
 #define BACKEND_ARG_DATA(POS, DATA, LEN)                                \
-  const uint8_t *DATA = NULL;                                           \
-  size_t LEN = 0;                                                       \
-  do {                                                                  \
-    if (arguments[POS]->Kind() != TO_String) {                          \
-      logout << "ERROR: Argument " #POS " must be a string." << endl;   \
-      return false;                                                     \
-    }                                                                   \
-    TOperandString *arg = (TOperandString*)arguments[POS];              \
-    DATA = arg->GetData();                                              \
-    LEN = arg->GetDataLength();                                         \
-    if (LEN == 0) {                                                     \
-      logout << "ERROR: Argument " #POS " must not be empty." << endl;  \
-      return false;                                                     \
-    }                                                                   \
-  } while (0)
+  if (arguments[POS]->Kind() != TO_String) {                            \
+    logout << "ERROR: Argument " #POS " must be a string." << endl;     \
+    return false;                                                       \
+  }                                                                     \
+  const uint8_t *DATA = arguments[POS]->AsString()->GetData();          \
+  size_t LEN = arguments[POS]->AsString()->GetDataLength();             \
+  if (LEN == 0) {                                                       \
+    logout << "ERROR: Argument " #POS " must not be empty." << endl;    \
+    return false;                                                       \
+  }
 
 // get a timestamp from argument POS and store it in TIME.
-#define BACKEND_ARG_TIMESTAMP(POS, TIME)                                 \
-  TimeStamp TIME = 0;                                                    \
-  do {                                                                   \
-    if (arguments[POS]->Kind() != TO_TimeStamp) {                        \
-      logout << "ERROR: Argument " #POS " must be a timestamp." << endl; \
-      return false;                                                      \
-    }                                                                    \
-    TOperandTimeStamp *arg = (TOperandTimeStamp*)arguments[POS];         \
-    TIME = arg->GetStamp();                                              \
-  } while (0)
+#define BACKEND_ARG_TIMESTAMP(POS, TIME)                                \
+  if (arguments[POS]->Kind() != TO_TimeStamp) {                         \
+    logout << "ERROR: Argument " #POS " must be a timestamp." << endl;  \
+    return false;                                                       \
+  }                                                                     \
+  TimeStamp TIME = arguments[POS]->AsTimeStamp()->GetStamp();
 
 // get a list from argument POS and store in LIST.
 #define BACKEND_ARG_LIST(POS, LIST)                                     \
-  TOperandList *LIST = NULL;                                            \
-  do {                                                                  \
-    if (arguments[POS]->Kind() != TO_List) {                            \
-      logout << "ERROR: Argument " #POS " must be a list." << endl;     \
-      return false;                                                     \
-    }                                                                   \
-    LIST = (TOperandList*)arguments[POS];                               \
-  } while (0)
+  if (arguments[POS]->Kind() != TO_List) {                              \
+    logout << "ERROR: Argument " #POS " must be a list." << endl;       \
+    return false;                                                       \
+  }                                                                     \
+  TOperandList *LIST = arguments[POS]->AsList();
+
+// get an integer from argument POS and store in in VALUE.
+#define BACKEND_ARG_INTEGER(POS, VALUE)                                 \
+  if (arguments[POS]->Kind() != TO_Integer) {                           \
+    logout << "ERROR: Argument " #POS " must be an integer." << endl;   \
+    return false;                                                       \
+  }                                                                     \
+  uint32_t VALUE = arguments[POS]->AsInteger()->GetValue();
 
 NAMESPACE_XGILL_END

@@ -28,7 +28,7 @@ NAMESPACE_XGILL_BEGIN
 
 extern TransactionBackend backend_Xdb;
 
-// interface which other backends should use to access databases.
+// interface which other backends can use to access databases.
 Xdb* GetDatabase(const char *name, bool do_create);
 
 // get the contents of xdb at key and uncompress them into data.

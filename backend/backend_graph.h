@@ -24,52 +24,51 @@ NAMESPACE_XGILL_BEGIN
 
 extern TransactionBackend backend_Graph;
 
-// access to the graph functions for sorting a hash and storing the sort,
+// the graph backend is used to sort hashes which represent graphs
+// (i.e. callgraphs). these sorts allow analyses to process functions in
+// a bottom up fashion while a) being deterministic even if many cores are
+// performing the analysis, and b) being robust against small changes in
+// the input graph.
+
+// to this end, the produced sorts do not keep a per-node ordering but
+// separate the nodes into discrete stages. nodes within each stage are sorted
+// by their name.
+// stage 0: nodes with no outgoing edges
+// stage 1: nodes whose outgoing edges are all in stage 0
+// stage 2: nodes whose outgoing edges are all in stage 0 or 1
+// ...
+// stage last: all remaining nodes
+
+// access to the graph functions for sorting/storing a hash.
 // for use by the block backend.
 BACKEND_IMPL_BEGIN
 
-void Backend_GraphTopoSortHash(const uint8_t *hash_name,
-                               const uint8_t *sort_name);
-void Backend_GraphStoreSort(const uint8_t *sort_name,
-                            const uint8_t *file_name);
+void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *db_name,
+                           const uint8_t *sort_name, size_t stage_count);
 
 BACKEND_IMPL_END
 
 NAMESPACE_BEGIN(Backend)
 
-TAction* GraphSortExists(Transaction *t,
-                         const char *sort_name,
-                         size_t var_result);
-
 // topo sort the graph specified by the entries in hash_name,
-// storing the result in sort_name. the smallest entries in
-// the sort are those towards the roots.
-TAction* GraphTopoSortHash(Transaction *t,
-                           const char *hash_name,
-                           const char *sort_name);
+// storing the result in sort_name. entries in hash_name represent keys
+// in the database db_name; the resulting sort will have exactly one entry
+// for each key in db_name. stores the resulting sort to disk.
+TAction* GraphSortHash(Transaction *t,
+                       const char *hash_name, const char *db_name,
+                       const char *sort_name, size_t stage_count);
 
-// store the specified sort in the specified file.
-TAction* GraphStoreSort(Transaction *t,
-                        const char *sort_name,
-                        const char *file_name);
-
-// load a sort from the specified file.
+// load a sort from disk. overwrites any existing sort. returns the number
+// of intermediate stages which were read in. valid stage indexes are
+// [0, stage_count].
 TAction* GraphLoadSort(Transaction *t,
-                       const char *sort_name,
-                       const char *file_name);
+                       const char *sort_name, size_t stage_count,
+                       size_t var_result);
 
-// reverse the order of the specified sort.
-TAction* GraphReverseSort(Transaction *t,
-                          const char *sort_name);
-
-// return the maximum element in the specified sort.
-TAction* GraphGetMaxSort(Transaction *t,
-                         const char *sort_name,
-                         size_t var_result);
-
-// remove the maximum element in the specified sort.
-TAction* GraphRemoveMaxSort(Transaction *t,
-                            const char *sort_name);
+// pop the next node from the specified stage.
+TAction* GraphPopSort(Transaction *t,
+                      const char *sort_name, size_t stage,
+                      size_t var_result);
 
 NAMESPACE_END(Backend)
 

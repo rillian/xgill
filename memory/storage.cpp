@@ -1083,7 +1083,7 @@ void GetCalleeModsets(Transaction *t, Variable *function,
 
     TOperandList *modset_list = t->LookupList(modset_list_result);
     for (size_t oind = 0; oind < modset_list->GetCount(); oind++) {
-      TOperandString *modset_data = modset_list->GetOperandString(oind);
+      TOperandString *modset_data = modset_list->GetOperand(oind)->AsString();
 
       Vector<BlockModset*> bmod_list;
       BlockModsetUncompress(t, modset_data, &bmod_list);

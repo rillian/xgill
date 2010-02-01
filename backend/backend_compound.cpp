@@ -83,43 +83,6 @@ TAction* HashPopXdbKey(Transaction *t,
   return sequence;
 }
 
-// HashPopXdbKeyWithSort ($sortname, $hashname, $dbname)
-//   $return_key = GraphGetMaxSort($sortname)
-//   GraphRemoveMaxSort($sortname)
-//   HashRemove($hashname, $return_key)
-//   $return_empty = StringIsEmpty($return_key)
-//   if $return_empty
-//     $return_key = HashChooseKey($hashname)
-//     HashRemove($hashname, $return_key)
-//   $return_value = XdbLookup($dbname, $return_key)
-
-TAction* HashPopXdbKeyWithSort(Transaction *t,
-                               const char *sort_name,
-                               const char *hash_name,
-                               const char *db_name,
-                               size_t key_result,
-                               size_t value_result)
-{
-  TOperand *key_arg = new TOperandVariable(t, key_result);
-
-  size_t empty_var = t->MakeVariable();
-  TOperand *empty_arg = new TOperandVariable(t, empty_var);
-
-  TActionTest *empty_test = new TActionTest(t, empty_arg, true);
-  empty_test->PushAction(HashChooseKey(t, hash_name, key_result));
-  empty_test->PushAction(HashRemove(t, hash_name, key_arg));
-
-  TActionSequence *sequence = new TActionSequence(t);
-  sequence->PushAction(GraphGetMaxSort(t, sort_name, key_result));
-  sequence->PushAction(GraphRemoveMaxSort(t, sort_name));
-  sequence->PushAction(HashRemove(t, hash_name, key_arg));
-  sequence->PushAction(StringIsEmpty(t, key_arg, empty_var));
-  sequence->PushAction(empty_test);
-  sequence->PushAction(XdbLookup(t, db_name, key_arg, value_result));
-
-  return sequence;
-}
-
 // XdbReplaceConditional ($dbname, $key, $value, $rstamp, $succeed_action)
 //   $timevar := XdbTimeStamp($dbname, $key)
 //   $cmpvar := TimeStampLessEqual($timevar, $rstamp)

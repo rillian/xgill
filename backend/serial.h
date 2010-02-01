@@ -28,7 +28,7 @@
 
 // children:
 //   TAG_Kind (all)
-//   TAG_Index (variable)
+//   TAG_Index (variable, integer)
 //   TAG_True / TAG_False (boolean)
 //   TAG_String (string)
 //   TAG_TimeStamp (timestamp)
@@ -57,7 +57,6 @@
 ///////////////////////////////
 
 // children:
-//   TAG_Name (for backend)
 //   TAG_TAction*
 //   TAG_TransactionInitial
 //   TAG_TransactionFinal

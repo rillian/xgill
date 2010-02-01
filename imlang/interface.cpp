@@ -37,6 +37,9 @@ NAMESPACE_XGILL_USING
   TYPE * new_ ##NAME = (TYPE*) NAME;            \
   if (new_ ##NAME) new_ ##NAME ->IncRef();
 
+// number of stages to generate in the callgraph sort.
+#define CALLGRAPH_STAGES 10
+
 /////////////////////////////////////////////////////////////////////
 // Utility
 /////////////////////////////////////////////////////////////////////
@@ -1464,10 +1467,10 @@ static void finish_Block()
     return;
 
   // sort and write out the callgraph hash.
-  BACKEND_IMPL::Backend_GraphTopoSortHash((const uint8_t*) CALLGRAPH_HASH,
-                                          (const uint8_t*) CALLGRAPH_SORT);
-  BACKEND_IMPL::Backend_GraphStoreSort((const uint8_t*) CALLGRAPH_SORT,
-                                       (const uint8_t*) BODY_SORT_FILE);
+  BACKEND_IMPL::Backend_GraphSortHash((const uint8_t*) CALLGRAPH_NAME,
+                                      (const uint8_t*) BODY_DATABASE,
+                                      (const uint8_t*) CALLGRAPH_NAME,
+                                      CALLGRAPH_STAGES);
 
   // flush any remaining escape/callgraph changes.
   FlushEscapeBackend();
@@ -1775,7 +1778,7 @@ extern "C" void XIL_WriteGenerated()
         TOperand *callee_arg = new TOperandString(t, name);
 
         t->PushAction(
-          Backend::HashInsertValue(t, CALLGRAPH_HASH, key_arg, callee_arg));
+          Backend::HashInsertValue(t, CALLGRAPH_NAME, key_arg, callee_arg));
       }
     }
 

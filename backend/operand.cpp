@@ -57,6 +57,11 @@ void TOperand::Write(Buffer *buf, const TOperand *o)
     WriteTagEmpty(buf, no->IsTrue() ? TAG_True : TAG_False);
     break;
   }
+  case TO_Integer: {
+    const TOperandInteger *no = (const TOperandInteger*)o;
+    WriteTagUInt32(buf, TAG_Index, no->GetValue());
+    break;
+  }
   default:
     Assert(false);
   }
@@ -79,43 +84,32 @@ TOperand* TOperand::Read(Buffer *buf, Transaction *t)
   while (!ReadCloseTag(buf, TAG_TOperand)) {
     switch (PeekOpenTag(buf)) {
     case TAG_Kind: {
-      Try(!kind);
       Try(ReadTagUInt32(buf, TAG_Kind, &kind));
       break;
     }
     case TAG_Index: {
-      Try(!index);
-      Try(kind == TO_Variable);
       Try(ReadTagUInt32(buf, TAG_Index, &index));
       break;
     }
     case TAG_True: {
-      Try(!is_true && !is_false);
-      Try(kind == TO_Boolean);
       Try(ReadTagEmpty(buf, TAG_True));
       is_true = true;
       break;
     }
     case TAG_False: {
-      Try(!is_true && !is_false);
-      Try(kind == TO_Boolean);
       Try(ReadTagEmpty(buf, TAG_False));
       is_false = true;
       break;
     }
     case TAG_String: {
-      Try(!str_base);
-      Try(kind == TO_String);
       Try(ReadString(buf, &str_base, &str_len));
       break;
     }
     case TAG_TimeStamp: {
-      Try(kind == TO_TimeStamp);
       Try(ReadTagUInt64(buf, TAG_TimeStamp, &timestamp));
       break;
     }
     case TAG_TOperand: {
-      Try(kind == TO_List);
       TOperand *op;
       Try(op = TOperand::Read(buf, t));
       Try(op->Kind() != TO_Variable);
@@ -149,6 +143,8 @@ TOperand* TOperand::Read(Buffer *buf, Transaction *t)
   case TO_Boolean:
     Try(is_true || is_false);
     return new TOperandBoolean(t, is_true);
+  case TO_Integer:
+    return new TOperandInteger(t, index);
   default:
     Try(false);
     return NULL;
@@ -163,11 +159,6 @@ TOperandVariable::TOperandVariable(Transaction *t, size_t name)
   : TOperand(t, TO_Variable), m_name(name)
 {
   Assert(m_name != 0);
-}
-
-size_t TOperandVariable::GetName() const
-{
-  return m_name;
 }
 
 void TOperandVariable::Print(OutStream &out) const
@@ -194,44 +185,6 @@ void TOperandList::PushOperand(TOperand *op)
   Assert(op->Kind() != TO_Variable);
 
   m_list.PushBack(op);
-}
-
-size_t TOperandList::GetCount() const
-{
-  return m_list.Size();
-}
-
-TOperand* TOperandList::GetOperand(size_t ind) const
-{
-  return m_list[ind];
-}
-
-TOperandList* TOperandList::GetOperandList(size_t ind) const
-{
-  TOperand *res = m_list[ind];
-  Assert(res->Kind() == TO_List);
-  return (TOperandList*) res;
-}
-
-TOperandString* TOperandList::GetOperandString(size_t ind) const
-{
-  TOperand *res = m_list[ind];
-  Assert(res->Kind() == TO_String);
-  return (TOperandString*) res;
-}
-
-TOperandTimeStamp* TOperandList::GetOperandTimeStamp(size_t ind) const
-{
-  TOperand *res = m_list[ind];
-  Assert(res->Kind() == TO_TimeStamp);
-  return (TOperandTimeStamp*) res;
-}
-
-TOperandBoolean* TOperandList::GetOperandBoolean(size_t ind) const
-{
-  TOperand *res = m_list[ind];
-  Assert(res->Kind() == TO_Boolean);
-  return (TOperandBoolean*) res;
 }
 
 void TOperandList::Print(OutStream &out) const
@@ -283,16 +236,6 @@ TOperandString::TOperandString(Transaction *t,
   m_data_length = strlen(data) + 1;
 }
 
-const uint8_t* TOperandString::GetData() const
-{
-  return m_data;
-}
-
-size_t TOperandString::GetDataLength() const
-{
-  return m_data_length;
-}
-
 void TOperandString::Print(OutStream &out) const
 {
   if (m_data_length != 0) {
@@ -313,11 +256,6 @@ TOperandTimeStamp::TOperandTimeStamp(Transaction *t, TimeStamp stamp)
   : TOperand(t, TO_TimeStamp), m_stamp(stamp)
 {}
 
-TimeStamp TOperandTimeStamp::GetStamp() const
-{
-  return m_stamp;
-}
-
 void TOperandTimeStamp::Print(OutStream &out) const
 {
   out << "timestamp";
@@ -331,14 +269,22 @@ TOperandBoolean::TOperandBoolean(Transaction *t, bool flag)
   : TOperand(t, TO_Boolean), m_flag(flag)
 {}
 
-bool TOperandBoolean::IsTrue() const
-{
-  return m_flag;
-}
-
 void TOperandBoolean::Print(OutStream &out) const
 {
   out << (m_flag ? "true" : "false");
+}
+
+/////////////////////////////////////////////////////////////////////
+// TOperandInteger
+/////////////////////////////////////////////////////////////////////
+
+TOperandInteger::TOperandInteger(Transaction *t, uint32_t value)
+  : TOperand(t, TO_Integer), m_value(value)
+{}
+
+void TOperandInteger::Print(OutStream &out) const
+{
+  out << m_value;
 }
 
 NAMESPACE_XGILL_END

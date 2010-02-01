@@ -81,10 +81,6 @@ void MakeInitTransaction(Transaction *t, const Vector<const char*> &functions)
     t->PushAction(
       Backend::Compound::HashCreateXdbKeys(
         t, WORKLIST_GLOB_HASH, INIT_DATABASE));
-
-    // load the initial worklist sort information.
-    t->PushAction(
-      Backend::GraphLoadSort(t, WORKLIST_FUNC_SORT, BODY_SORT_FILE));
   }
 }
 
@@ -100,8 +96,8 @@ void MakeFetchTransaction(Transaction *t,
         glob_key_result, glob_data_result)));
 
   t->PushAction(
-    Backend::Compound::HashPopXdbKeyWithSort(
-      t, WORKLIST_FUNC_SORT, WORKLIST_FUNC_HASH, BODY_DATABASE,
+    Backend::Compound::HashPopXdbKey(
+      t, WORKLIST_FUNC_HASH, BODY_DATABASE,
       body_key_result, body_data_result));
 
   TOperand *body_key_arg = new TOperandVariable(t, body_key_result);

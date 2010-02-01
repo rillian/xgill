@@ -347,29 +347,31 @@ TOperand* Transaction::Lookup(size_t var, bool required)
 TOperandList* Transaction::LookupList(size_t var, bool required)
 {
   TOperand *res = Lookup(var, required);
-  Assert(res == NULL || res->Kind() == TO_List);
-  return (TOperandList*)res;
+  return res ? res->AsList() : NULL;
 }
 
 TOperandString* Transaction::LookupString(size_t var, bool required)
 {
   TOperand *res = Lookup(var, required);
-  Assert(res == NULL || res->Kind() == TO_String);
-  return (TOperandString*)res;
+  return res ? res->AsString() : NULL;
 }
 
 TOperandTimeStamp* Transaction::LookupTimeStamp(size_t var, bool required)
 {
   TOperand *res = Lookup(var, required);
-  Assert(res == NULL || res->Kind() == TO_TimeStamp);
-  return (TOperandTimeStamp*)res;
+  return res ? res->AsTimeStamp() : NULL;
 }
 
 TOperandBoolean* Transaction::LookupBoolean(size_t var, bool required)
 {
   TOperand *res = Lookup(var, required);
-  Assert(res == NULL || res->Kind() == TO_Boolean);
-  return (TOperandBoolean*)res;
+  return res ? res->AsBoolean() : NULL;
+}
+
+TOperandInteger* Transaction::LookupInteger(size_t var, bool required)
+{
+  TOperand *res = Lookup(var, required);
+  return res ? res->AsInteger() : NULL;
 }
 
 /////////////////////////////////////////////////////////////////////

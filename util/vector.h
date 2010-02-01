@@ -203,27 +203,61 @@ class Vector
   ALLOC_OVERRIDE(g_alloc_Vector);
 };
 
-// sorting method for a vector of objects. CMP contains a Compare()
-// method for comparing objects. TODO: just uses bubble sort.
+// sorting method for a partial vector of objects. CMP contains a Compare()
+// method for comparing objects. this uses quicksort.
+// sorts the region [start, last>
+template <class T, class CMP>
+inline void SortVectorRegion(Vector<T> *pdata, size_t start, size_t last)
+{
+  // ignore already sorted regions.
+  if (last - start <= 1)
+    return;
+
+  // bubble sort small regions.
+  if (last - start <= 5) {
+    bool changed;
+    do {
+      changed = false;
+      for (size_t ind = start; ind < last - 1; ind++) {
+        int res = CMP::Compare(pdata->At(ind), pdata->At(ind + 1));
+        if (res > 0) {
+          T tmp = pdata->At(ind);
+          pdata->At(ind) = pdata->At(ind + 1);
+          pdata->At(ind + 1) = tmp;
+          changed = true;
+        }
+      }
+    } while (changed);
+    return;
+  }
+
+  size_t pivot_ind = (start + last) / 2;
+  T pivot_value = pdata->At(pivot_ind);
+  pdata->At(pivot_ind) = pdata->At(last - 1);
+  pdata->At(last - 1) = pivot_value;
+
+  // all entries in [start, less_ind> are less than the pivot value.
+  size_t less_ind = start;
+
+  for (size_t ind = 0; ind < last; ind++) {
+    int res = CMP::Compare(pdata->At(ind), pivot_value);
+    if (res < 0) {
+      T tmp = pdata->At(less_ind);
+      pdata->At(less_ind) = pdata->At(ind);
+      pdata->At(ind) = tmp;
+      less_ind++;
+    }
+  }
+
+  SortVectorRegion<T,CMP>(pdata, start, less_ind);
+  SortVectorRegion<T,CMP>(pdata, less_ind, last);
+}
+
+// sort an entire vector using SortVectorRegion.
 template <class T, class CMP>
 inline void SortVector(Vector<T> *pdata)
 {
-  if (pdata->Size() <= 1)
-    return;
-
-  bool changed;
-  do {
-    changed = false;
-    for (size_t ind = 0; ind < pdata->Size() - 1; ind++) {
-      int res = CMP::Compare(pdata->At(ind), pdata->At(ind + 1));
-      if (res > 0) {
-        T tmp = pdata->At(ind);
-        pdata->At(ind) = pdata->At(ind + 1);
-        pdata->At(ind + 1) = tmp;
-        changed = true;
-      }
-    }
-  } while (changed);
+  SortVectorRegion<T,CMP>(pdata, 0, pdata->Size());
 }
 
 // is the specified vector sorted per SortVector?

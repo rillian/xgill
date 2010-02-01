@@ -70,6 +70,24 @@ TAction* ListCreate(Transaction *t, const Vector<TOperand*> &args,
 TAction* ListPush(Transaction *t, TOperand *list, TOperand *arg,
                   size_t var_result);
 
+// Barrier functions
+
+// barriers are simply counts, which transactions can increment decrement
+// or check against zero. these allow multiple cores performing analysis
+// to synchronize with one another: each core can increment the barrier when
+// starting a computation, decrement it when finishing, and knows all cores
+// have finished the computation when the barrier becomes empty.
+
+// increment the number of counts on the specified barrier.
+TAction* BarrierInc(Transaction *t, const char *name);
+
+// decrement the number of counts on the specified barrier.
+TAction* BarrierDec(Transaction *t, const char *name);
+
+// return whether there are no counts on the specified barrier.
+// returns true if the barrier was never created.
+TAction* BarrierEmpty(Transaction *t, const char *name, size_t var_result);
+
 NAMESPACE_END(Backend)
 
 NAMESPACE_XGILL_END

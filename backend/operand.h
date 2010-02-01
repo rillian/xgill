@@ -33,7 +33,8 @@ enum TOperandKind {
   TO_List = 2,
   TO_String = 3,
   TO_TimeStamp = 4,
-  TO_Boolean = 5
+  TO_Boolean = 5,
+  TO_Integer = 6
 };
 
 class TOperand
@@ -54,6 +55,23 @@ class TOperand
   virtual ~TOperand() {}
 
   TOperandKind Kind() const { return m_kind; }
+
+  // downcasts to the various types of operands.
+  TOperandList* AsList() {
+    Assert(m_kind == TO_List); return (TOperandList*) this;
+  }
+  TOperandString* AsString() {
+    Assert(m_kind == TO_String); return (TOperandString*) this;
+  }
+  TOperandTimeStamp* AsTimeStamp() {
+    Assert(m_kind == TO_TimeStamp); return (TOperandTimeStamp*) this;
+  }
+  TOperandBoolean* AsBoolean() {
+    Assert(m_kind == TO_Boolean); return (TOperandBoolean*) this;
+  }
+  TOperandInteger* AsInteger() {
+    Assert(m_kind == TO_Integer); return (TOperandInteger*) this;
+  }
 
   // get the value of this operand after replacing variables with their values
   // in the context of the parent transaction. returns NULL if the
@@ -76,7 +94,7 @@ class TOperandVariable : public TOperand
   TOperandVariable(Transaction *t, size_t name);
 
   // get the unique name of this variable within the transaction
-  size_t GetName() const;
+  size_t GetName() const { return m_name; }
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -95,15 +113,8 @@ class TOperandList : public TOperand
   void PushOperand(TOperand *op);
 
   // get the operands in this list
-  size_t GetCount() const;
-  TOperand* GetOperand(size_t ind) const;
-
-  // get an operand and coerce it to a particular type.
-  // fail if it is not of that type.
-  TOperandList*      GetOperandList(size_t ind) const;
-  TOperandString*    GetOperandString(size_t ind) const;
-  TOperandTimeStamp* GetOperandTimeStamp(size_t ind) const;
-  TOperandBoolean*   GetOperandBoolean(size_t ind) const;
+  size_t GetCount() const { return m_list.Size(); }
+  TOperand* GetOperand(size_t ind) const { return m_list[ind]; }
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -135,8 +146,8 @@ class TOperandString : public TOperand
                  const char *data);
 
   // get the data for this operand
-  const uint8_t* GetData() const;
-  size_t GetDataLength() const;
+  const uint8_t* GetData() const { return m_data; }
+  size_t GetDataLength() const { return m_data_length; }
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -158,7 +169,7 @@ class TOperandTimeStamp : public TOperand
   TOperandTimeStamp(Transaction *t, TimeStamp stamp);
 
   // get the timestamp for this operand
-  TimeStamp GetStamp() const;
+  TimeStamp GetStamp() const { return m_stamp; }
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -173,13 +184,28 @@ class TOperandBoolean : public TOperand
   TOperandBoolean(Transaction *t, bool flag);
 
   // is this boolean constant true?
-  bool IsTrue() const;
+  bool IsTrue() const { return m_flag; }
 
   // inherited methods
   void Print(OutStream &out) const;
 
  private:
   bool m_flag;
+};
+
+class TOperandInteger : public TOperand
+{
+ public:
+  TOperandInteger(Transaction *t, uint32_t value);
+
+  // get the value of this integer constant.
+  uint32_t GetValue() const { return m_value; }
+
+  // inherited methods
+  void Print(OutStream &out) const;
+
+ private:
+  uint32_t m_value;
 };
 
 NAMESPACE_XGILL_END

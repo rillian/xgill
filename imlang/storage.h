@@ -38,12 +38,8 @@ NAMESPACE_XGILL_BEGIN
 #define INIT_ANNOT_DATABASE "annot_init.xdb"
 #define COMP_ANNOT_DATABASE "annot_comp.xdb"
 
-// plaintext file with topological ordering for source functions.
-#define BODY_SORT_FILE "src_body_topo.sort"
-
 // hash name and sort for the callgraph we will topo sort from.
-#define CALLGRAPH_HASH "callgraph_hash"
-#define CALLGRAPH_SORT "callgraph_sort"
+#define CALLGRAPH_NAME "callgraph"
 
 // database to receive contents of files.
 #define SOURCE_DATABASE "file_source.xdb"

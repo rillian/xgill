@@ -122,6 +122,91 @@ bool ListPush(Transaction *t,
   return true;
 }
 
+// information about a barrier.
+struct BarrierInfo {
+  String *name;
+  size_t count;
+};
+
+// list of all barriers.
+Vector<BarrierInfo> barriers;
+
+bool BarrierInc(Transaction *t,
+                const Vector<TOperand*> &arguments,
+                TOperand **result)
+{
+  BACKEND_ARG_COUNT(1);
+  BACKEND_ARG_STRING(0, name, name_length);
+
+  String *key = String::Make((const char*) name);
+
+  for (size_t ind = 0; ind < barriers.Size(); ind++) {
+    if (key == barriers[ind].name) {
+      barriers[ind].count++;
+      key->DecRef();
+      return true;
+    }
+  }
+
+  BarrierInfo info;
+  info.name = key;
+  info.count = 1;
+  barriers.PushBack(info);
+
+  return true;
+}
+
+bool BarrierDec(Transaction *t,
+                const Vector<TOperand*> &arguments,
+                TOperand **result)
+{
+  BACKEND_ARG_COUNT(1);
+  BACKEND_ARG_STRING(0, name, name_length);
+
+  String *key = String::Make((const char*) name);
+
+  for (size_t ind = 0; ind < barriers.Size(); ind++) {
+    if (key == barriers[ind].name) {
+      if (barriers[ind].count == 0) {
+        logout << "ERROR: Decrement on empty barrier: " << key << endl;
+        key->DecRef();
+        return false;
+      }
+
+      barriers[ind].count--;
+      key->DecRef();
+      return true;
+    }
+  }
+
+  logout << "ERROR: Decrement on missing barrier: " << key << endl;
+
+  key->DecRef();
+  return true;
+}
+
+bool BarrierEmpty(Transaction *t,
+                  const Vector<TOperand*> &arguments,
+                  TOperand **result)
+{
+  BACKEND_ARG_COUNT(1);
+  BACKEND_ARG_STRING(0, name, name_length);
+
+  String *key = String::Make((const char*) name);
+
+  for (size_t ind = 0; ind < barriers.Size(); ind++) {
+    if (key == barriers[ind].name) {
+      key->DecRef();
+      *result = new TOperandBoolean(t, barriers[ind].count == 0);
+      return true;
+    }
+  }
+
+  key->DecRef();
+  *result = new TOperandBoolean(t, true);
+  return true;
+}
+
 BACKEND_IMPL_END
 
 /////////////////////////////////////////////////////////////////////
@@ -137,9 +222,18 @@ static void start_Util()
   BACKEND_REGISTER(StringIsEmpty);
   BACKEND_REGISTER(ListCreate);
   BACKEND_REGISTER(ListPush);
+  BACKEND_REGISTER(BarrierInc);
+  BACKEND_REGISTER(BarrierDec);
+  BACKEND_REGISTER(BarrierEmpty);
 }
 
-TransactionBackend backend_Util(start_Util, NULL);
+static void finish_Util()
+{
+  for (size_t ind = 0; ind < Backend_IMPL::barriers.Size(); ind++)
+    Backend_IMPL::barriers[ind].name->DecRef();
+}
+
+TransactionBackend backend_Util(start_Util, finish_Util);
 
 /////////////////////////////////////////////////////////////////////
 // backend wrappers
