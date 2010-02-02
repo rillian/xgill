@@ -212,7 +212,7 @@ extern ConfigOption trans_initial;
 // setup any data structures for transaction submission and error recovery,
 // and determine whether transactions will be executed locally or remotely.
 // must be called before submitting a transaction.
-void AnalysisPrepare(const char *remote_address = NULL, bool initial = false);
+void AnalysisPrepare(const char *remote_address = NULL);
 
 // return whether submitted transactions are piped to another machine or
 // process for execution.
@@ -235,8 +235,9 @@ void ResetTimeout(uint32_t offset = 0);
 // and blocking until the result is received.
 void SubmitTransaction(Transaction *t);
 
-// execute an empty final transaction. this is a nop if transactions
-// are not executed remotely.
+// execute an empty initial or final transaction.
+// this is a nop if transactions are not executed remotely.
+void SubmitInitialTransaction();
 void SubmitFinalTransaction();
 
 NAMESPACE_XGILL_END

@@ -239,7 +239,7 @@ inline void SortVectorRegion(Vector<T> *pdata, size_t start, size_t last)
   // all entries in [start, less_ind> are less than the pivot value.
   size_t less_ind = start;
 
-  for (size_t ind = 0; ind < last; ind++) {
+  for (size_t ind = start; ind < last; ind++) {
     int res = CMP::Compare(pdata->At(ind), pivot_value);
     if (res < 0) {
       T tmp = pdata->At(less_ind);
@@ -249,8 +249,12 @@ inline void SortVectorRegion(Vector<T> *pdata, size_t start, size_t last)
     }
   }
 
+  // swap the pivot element to its sorted position.
+  pdata->At(last - 1) = pdata->At(less_ind);
+  pdata->At(less_ind) = pivot_value;
+
   SortVectorRegion<T,CMP>(pdata, start, less_ind);
-  SortVectorRegion<T,CMP>(pdata, less_ind, last);
+  SortVectorRegion<T,CMP>(pdata, less_ind + 1, last);
 }
 
 // sort an entire vector using SortVectorRegion.

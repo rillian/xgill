@@ -393,9 +393,6 @@ static bool prepared_analysis = false;
 // whether we are submitting transactions to a remote manager.
 static bool remote_submit = false;
 
-// whether the next transaction we submit should be an initial transaction.
-static bool remote_initial = false;
-
 // descriptor for remote submission.
 static int remotefd = 0;
 
@@ -418,7 +415,7 @@ static void timeout_handler(int signal)
   abort();
 }
 
-void AnalysisPrepare(const char *remote_address, bool initial)
+void AnalysisPrepare(const char *remote_address)
 {
   Assert(!prepared_analysis);
   prepared_analysis = true;
@@ -496,9 +493,6 @@ void AnalysisPrepare(const char *remote_address, bool initial)
   }
 
   remote_submit = true;
-
-  if (initial || trans_initial.IsSpecified())
-    remote_initial = true;
 }
 
 bool IsAnalysisRemote()
@@ -541,12 +535,6 @@ void SubmitTransaction(Transaction *t)
   Assert(prepared_analysis);
 
   if (remote_submit) {
-    // mark this as an initial transaction if necessary.
-    if (remote_initial) {
-      t->SetInitial();
-      remote_initial = false;
-    }
-
     Assert(remote_buf.pos == remote_buf.base);
     remote_buf.Ensure(UINT32_LENGTH);
     remote_buf.pos += UINT32_LENGTH;
@@ -591,6 +579,16 @@ void SubmitTransaction(Transaction *t)
   }
 
   Assert(t->HasSuccess());
+}
+
+void SubmitInitialTransaction()
+{
+  if (remote_submit) {
+    Transaction *t = new Transaction();
+    t->SetInitial();
+    SubmitTransaction(t);
+    delete t;
+  }
 }
 
 void SubmitFinalTransaction()

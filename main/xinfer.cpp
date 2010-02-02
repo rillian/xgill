@@ -248,6 +248,8 @@ int main(int argc, const char **argv)
   ResetAllocs();
   AnalysisPrepare();
 
+  if (trans_initial.IsSpecified())
+    SubmitInitialTransaction();
   RunAnalysis(functions);
   SubmitFinalTransaction();
 

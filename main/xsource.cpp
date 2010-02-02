@@ -31,17 +31,29 @@ ConfigOption log_file(CK_String, "log", "",
 ConfigOption base_dir(CK_String, "basedir", "",
                       "prefix to remove from generated file paths");
 
+ConfigOption end_manager(CK_Flag, "end-manager", NULL,
+                         "signal manager to finish (ignore other input)");
+
 int main(int argc, const char **argv)
 {
   trans_remote.Enable();
   log_file.Enable();
   base_dir.Enable();
+  end_manager.Enable();
 
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);
   if (!parsed || !unspecified.Empty()) {
     Config::PrintUsage(USAGE);
     return 1;
+  }
+
+  AnalysisPrepare();
+
+  if (end_manager.IsSpecified()) {
+    SubmitInitialTransaction();
+    SubmitFinalTransaction();
+    AnalysisFinish(0);
   }
 
   // need to use a FILE handle for this because we'll be appending.
@@ -53,8 +65,6 @@ int main(int argc, const char **argv)
 
     XIL_SetLogFile(log_handle);
   }
-
-  AnalysisPrepare();
 
   char *cwd = getcwd(NULL, 0);
   SetWorkingDirectory(cwd);

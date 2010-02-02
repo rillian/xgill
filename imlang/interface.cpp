@@ -1487,10 +1487,11 @@ NAMESPACE_XGILL_END
 
 extern "C" void XIL_SetupGenerate(const char *remote_address)
 {
-  // always consider generation to be restarts, since we can only look
-  // at one translation unit at a time. the script controlling the build
-  // must terminate the manager manually.
-  AnalysisPrepare(remote_address, true);
+  // just setup the remote address. we don't submit initial or final
+  // transactions during generation, as we only process one translation unit
+  // at a time and don't know when we're actually done. xsource can be used
+  // to signal the manager to finish by the script controlling the build.
+  AnalysisPrepare(remote_address);
   SkipHashConsCounts();
 }
 

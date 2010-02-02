@@ -92,13 +92,8 @@ $ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
 # do the clean build.
 build_project();
 
-# signal the manager that it's over. we need to send a SIGTERM to the manager
-# process but the pid we have is for a shell process. the manager will be
-# a direct child of the pid we have, so look it up with this ugliness.
-my @childpids = grep(/$pid$/, `ps a -o pid,ppid`);
-my $childpid = shift @childpids or die;
-$childpid =~ /(\d+)[^\d]*$pid$/ or die;
-kill('TERM', $childpid);
+# signal the manager that it's over.
+system("xsource -remote=$address -end-manager") or die;
 
 # wait for the manager to clean up and finish termination.
 print "Waiting for manager to finish...\n";

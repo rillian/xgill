@@ -366,6 +366,10 @@ void RunAnalysis(const Vector<const char*> &functions)
   delete t;
 }
 
+struct whatever {
+  static int Compare(char *a, char *b) { return strcmp(a, b); }
+};
+
 int main(int argc, const char **argv)
 {
   timeout.Enable();
@@ -390,6 +394,8 @@ int main(int argc, const char **argv)
   ResetAllocs();
   AnalysisPrepare();
 
+  if (trans_initial.IsSpecified())
+    SubmitInitialTransaction();
   RunAnalysis(functions);
   SubmitFinalTransaction();
 
