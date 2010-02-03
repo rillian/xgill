@@ -403,14 +403,14 @@ public:
     Buffer *buf = new Buffer(length);
     t->AddBuffer(buf);
     buf->Append(str->Value(), length);
-    list->PushOperand(new TOperandString(t, buf->pos, length));
+    list->PushOperand(new TOperandString(t, buf->base, length));
   }
 };
 
 bool HashAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
                  TOperand **result)
 {
-  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
   TOperandList *list = new TOperandList(t);

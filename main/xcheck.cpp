@@ -446,6 +446,10 @@ int main(int argc, const char **argv)
     for (size_t ind = 0; ind < file_checks.Size(); ind++) {
       char *check = file_checks[ind];
 
+      // ignore blank lines.
+      if (!*check)
+        continue;
+
       // eat any leading quote.
       if (*check == '\'' || *check == '\"')
         check++;

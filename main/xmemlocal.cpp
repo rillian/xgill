@@ -58,8 +58,8 @@ const char *USAGE = "xmemlocal [options] [function*]";
 // scratch buffer for database compression.
 static Buffer compress_buf("Buffer_xmemlocal");
 
-ConfigOption do_fixpoint(CK_Flag, "do-fixpoint", NULL,
-                         "perform a fixpoint computation on modsets");
+ConfigOption pass_limit(CK_UInt, "pass-limit", "2",
+                        "maximum number of passes to perform");
 
 ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
                         "print input CFGs");
@@ -119,6 +119,7 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
   //       foreach $next_key in $next_list
   //         HashInsertKey(worklist_name, $next_key)
   //       CounterInc($stage)
+  //       $stage = CounterValue($stage)
 
   TOperand *stage = new TOperandVariable(t, stage_result);
 
@@ -191,6 +192,8 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
     Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, next_key));
   write_done_branch->PushAction(next_iterate);
   write_done_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
+  write_done_branch->PushAction(
+    Backend::CounterValue(t, COUNTER_STAGE, stage_result));
 }
 
 // information about the generated memory and modsets for a function.
@@ -211,7 +214,7 @@ struct MemoryKeyData
   ~MemoryKeyData() {
     DecRefVector<BlockMemory>(block_mems, NULL);
     DecRefVector<BlockModset>(block_mods, NULL);
-    DecRefVector<BlockModset>(block_mods, NULL);
+    DecRefVector<BlockModset>(old_mods, NULL);
     DecRefVector<Variable>(callees, NULL);
   }
 };
@@ -421,6 +424,9 @@ void RunAnalysis(const Vector<const char*> &functions)
   // current stage being processed.
   size_t current_stage = 0;
 
+  // whether we've processed any functions in the current stage.
+  bool current_stage_processed = false;
+
   while (true) {
     Timer _timer(&analysis_timer);
 
@@ -433,6 +439,7 @@ void RunAnalysis(const Vector<const char*> &functions)
     MakeFetchTransaction(t, have_barrier_process, stage_result,
                          body_data_result, modset_data_result,
                          barrier_process_result, barrier_write_result);
+    SubmitTransaction(t);
 
     size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
     Assert(new_stage != (size_t) -1);
@@ -441,7 +448,22 @@ void RunAnalysis(const Vector<const char*> &functions)
       // the stage should not have been advanced if we have pending data.
       Assert(new_stage == current_stage);
     }
-    current_stage = new_stage;
+
+    if (new_stage > current_stage) {
+      if (pass_limit.UIntValue() > 0) {
+        if (new_stage >= g_stage_count + pass_limit.UIntValue())
+          break;
+      }
+
+      // if we never processed anything from the current one, either the
+      // worklist has been drained or has become so small there's no useful
+      // work anymore.
+      if (new_stage > g_stage_count && !current_stage_processed)
+        break;
+
+      current_stage = new_stage;
+      current_stage_processed = false;
+    }
 
     if (!t->Lookup(body_data_result, false)) {
       // there are no more functions in this stage.
@@ -480,8 +502,14 @@ void RunAnalysis(const Vector<const char*> &functions)
         for (size_t ind = 0; ind < pending_data.Size(); ind++) {
           MemoryKeyData *data = pending_data[ind];
           String *function = data->block_mems[0]->GetId()->Function();
+          size_t function_len = strlen(function->Value()) + 1;
 
-          TOperandString *body_key = new TOperandString(t, function->Value());
+          Buffer *buf = new Buffer(200);
+          t->AddBuffer(buf);
+          buf->Append(function->Value(), function_len);
+          TOperandString *body_key =
+            new TOperandString(t, buf->base, function_len);
+
           TOperandString *memory_data_arg =
             BlockMemoryCompress(t, data->block_mems);
           TOperandString *modset_data_arg =
@@ -499,7 +527,14 @@ void RunAnalysis(const Vector<const char*> &functions)
             // write out all dependencies this function has on callee modsets.
             for (size_t ind = 0; ind < data->callees.Size(); ind++) {
               String *callee = data->callees[ind]->GetName();
-              TOperand *callee_key = new TOperandString(t, callee->Value());
+              size_t callee_len = strlen(callee->Value()) + 1;
+
+              Buffer *buf = new Buffer(200);
+              t->AddBuffer(buf);
+              buf->Append(callee->Value(), callee_len);
+              TOperandString *callee_key =
+                new TOperandString(t, buf->base, callee_len);
+
               t->PushAction(Backend::HashInsertValue(t, MODSET_DEPENDENCY_HASH,
                                                      callee_key, body_key));
             }
@@ -557,14 +592,17 @@ void RunAnalysis(const Vector<const char*> &functions)
         continue;
       }
 
-      // we're waiting on some other worker to either finish processing
-      // functions in this stage or finish writing out its results.
+      // either the current stage was empty and there was no processing
+      // we could do, or we're waiting on some other worker to finish
+      // processing functions in this stage or finish writing out its results.
       t->Clear();
-      sleep(1);
+      if (barrier_process > 0 || barrier_write > 0)
+        sleep(1);
       continue;
     }
 
     have_barrier_process = true;
+    current_stage_processed = true;
 
     Vector<BlockCFG*> block_cfgs;
     BlockCFGUncompress(t, body_data_result, &block_cfgs);
@@ -572,7 +610,7 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     TOperandString *modset_data = t->LookupString(modset_data_result);
     MemoryKeyData *data = new MemoryKeyData();
-    BlockModsetUncompress(t, modset_data, &data->block_mods);
+    BlockModsetUncompress(t, modset_data, &data->old_mods);
 
     // done with the transaction's returned data.
     t->Clear();
@@ -592,6 +630,8 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     DecRefVector<BlockCFG>(block_cfgs, NULL);
   }
+
+  t->Clear();
 
   // compute memory for global variables.
 
@@ -614,7 +654,7 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     TOperandString *init_key = t->LookupString(init_key_result);
 
-    if (init_key->GetDataLength() == 0) {
+    if (init_key->GetDataLength() == 1) {
       // done with all globals.
       t->Clear();
       break;
@@ -670,10 +710,10 @@ int main(int argc, const char **argv)
   trans_remote.Enable();
   trans_initial.Enable();
 
-  // do_fixpoint.Enable();
   print_cfgs.Enable();
   print_memory.Enable();
   print_indirect_calls.Enable();
+  pass_limit.Enable();
 
   Vector<const char*> functions;
   bool parsed = Config::Parse(argc, argv, &functions);

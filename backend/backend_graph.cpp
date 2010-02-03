@@ -294,7 +294,7 @@ bool GraphSortKeys(Transaction *t, const Vector<TOperand*> &arguments,
     Buffer *buf = new Buffer(length);
     t->AddBuffer(buf);
     buf->Append(node->Value(), length);
-    list->PushOperand(new TOperandString(t, buf->pos, length));
+    list->PushOperand(new TOperandString(t, buf->base, length));
   }
 
   *result = list;

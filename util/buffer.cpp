@@ -213,9 +213,7 @@ void SplitBufferStrings(Buffer *buf, char tok, Vector<char*> *strings)
     // NULL terminate the string at pos by overwriting the token.
     *end_pos = 0;
 
-    if (strlen(pos) > 0)
-      strings->PushBack(pos);
-
+    strings->PushBack(pos);
     pos = end_pos + 1;
   }
 }
