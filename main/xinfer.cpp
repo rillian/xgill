@@ -28,60 +28,81 @@ NAMESPACE_XGILL_USING
 
 const char *USAGE = "xinfer [options] [function*]";
 
-void MakeInitTransaction(Transaction *t, const Vector<const char*> &functions)
-{
-  // clear the output database if we are processing all functions.
-  if (functions.Empty()) {
-    t->PushAction(
-      Backend::Compound::XdbClearIfNotHash(
-        t, SUMMARY_DATABASE, WORKLIST_FUNC_HASH));
-  }
+// xinfer not currently entirely deterministic. this is not a big deal,
+// there isn't much cross-function dependency here (unlike xmemlocal).
+// there are two issues:
+// 1. after finishing a stage, analysis does not wait for all summaries for
+// that stage to come in before starting the next stage. we can't use the
+// same barriers as in xmemlocal as we want to be tolerant of crashes/failures.
+// 2. analysis of functions in the last stage may use the summaries computed
+// for other functions in that stage.
 
-  if (functions.Size()) {
-    // insert the initial function/global names.
-    for (size_t uind = 0; uind < functions.Size(); uind++) {
-      TOperand *key = new TOperandString(t, functions[uind]);
-      t->PushAction(Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, key));
-    }
-  }
-  else {
-    // fill in the worklist hashes from the database keys.
+// counter indicating the index of the *next* pass we'll be processing.
+#define COUNTER_STAGE "counter"
 
-    t->PushAction(
-      Backend::Compound::HashCreateXdbKeys(
-        t, WORKLIST_FUNC_HASH, BODY_DATABASE));
-  }
-}
-
-void MakeFetchTransaction(Transaction *t,
-                          size_t body_key_result, size_t body_data_result,
-                          size_t memory_data_result,
+// make a transaction to get the next key from the worklist. the body data
+// will not be set if there are no nodes remaining in the worklist.
+// if the worklist is empty, advances to the next stage if the counters are ok.
+void MakeFetchTransaction(Transaction *t, size_t stage_result,
+                          size_t body_data_result, size_t memory_data_result,
                           size_t modset_data_result)
 {
-  t->PushAction(
-    Backend::Compound::HashPopXdbKey(
-      t, WORKLIST_FUNC_HASH, BODY_DATABASE,
-      body_key_result, body_data_result));
+  // since we won't be fixpointing the summaries, this is simpler than
+  // the memory/modset fetch transaction.
 
-  TOperand *body_key_arg = new TOperandVariable(t, body_key_result);
+  // $stage = CounterValue(stage)
+  // $body_key = HashChooseKey(worklist_name)
+  // $key_empty = StringIsEmpty($body_key)
+  // if !$key_empty
+  //   HashRemove(worklist_name, $body_key)
+  //   $body_data = XdbLookup(src_body, $body_key)
+  //   $memory_data = XdbLookup(src_memory, $body_key)
+  //   $modset_data = XdbLookup(src_modset, $body_key)
+  // if $key_empty
+  //   $next_list = GraphSortKeys(callgraph, $stage)
+  //   foreach $next_key in $next_list
+  //     HashInsertKey(worklist_name, $next_key)
+  //   CounterInc(stage)
+  //   $stage = CounterValue(stage)
 
-  t->PushAction(
-    Backend::XdbLookup(
-      t, MEMORY_DATABASE, body_key_arg, memory_data_result));
-  t->PushAction(
-    Backend::XdbLookup(
-      t, MODSET_DATABASE, body_key_arg, modset_data_result));
-}
+  TOperand *stage = new TOperandVariable(t, stage_result);
 
-void MakeUpdateTransaction(Transaction *t, Buffer *function_name,
-                           const Vector<BlockSummary*> &function_sums)
-{
-  TOperand *function_arg =
-    new TOperandString(t, (const char*) function_name->base);
+  TRANSACTION_MAKE_VAR(body_key);
+  TRANSACTION_MAKE_VAR(key_empty);
 
-  TOperand *summary_data_arg = BlockSummaryCompress(t, function_sums);
-  t->PushAction(Backend::XdbReplace(t, SUMMARY_DATABASE,
-                                      function_arg, summary_data_arg));
+  t->PushAction(Backend::CounterValue(t, COUNTER_STAGE, stage_result));
+  t->PushAction(Backend::HashChooseKey(t, WORKLIST_FUNC_HASH, body_key_var));
+  t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));
+
+  TActionTest *non_empty_branch = new TActionTest(t, key_empty, false);
+  t->PushAction(non_empty_branch);
+
+  non_empty_branch->PushAction(
+    Backend::HashRemove(t, WORKLIST_FUNC_HASH, body_key));
+  non_empty_branch->PushAction(
+    Backend::XdbLookup(t, BODY_DATABASE, body_key, body_data_result));
+  non_empty_branch->PushAction(
+    Backend::XdbLookup(t, MEMORY_DATABASE, body_key, memory_data_result));
+  non_empty_branch->PushAction(
+    Backend::XdbLookup(t, MODSET_DATABASE, body_key, modset_data_result));
+
+  TActionTest *empty_branch = new TActionTest(t, key_empty, true);
+  t->PushAction(empty_branch);
+
+  TRANSACTION_MAKE_VAR(next_list);
+  TRANSACTION_MAKE_VAR(next_key);
+
+  empty_branch->PushAction(
+    Backend::GraphSortKeys(t, CALLGRAPH_NAME, stage, next_list_var));
+
+  TActionIterate *next_iterate =
+    new TActionIterate(t, next_key_var, next_list);
+  next_iterate->PushAction(
+    Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, next_key));
+  empty_branch->PushAction(next_iterate);
+  empty_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
+  empty_branch->PushAction(
+    Backend::CounterValue(t, COUNTER_STAGE, stage_result));
 }
 
 ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
@@ -89,6 +110,9 @@ ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
 
 ConfigOption print_memory(CK_Flag, "print-memory", NULL,
                           "print input memory information");
+
+// number of callgraph stages.
+static size_t g_stage_count = 0;
 
 // how often to print allocation/timer information.
 #define PRINT_FREQUENCY 50
@@ -102,10 +126,16 @@ void RunAnalysis(const Vector<const char*> &functions)
   // we will manually manage clearing of entries in the summary cache.
   BlockSummaryCache.SetLruEviction(false);
 
-  // construct and submit the worklist create transaction
-  MakeInitTransaction(t, functions);
+  // load the callgraph sort.
+  size_t stage_count_result = t->MakeVariable(true);
+  t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, stage_count_result));
   SubmitTransaction(t);
+
+  g_stage_count = t->LookupInteger(stage_count_result)->GetValue();
   t->Clear();
+
+  // current stage being processed.
+  size_t current_stage = 0;
 
   while (true) {
     Timer _timer(&analysis_timer);
@@ -118,31 +148,36 @@ void RunAnalysis(const Vector<const char*> &functions)
       PrintAllocs();
     }
 
-    // construct and submit a worklist fetch transaction.
-    size_t body_key_result = t->MakeVariable(true);
+    size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
     size_t memory_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
-    MakeFetchTransaction(t, body_key_result, body_data_result,
+
+    MakeFetchTransaction(t, stage_result, body_data_result,
                          memory_data_result, modset_data_result);
     SubmitTransaction(t);
 
-    TOperandString *body_key = t->LookupString(body_key_result);
+    size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
+    Assert(new_stage != (size_t) -1);
 
-    // make a copy of the function name.
-    Buffer key_buf;
+    if (new_stage > current_stage) {
+      if (new_stage > g_stage_count) {
+        // we've generated summaries for every function. end the analysis.
+        break;
+      }
+      current_stage = new_stage;
+    }
+
+    if (!t->Lookup(body_data_result, false)) {
+      // the current stage is finished, and the transaction bumped the stage
+      // counter. retry, we'll get any item from the new stage.
+      t->Clear();
+      continue;
+    }
 
     Vector<BlockCFG*> block_cfgs;
-
-    if (body_key->GetDataLength() > 1) {
-      key_buf.Append(body_key->GetData(), body_key->GetDataLength());
-      BlockCFGUncompress(t, body_data_result, &block_cfgs);
-    }
-    else {
-      // done with all functions.
-      t->Clear();
-      break;
-    }
+    BlockCFGUncompress(t, body_data_result, &block_cfgs);
+    Assert(!block_cfgs.Empty());
 
     Vector<BlockMemory*> block_mems;
     BlockMemoryUncompress(t, memory_data_result, &block_mems);
@@ -157,12 +192,9 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     // generate summaries.
 
+    String *function = block_cfgs[0]->GetId()->Function();
     logout << "Generating summaries for "
-           << "\'" << (const char*) key_buf.base << "\'" << endl << flush;
-
-    // clear out existing summaries from the cache. TODO: we should also
-    // load all the callee summaries here, and add dependencies on them.
-    BlockSummaryCache.Clear();
+           << "\'" << function->Value() << "\'" << endl << flush;
 
     // generate summaries for each of the CFGs.
     Vector<BlockSummary*> block_sums;
@@ -208,7 +240,10 @@ void RunAnalysis(const Vector<const char*> &functions)
     PrintTime(_timer.Elapsed());
     logout << endl << endl;
 
-    MakeUpdateTransaction(t, &key_buf, block_sums);
+    TOperand *body_key = new TOperandString(t, function->Value());
+    TOperand *summary_data_arg = BlockSummaryCompress(t, block_sums);
+    t->PushAction(Backend::XdbReplace(t, SUMMARY_DATABASE,
+                                      body_key, summary_data_arg));
     SubmitTransaction(t);
     t->Clear();
 

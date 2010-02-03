@@ -120,7 +120,7 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
   //       foreach $next_key in $next_list
   //         HashInsertKey(worklist_name, $next_key)
   //       CounterInc($stage)
-  //       $stage = CounterValue($stage)
+  //       $stage = CounterValue(stage)
 
   TOperand *stage = new TOperandVariable(t, stage_result);
 
