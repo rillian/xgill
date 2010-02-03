@@ -581,6 +581,14 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
+bool BlockFlush(Transaction *t, const Vector<TOperand*> &arguments,
+                TOperand **result)
+{
+  BACKEND_ARG_COUNT(0);
+  FlushEscapeBackend();
+  return true;
+}
+
 BACKEND_IMPL_END
 
 /////////////////////////////////////////////////////////////////////
@@ -593,6 +601,7 @@ static void start_Block()
   BACKEND_REGISTER(BlockWriteAnnot);
   BACKEND_REGISTER(BlockQueryList);
   BACKEND_REGISTER(BlockWriteList);
+  BACKEND_REGISTER(BlockFlush);
 }
 
 static void finish_Block()
@@ -657,6 +666,12 @@ TAction* BlockWriteAnnot(Transaction *t, TOperand *annot_data)
 {
   BACKEND_CALL(BlockWriteAnnot, 0);
   call->PushArgument(annot_data);
+  return call;
+}
+
+TAction* BlockFlush(Transaction *t)
+{
+  BACKEND_CALL(BlockFlush, 0);
   return call;
 }
 

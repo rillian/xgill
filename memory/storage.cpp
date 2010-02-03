@@ -675,16 +675,16 @@ public:
   Transaction *t;
 
   void Visit(Trace *&, Vector<EscapeEdgeSet*> &list) {
-    for (size_t ind = 0; ind < list.Size(); ind++) {
-      EscapeEdgeSet::Write(&pending_buf, list[ind]);
+    Assert(list.Size() == 1);
+    EscapeEdgeSet::Write(&pending_buf, list[0]);
+    list[0]->DecRef();
 
-      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-        t->PushAction(Backend::BlockWriteList(t, list_op));
-        SubmitTransaction(t);
-        t->Clear();
-        pending_buf.Reset();
-      }
+    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+      t->PushAction(Backend::BlockWriteList(t, list_op));
+      SubmitTransaction(t);
+      t->Clear();
+      pending_buf.Reset();
     }
   }
 };
@@ -696,16 +696,16 @@ public:
   Transaction *t;
 
   void Visit(Trace *&, Vector<EscapeAccessSet*> &list) {
-    for (size_t ind = 0; ind < list.Size(); ind++) {
-      EscapeAccessSet::Write(&pending_buf, list[ind]);
+    Assert(list.Size() == 1);
+    EscapeAccessSet::Write(&pending_buf, list[0]);
+    list[0]->DecRef();
 
-      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-        t->PushAction(Backend::BlockWriteList(t, list_op));
-        SubmitTransaction(t);
-        t->Clear();
-        pending_buf.Reset();
-      }
+    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+      t->PushAction(Backend::BlockWriteList(t, list_op));
+      SubmitTransaction(t);
+      t->Clear();
+      pending_buf.Reset();
     }
   }
 };
@@ -717,16 +717,17 @@ public:
   Transaction *t;
 
   void Visit(Variable *&, Vector<CallEdgeSet*> &list) {
-    for (size_t ind = 0; ind < list.Size(); ind++) {
-      CallEdgeSet::Write(&pending_buf, list[ind]);
+    Assert(list.Size() == 1);
 
-      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-        t->PushAction(Backend::BlockWriteList(t, list_op));
-        SubmitTransaction(t);
-        t->Clear();
-        pending_buf.Reset();
-      }
+    CallEdgeSet::Write(&pending_buf, list[0]);
+    list[0]->DecRef();
+
+    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+      t->PushAction(Backend::BlockWriteList(t, list_op));
+      SubmitTransaction(t);
+      t->Clear();
+      pending_buf.Reset();
     }
   }
 };
@@ -737,17 +738,27 @@ void WritePendingEscape()
 
   WriteEscapeEdgeVisitor escape_edge_visitor;
   escape_edge_visitor.t = t;
-  g_pending_escape_forward.VisitEach(&escape_edge_visitor);
-  g_pending_escape_backward.VisitEach(&escape_edge_visitor);
 
   WriteEscapeAccessVisitor escape_access_visitor;
   escape_access_visitor.t = t;
-  g_pending_escape_accesses.VisitEach(&escape_access_visitor);
 
   WriteCallEdgeVisitor call_edge_visitor;
   call_edge_visitor.t = t;
+
+  g_pending_escape_forward.VisitEach(&escape_edge_visitor);
+  g_pending_escape_forward.Clear();
+
+  g_pending_escape_backward.VisitEach(&escape_edge_visitor);
+  g_pending_escape_backward.Clear();
+
+  g_pending_escape_accesses.VisitEach(&escape_access_visitor);
+  g_pending_escape_accesses.Clear();
+
   g_pending_callees.VisitEach(&call_edge_visitor);
+  g_pending_callees.Clear();
+
   g_pending_callers.VisitEach(&call_edge_visitor);
+  g_pending_callers.Clear();
 
   if (pending_buf.pos != pending_buf.base) {
     TOperand *list_op = TOperandString::Compress(t, &pending_buf);

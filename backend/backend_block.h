@@ -46,6 +46,10 @@ TAction* BlockQueryAnnot(Transaction *t, const char *db_name,
 // write out an annotation CFG stored in annot_data.
 TAction* BlockWriteAnnot(Transaction *t, TOperand *annot_data);
 
+// flush all data that has been written to the databases. this is also
+// performed when the backend finishes.
+TAction* BlockFlush(Transaction *t);
+
 NAMESPACE_END(Backend)
 
 NAMESPACE_XGILL_END

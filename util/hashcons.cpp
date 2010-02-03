@@ -16,6 +16,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#include <stdlib.h>
 #include "hashcons.h"
 #include "buffer.h"
 
@@ -29,9 +30,21 @@ TrackAlloc g_alloc_HashObject("HashObject");
 /////////////////////////////////////////////////////////////////////
 
 #ifdef DEBUG
-uint64_t HashObject::g_reference_breakpoint = 0;
+
+// get any reference breakpoint from the environment.
+static uint64_t GetReferenceBreakpoint()
+{
+  char *str = getenv("XGILL_REFERENCE");
+  if (str)
+    return (uint64_t) atoi(str);
+  else
+    return 0;
+}
+
+uint64_t HashObject::g_reference_breakpoint = GetReferenceBreakpoint();
 uint64_t HashObject::g_reference_stamp = 0;
-#endif
+
+#endif // DEBUG
 
 bool HashObject::g_delete_unused = true;
 

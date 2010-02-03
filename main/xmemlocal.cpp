@@ -116,6 +116,7 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
   //       if !$use_sort
   //         $next_list = HashAllKeys(worklist_next)
   //         HashClear(worklist_next)
+  //         BlockFlush()
   //       foreach $next_key in $next_list
   //         HashInsertKey(worklist_name, $next_key)
   //       CounterInc($stage)
@@ -182,6 +183,7 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
   not_sort_branch->PushAction(
     Backend::HashAllKeys(t, WORKLIST_FUNC_NEXT, next_list_var));
   not_sort_branch->PushAction(Backend::HashClear(t, WORKLIST_FUNC_NEXT));
+  not_sort_branch->PushAction(Backend::BlockFlush(t));
   write_done_branch->PushAction(not_sort_branch);
 
   TRANSACTION_MAKE_VAR(next_key);
@@ -315,7 +317,7 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
                     MemoryKeyData *data)
 {
   Variable *function = block_cfgs[0]->GetId()->BaseVar();
-  logout << "Generating memory for [#" << stage << "]"
+  logout << "Generating memory for [#" << stage << "] "
          << "'" << function->GetName()->Value() << "'" << endl << flush;
 
   // did we have a timeout while processing the CFGs?

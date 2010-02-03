@@ -238,7 +238,7 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
     g_pending_callees.Lookup(caller, true);
   if (callee_entries->Empty()) {
     caller->IncRef();
-    callee_entries->PushBack(CallEdgeSet::Make(caller, true));
+    callee_entries->PushBack(CallEdgeSet::Make(caller, false));
   }
 
   CallEdgeSet *callee_cset = callee_entries->At(0);
@@ -310,7 +310,7 @@ class FunctionPointerEscape : public EscapeStatus
     // handle discovery of a specific function as the call target.
     if (Variable *function = GetTraceFunction(trace)) {
       if (print_indirect_calls.IsSpecified())
-        logout << "INDIRECT: " << m_cfg->GetId() << ": " << m_edge->GetSource()
+        logout << "Indirect: " << m_cfg->GetId() << ": " << m_edge->GetSource()
                << ": " << function << endl;
 
       // check to see if there is a mismatch in the number of arguments
