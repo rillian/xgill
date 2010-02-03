@@ -83,7 +83,6 @@ void Transaction::Execute()
     g_backend_started = true;
   }
 
-  m_stamp = AdvanceTimeStamp();
   m_success = true;
 
   // execute each of the main actions in order.
@@ -93,12 +92,6 @@ void Transaction::Execute()
     if (!m_success)
       break;
   }
-}
-
-TimeStamp Transaction::GetTimeStamp() const
-{
-  Assert(m_has_executed);
-  return m_stamp;
 }
 
 bool Transaction::HasExecuted() const
@@ -203,9 +196,7 @@ void Transaction::WriteResult(Buffer *buf) const
   Assert(m_has_executed);
 
   WriteOpenTag(buf, TAG_TransactionResult);
-
   WriteTagEmpty(buf, m_success ? TAG_True : TAG_False);
-  WriteTagUInt64(buf, TAG_TimeStamp, m_stamp);
 
   for (size_t vind = 0; vind < m_variables.Size(); vind++) {
     if (m_variables[vind].value != NULL) {
@@ -242,11 +233,6 @@ bool Transaction::ReadResult(Buffer *buf)
       is_false = true;
       break;
     }
-    case TAG_TimeStamp: {
-      Try(!m_stamp);
-      Try(ReadTagUInt64(buf, TAG_TimeStamp, &m_stamp));
-      break;
-    }
     case TAG_TransactionVariable: {
       Try(ReadOpenTag(buf, TAG_TransactionVariable));
       uint32_t index;
@@ -263,7 +249,6 @@ bool Transaction::ReadResult(Buffer *buf)
   }
 
   Try(is_true || is_false);
-  Try(m_stamp);
 
   m_success = is_true;
   m_has_executed = true;
@@ -291,7 +276,6 @@ void Transaction::Clear()
   m_final = false;
   m_has_executed = false;
   m_success = false;
-  m_stamp = 0;
 
   // don't have to delete these guys because they are included
   // in m_owned_actions.
@@ -354,12 +338,6 @@ TOperandString* Transaction::LookupString(size_t var, bool required)
 {
   TOperand *res = Lookup(var, required);
   return res ? res->AsString() : NULL;
-}
-
-TOperandTimeStamp* Transaction::LookupTimeStamp(size_t var, bool required)
-{
-  TOperand *res = Lookup(var, required);
-  return res ? res->AsTimeStamp() : NULL;
 }
 
 TOperandBoolean* Transaction::LookupBoolean(size_t var, bool required)

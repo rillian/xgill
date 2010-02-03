@@ -18,7 +18,7 @@
 
 #pragma once
 
-// backend for basic utility functions on timestamps, lists, etc.
+// backend for basic utility functions on integers, lists, etc.
 
 #include "backend.h"
 
@@ -28,28 +28,19 @@ extern TransactionBackend backend_Util;
 
 NAMESPACE_BEGIN(Backend)
 
-// TimeStamp functions
+// Integer comparison functions
 
-// get a timestamp for N real-time seconds after (positive)
-// or before (negative) the current transaction.
-TAction* TimeStampDeltaSeconds(Transaction *t, ssize_t seconds,
-                               size_t var_result);
+TAction* ValueLess(Transaction *t,
+                   TOperand *v0, TOperand *v1,
+                   size_t var_result);
 
-TAction* TimeStampLess(Transaction *t,
-                       TOperand *time0, TOperand *time1,
-                       size_t var_result);
+TAction* ValueLessEqual(Transaction *t,
+                        TOperand *v0, TOperand *v1,
+                        size_t var_result);
 
-TAction* TimeStampLessEqual(Transaction *t,
-                            TOperand *time0, TOperand *time1,
-                            size_t var_result);
-
-TAction* TimeStampGreater(Transaction *t,
-                          TOperand *time0, TOperand *time1,
-                          size_t var_result);
-
-TAction* TimeStampGreaterEqual(Transaction *t,
-                               TOperand *time0, TOperand *time1,
-                               size_t var_result);
+TAction* ValueEqual(Transaction *t,
+                    TOperand *v0, TOperand *v1,
+                    size_t var_result);
 
 // String functions
 
@@ -70,23 +61,20 @@ TAction* ListCreate(Transaction *t, const Vector<TOperand*> &args,
 TAction* ListPush(Transaction *t, TOperand *list, TOperand *arg,
                   size_t var_result);
 
-// Barrier functions
+// Counter functions
 
-// barriers are simply counts, which transactions can increment decrement
-// or check against zero. these allow multiple cores performing analysis
-// to synchronize with one another: each core can increment the barrier when
-// starting a computation, decrement it when finishing, and knows all cores
-// have finished the computation when the barrier becomes empty.
+// counters which transactions can increment, decrement, or get the value of.
+// these can be used by multiple cores doing analysis to synchronize with
+// one another: each core can increment the counter when starting
+// a computation, decrement it when finishing, and knows all cores
+// have finished the computation when the counter becomes zero.
 
-// increment the number of counts on the specified barrier.
-TAction* BarrierInc(Transaction *t, const char *name);
+// increment/decrement a global counter.
+TAction* CounterInc(Transaction *t, const char *name);
+TAction* CounterDec(Transaction *t, const char *name);
 
-// decrement the number of counts on the specified barrier.
-TAction* BarrierDec(Transaction *t, const char *name);
-
-// return whether there are no counts on the specified barrier.
-// returns true if the barrier was never created.
-TAction* BarrierEmpty(Transaction *t, const char *name, size_t var_result);
+// get the value of a counter.
+TAction* CounterValue(Transaction *t, const char *name, size_t var_result);
 
 NAMESPACE_END(Backend)
 

@@ -91,7 +91,7 @@ class TransactionBackend
 #define BACKEND_CALL(NAME, RESULT)                                      \
   TActionCall *call = new TActionCall(t, RESULT, #NAME)
 
-// the following are helpers for writing backend implementation functions.
+// helpers for writing backend implementation functions.
 
 // check that the number of arguments is exactly NUM.
 #define BACKEND_ARG_COUNT(NUM)                                  \
@@ -129,14 +129,6 @@ class TransactionBackend
     return false;                                                       \
   }
 
-// get a timestamp from argument POS and store it in TIME.
-#define BACKEND_ARG_TIMESTAMP(POS, TIME)                                \
-  if (arguments[POS]->Kind() != TO_TimeStamp) {                         \
-    logout << "ERROR: Argument " #POS " must be a timestamp." << endl;  \
-    return false;                                                       \
-  }                                                                     \
-  TimeStamp TIME = arguments[POS]->AsTimeStamp()->GetStamp();
-
 // get a list from argument POS and store in LIST.
 #define BACKEND_ARG_LIST(POS, LIST)                                     \
   if (arguments[POS]->Kind() != TO_List) {                              \
@@ -152,5 +144,11 @@ class TransactionBackend
     return false;                                                       \
   }                                                                     \
   uint32_t VALUE = arguments[POS]->AsInteger()->GetValue();
+
+// helpers for constructing transactions.
+
+#define TRANSACTION_MAKE_VAR(NAME)                              \
+  size_t NAME ## _var = t->MakeVariable(false);                 \
+  TOperand *NAME = new TOperandVariable(t, NAME ## _var);
 
 NAMESPACE_XGILL_END

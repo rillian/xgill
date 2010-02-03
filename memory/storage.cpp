@@ -18,9 +18,8 @@
 
 #include "baked.h"
 #include "storage.h"
-
-#include <backend/merge_lookup.h>
 #include <imlang/storage.h>
+#include <backend/backend_block.h>
 
 NAMESPACE_XGILL_BEGIN
 
@@ -459,11 +458,16 @@ class ExternalLookup_EscapeEdge
 
 ExternalLookup_EscapeEdge
   lookup_EscapeForward(ESCAPE_EDGE_FORWARD_DATABASE);
-Cache_EscapeEdgeSet EscapeForwardCache(&lookup_EscapeForward, CAP_ESCAPE_EDGE);
+Cache_EscapeEdgeSet
+EscapeForwardCache(&lookup_EscapeForward, CAP_ESCAPE_EDGE);
 
 ExternalLookup_EscapeEdge
   lookup_EscapeBackward(ESCAPE_EDGE_BACKWARD_DATABASE);
-Cache_EscapeEdgeSet EscapeBackwardCache(&lookup_EscapeBackward, CAP_ESCAPE_EDGE);
+Cache_EscapeEdgeSet
+EscapeBackwardCache(&lookup_EscapeBackward, CAP_ESCAPE_EDGE);
+
+HashTable<Trace*,EscapeEdgeSet*,Trace> g_pending_escape_forward;
+HashTable<Trace*,EscapeEdgeSet*,Trace> g_pending_escape_backward;
 
 /////////////////////////////////////////////////////////////////////
 // EscapeAccess lookup
@@ -523,7 +527,10 @@ class ExternalLookup_EscapeAccess
 };
 
 ExternalLookup_EscapeAccess lookup_EscapeAccess;
-Cache_EscapeAccessSet EscapeAccessCache(&lookup_EscapeAccess, CAP_ESCAPE_ACCESS);
+Cache_EscapeAccessSet
+EscapeAccessCache(&lookup_EscapeAccess, CAP_ESCAPE_ACCESS);
+
+HashTable<Trace*,EscapeAccessSet*,Trace> g_pending_escape_accesses;
 
 /////////////////////////////////////////////////////////////////////
 // CallEdge lookup
@@ -570,335 +577,8 @@ Cache_CallEdgeSet CallerCache(&lookup_Caller, CAP_CALLGRAPH);
 ExternalLookup_CallEdge lookup_Callee(CALLEE_DATABASE);
 Cache_CallEdgeSet CalleeCache(&lookup_Callee, CAP_CALLGRAPH);
 
-/////////////////////////////////////////////////////////////////////
-// Escape merge caches
-/////////////////////////////////////////////////////////////////////
-
-static Vector<EscapeEdgeSet*> *g_escape_edge_list = NULL;
-
-class Lookup_MergeEscapeEdge : public MergeEscapeEdge
-{
- public:
-  bool m_forward;
-  Lookup_MergeEscapeEdge(bool forward)
-    : MergeEscapeEdge(forward
-                      ? ESCAPE_EDGE_FORWARD_DATABASE
-                      : ESCAPE_EDGE_BACKWARD_DATABASE),
-      m_forward(forward)
-  {}
-
-  Trace* GetObjectKey(EscapeEdgeSet *eset) { return eset->GetSource(); }
-
-  EscapeEdgeSet* MakeEmpty(Trace *source)
-  {
-    source->IncRef();
-    EscapeEdgeSet *eset = EscapeEdgeSet::Make(source, m_forward, true);
-    Assert(eset->GetEdgeCount() == 0);
-
-    if (g_escape_edge_list)
-      g_escape_edge_list->PushBack(eset);
-    return eset;
-  }
-
-  const char* GetDatabaseKey(String *key) { return key->Value(); }
-
-  void MergeData(MergeExternalData<String,Trace,EscapeEdgeSet> *new_data,
-                 Buffer *old_data, Buffer *merged_data)
-  {
-    while (old_data->pos != old_data->base + old_data->size) {
-      Trace *source = NULL;
-      bool forward = false;
-      Vector<EscapeEdge> edges;
-
-      EscapeEdgeSet::ReadMerge(old_data, &source, &forward, &edges);
-      size_t old_count = edges.Size();
-
-      EscapeEdgeSet *new_eset = LookupMarkData(new_data, source);
-      if (new_eset) {
-        for (size_t eind = 0; eind < new_eset->GetEdgeCount(); eind++)
-          edges.PushBack(new_eset->GetEdge(eind));
-      }
-
-      EscapeEdgeSet::WriteMerge(merged_data, source, forward, edges);
-
-      // drop references on the old edges.
-      source->DecRef();
-      for (size_t eind = 0; eind < old_count; eind++) {
-        edges[eind].target->DecRef();
-        edges[eind].where.id->DecRef();
-      }
-    }
-
-    // write out any remaining unseen entries.
-    Vector<EscapeEdgeSet*> remaining_new_data;
-    GetUnmarkedData(new_data, &remaining_new_data);
-
-    for (size_t ind = 0; ind < remaining_new_data.Size(); ind++) {
-      EscapeEdgeSet *eset = remaining_new_data[ind];
-      EscapeEdgeSet::Write(merged_data, eset);
-    }
-  }
-};
-
-Lookup_MergeEscapeEdge lookup_MergeEscapeForward(true);
-MergeEscapeEdge::Cache
-  MergeEscapeForwardCache(&lookup_MergeEscapeForward,
-                          MERGE_CAP_ESCAPE_EDGE, false);
-
-Lookup_MergeEscapeEdge lookup_MergeEscapeBackward(false);
-MergeEscapeEdge::Cache
-  MergeEscapeBackwardCache(&lookup_MergeEscapeBackward,
-                           MERGE_CAP_ESCAPE_EDGE, false);
-
-
-static Vector<EscapeAccessSet*> *g_escape_access_list = NULL;
-
-class Lookup_MergeEscapeAccess : public MergeEscapeAccess
-{
- public:
-  Lookup_MergeEscapeAccess()
-    : MergeEscapeAccess(ESCAPE_ACCESS_DATABASE)
-  {}
-
-  Trace* GetObjectKey(EscapeAccessSet *aset) { return aset->GetValue(); }
-
-  EscapeAccessSet* MakeEmpty(Trace *value)
-  {
-    value->IncRef();
-    EscapeAccessSet *aset = EscapeAccessSet::Make(value, true);
-    Assert(aset->GetAccessCount() == 0);
-
-    if (g_escape_access_list)
-      g_escape_access_list->PushBack(aset);
-    return aset;
-  }
-
-  const char* GetDatabaseKey(String *key) { return key->Value(); }
-
-  void MergeData(MergeExternalData<String,Trace,EscapeAccessSet> *new_data,
-                 Buffer *old_data, Buffer *merged_data)
-  {
-    while (old_data->pos != old_data->base + old_data->size) {
-      Trace *value = NULL;
-      Vector<EscapeAccess> accesses;
-
-      EscapeAccessSet::ReadMerge(old_data, &value, &accesses);
-      size_t old_count = accesses.Size();
-
-      EscapeAccessSet *new_aset = LookupMarkData(new_data, value);
-      if (new_aset) {
-        for (size_t aind = 0; aind < new_aset->GetAccessCount(); aind++)
-          accesses.PushBack(new_aset->GetAccess(aind));
-      }
-
-      EscapeAccessSet::WriteMerge(merged_data, value, accesses);
-
-      // drop references on the old accesses.
-      value->DecRef();
-      for (size_t aind = 0; aind < old_count; aind++) {
-        const EscapeAccess &access = accesses[aind];
-
-        access.target->DecRef();
-        access.where.id->DecRef();
-        if (access.field)
-          access.field->DecRef();
-      }
-    }
-
-    // write out any remaining unseen entries.
-    Vector<EscapeAccessSet*> remaining_new_data;
-    GetUnmarkedData(new_data, &remaining_new_data);
-
-    // write out any remaining unseen entries.
-    for (size_t ind = 0; ind < remaining_new_data.Size(); ind++) {
-      EscapeAccessSet *aset = remaining_new_data[ind];
-      EscapeAccessSet::Write(merged_data, aset);
-    }
-  }
-};
-
-Lookup_MergeEscapeAccess lookup_MergeEscapeAccess;
-Lookup_MergeEscapeAccess::Cache
-  MergeEscapeAccessCache(&lookup_MergeEscapeAccess,
-                         MERGE_CAP_ESCAPE_ACCESS, false);
-
-/////////////////////////////////////////////////////////////////////
-// Callgraph merge caches
-/////////////////////////////////////////////////////////////////////
-
-static Vector<CallEdgeSet*> *g_call_edge_list = NULL;
-
-class Lookup_MergeCallEdge : public MergeCallEdge
-{
- public:
-  bool m_callers;
-  Lookup_MergeCallEdge(bool callers)
-    : MergeCallEdge(callers ? CALLER_DATABASE : CALLEE_DATABASE),
-      m_callers(callers)
-  {}
-
-  Variable* GetObjectKey(CallEdgeSet *cset) { return cset->GetFunction(); }
-
-  CallEdgeSet* MakeEmpty(Variable *function)
-  {
-    function->IncRef();
-    CallEdgeSet *cset = CallEdgeSet::Make(function, m_callers, true);
-    Assert(cset->GetEdgeCount() == 0);
-
-    if (g_call_edge_list)
-      g_call_edge_list->PushBack(cset);
-    return cset;
-  }
-
-  const char* GetDatabaseKey(Variable *key) { return key->GetName()->Value(); }
-
-  void MergeData(MergeExternalData<Variable,Variable,CallEdgeSet> *new_data,
-                 Buffer *old_data, Buffer *merged_data)
-  {
-    Assert(new_data->single != NULL);
-    CallEdgeSet *cset = new_data->single;
-
-    if (old_data->size == 0) {
-      // empty old data. write out the new data and return.
-      CallEdgeSet::Write(merged_data, cset);
-      return;
-    }
-
-    Variable *function = NULL;
-    bool callers = false;
-    Vector<CallEdge> edges;
-
-    // read in the old data.
-    CallEdgeSet::ReadMerge(old_data, &function, &callers, &edges);
-    Assert(function == cset->GetFunction());
-    Assert(callers == cset->IsCallers());
-    size_t old_count = edges.Size();
-
-    // add the new edges to the old edges. we shouldn't see any
-    // duplicate edges between the two sets.
-    for (size_t eind = 0; eind < cset->GetEdgeCount(); eind++)
-      edges.PushBack(cset->GetEdge(eind));
-
-    // write out the merged data.
-    CallEdgeSet::WriteMerge(merged_data, function, callers, edges);
-
-    // drop references on the old data.
-    function->DecRef();
-    for (size_t eind = 0; eind < old_count; eind++) {
-      edges[eind].where.id->DecRef();
-      edges[eind].callee->DecRef();
-    }
-  }
-};
-
-Lookup_MergeCallEdge lookup_MergeCaller(true);
-MergeCallEdge::Cache
-  MergeCallerCache(&lookup_MergeCaller, MERGE_CAP_CALLGRAPH, false);
-
-Lookup_MergeCallEdge lookup_MergeCallee(false);
-MergeCallEdge::Cache
-  MergeCalleeCache(&lookup_MergeCallee, MERGE_CAP_CALLGRAPH, false);
-
-/////////////////////////////////////////////////////////////////////
-// Merge cache transactions
-/////////////////////////////////////////////////////////////////////
-
-void FlushMergeCaches(bool lru_only)
-{
-  // remove entries from the cache and fill in the flush data
-  // for each lookup structure.
-  if (lru_only) {
-    MergeEscapeForwardCache.RemoveLruEntries(MERGE_TRANSACTION_LIMIT);
-    MergeEscapeBackwardCache.RemoveLruEntries(MERGE_TRANSACTION_LIMIT);
-    MergeEscapeAccessCache.RemoveLruEntries(MERGE_TRANSACTION_LIMIT);
-    MergeCalleeCache.RemoveLruEntries(MERGE_TRANSACTION_LIMIT);
-    MergeCallerCache.RemoveLruEntries(MERGE_TRANSACTION_LIMIT);
-  }
-  else {
-    MergeEscapeForwardCache.Clear(MERGE_TRANSACTION_LIMIT);
-    MergeEscapeBackwardCache.Clear(MERGE_TRANSACTION_LIMIT);
-    MergeEscapeAccessCache.Clear(MERGE_TRANSACTION_LIMIT);
-    MergeCalleeCache.Clear(MERGE_TRANSACTION_LIMIT);
-    MergeCallerCache.Clear(MERGE_TRANSACTION_LIMIT);
-  }
-
-  Transaction *t = new Transaction();
-
-  lookup_MergeEscapeForward.ReadKeys(t);
-  lookup_MergeEscapeBackward.ReadKeys(t);
-  lookup_MergeEscapeAccess.ReadKeys(t);
-  lookup_MergeCallee.ReadKeys(t);
-  lookup_MergeCaller.ReadKeys(t);
-
-  if (t->GetActionCount() == 0) {
-    // none of the cache flush methods was invoked and the sets remain empty.
-    // cleanup and return, we don't need to submit a transaction.
-    delete t;
-    return;
-  }
-
-  // submit the initial transaction to get the contents of each key
-  // needed by the flush data lists.
-  SubmitTransaction(t);
-
-  Transaction *nt = new Transaction();
-
-  lookup_MergeEscapeForward.WriteKeys(nt, t);
-  lookup_MergeEscapeBackward.WriteKeys(nt, t);
-  lookup_MergeEscapeAccess.WriteKeys(nt, t);
-  lookup_MergeCallee.WriteKeys(nt, t);
-  lookup_MergeCaller.WriteKeys(nt, t);
-
-  // submit the final transaction to write out the merged data.
-  SubmitTransaction(nt);
-
-  lookup_MergeEscapeForward.CheckWrite(nt, &MergeEscapeForwardCache);
-  lookup_MergeEscapeBackward.CheckWrite(nt, &MergeEscapeBackwardCache);
-  lookup_MergeEscapeAccess.CheckWrite(nt, &MergeEscapeAccessCache);
-  lookup_MergeCallee.CheckWrite(nt, &MergeCalleeCache);
-  lookup_MergeCaller.CheckWrite(nt, &MergeCallerCache);
-
-  delete t;
-  delete nt;
-}
-
-bool MergeCachesEmpty(bool lru_only)
-{
-  bool empty = true;
-
-  if (lru_only) {
-    empty &= !MergeEscapeForwardCache.HasLru();
-    empty &= !MergeEscapeBackwardCache.HasLru();
-    empty &= !MergeEscapeAccessCache.HasLru();
-    empty &= !MergeCalleeCache.HasLru();
-    empty &= !MergeCallerCache.HasLru();
-  }
-  else {
-    empty &= MergeEscapeForwardCache.IsEmpty();
-    empty &= MergeEscapeBackwardCache.IsEmpty();
-    empty &= MergeEscapeAccessCache.IsEmpty();
-    empty &= MergeCalleeCache.IsEmpty();
-    empty &= MergeCallerCache.IsEmpty();
-  }
-
-  return empty;
-}
-
-void SetStaticMergeCaches(Vector<EscapeEdgeSet*> *escape_edge_list,
-                          Vector<EscapeAccessSet*> *escape_access_list,
-                          Vector<CallEdgeSet*> *call_edge_list)
-{
-  MergeEscapeForwardCache.SetLruEviction(false);
-  MergeEscapeBackwardCache.SetLruEviction(false);
-  MergeEscapeAccessCache.SetLruEviction(false);
-  MergeCalleeCache.SetLruEviction(false);
-  MergeCallerCache.SetLruEviction(false);
-
-  g_escape_edge_list = escape_edge_list;
-  g_escape_access_list = escape_access_list;
-  g_call_edge_list = call_edge_list;
-}
-
+HashTable<Variable*,CallEdgeSet*,Variable> g_pending_callees;
+HashTable<Variable*,CallEdgeSet*,Variable> g_pending_callers;
 
 /////////////////////////////////////////////////////////////////////
 // Memory data compression
@@ -960,7 +640,7 @@ void BlockModsetUncompress(Transaction *t, TOperandString *op_data,
 }
 
 TOperandString* BlockSummaryCompress(Transaction *t,
-                               const Vector<BlockSummary*> &sums)
+                                     const Vector<BlockSummary*> &sums)
 {
   Buffer *data = new Buffer();
   t->AddBuffer(data);
@@ -986,112 +666,98 @@ void BlockSummaryUncompress(Transaction *t, TOperandString *op_data,
   scratch_buf.Reset();
 }
 
-CallEdgeSet* GetIndirectCallEdges(Variable *function)
+static Buffer pending_buf;
+
+class WriteEscapeEdgeVisitor
+  : public HashTableVisitor<Trace*,EscapeEdgeSet*>
 {
-  // get the call edge set computed by ProcessCFGIndirect.
-  MergeCallEdge *callee_lookup =
-    (MergeCallEdge*) MergeCalleeCache.GetExternalLookup();
+public:
+  Transaction *t;
 
-  return callee_lookup->LookupSingle(&MergeCalleeCache,
-                                     function, function, false);
-}
+  void Visit(Trace *&, Vector<EscapeEdgeSet*> &list) {
+    for (size_t ind = 0; ind < list.Size(); ind++) {
+      EscapeEdgeSet::Write(&pending_buf, list[ind]);
 
-void GetCalleeModsets(Transaction *t, Variable *function,
-                      const Vector<BlockCFG*> &function_cfgs,
-                      const char *dependency_hash)
+      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+        t->PushAction(Backend::BlockWriteList(t, list_op));
+        SubmitTransaction(t);
+        t->Clear();
+        pending_buf.Reset();
+      }
+    }
+  }
+};
+
+class WriteEscapeAccessVisitor
+  : public HashTableVisitor<Trace*,EscapeAccessSet*>
 {
-  Vector<Variable*> callees;
+public:
+  Transaction *t;
 
-  // process direct callees.
-  for (size_t cind = 0; cind < function_cfgs.Size(); cind++) {
-    BlockCFG *cfg = function_cfgs[cind];
-    for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
-      PEdgeCall *edge = cfg->GetEdge(eind)->IfCall();
-      if (!edge)
-        continue;
+  void Visit(Trace *&, Vector<EscapeAccessSet*> &list) {
+    for (size_t ind = 0; ind < list.Size(); ind++) {
+      EscapeAccessSet::Write(&pending_buf, list[ind]);
 
-      if (Variable *function = edge->GetDirectFunction())
-        callees.PushBack(function);
+      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+        t->PushAction(Backend::BlockWriteList(t, list_op));
+        SubmitTransaction(t);
+        t->Clear();
+        pending_buf.Reset();
+      }
     }
   }
+};
 
-  // process indirect callees.
-  CallEdgeSet *indirect_callees = GetIndirectCallEdges(function);
-  if (indirect_callees) {
-    for (size_t eind = 0; eind < indirect_callees->GetEdgeCount(); eind++) {
-      const CallEdge &edge = indirect_callees->GetEdge(eind);
-      callees.PushBack(edge.callee);
+class WriteCallEdgeVisitor
+  : public HashTableVisitor<Variable*,CallEdgeSet*>
+{
+public:
+  Transaction *t;
+
+  void Visit(Variable *&, Vector<CallEdgeSet*> &list) {
+    for (size_t ind = 0; ind < list.Size(); ind++) {
+      CallEdgeSet::Write(&pending_buf, list[ind]);
+
+      if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+        TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+        t->PushAction(Backend::BlockWriteList(t, list_op));
+        SubmitTransaction(t);
+        t->Clear();
+        pending_buf.Reset();
+      }
     }
   }
+};
 
-  // distinct callee functions we need to fetch the modset for.
-  Vector<Variable*> fetch_callees;
+void WritePendingEscape()
+{
+  Transaction *t = new Transaction();
 
-  for (size_t ind = 0; ind < callees.Size(); ind++) {
-    Variable *callee = callees[ind];
+  WriteEscapeEdgeVisitor escape_edge_visitor;
+  escape_edge_visitor.t = t;
+  g_pending_escape_forward.VisitEach(&escape_edge_visitor);
+  g_pending_escape_backward.VisitEach(&escape_edge_visitor);
 
-    if (fetch_callees.Contains(callee))
-      continue;
+  WriteEscapeAccessVisitor escape_access_visitor;
+  escape_access_visitor.t = t;
+  g_pending_escape_accesses.VisitEach(&escape_access_visitor);
 
-    // check if there is already a modset for this function in the cache.
-    callee->IncRef();
-    BlockId *id = BlockId::Make(B_Function, callee);
+  WriteCallEdgeVisitor call_edge_visitor;
+  call_edge_visitor.t = t;
+  g_pending_callees.VisitEach(&call_edge_visitor);
+  g_pending_callers.VisitEach(&call_edge_visitor);
 
-    if (!BlockModsetCache.IsMember(id)) {
-      fetch_callees.PushBack(callee);
-    }
-    else {
-      // the modset cache should be kept flushed between functions
-      // if we are adding dependencies on the modset data.
-      Assert(dependency_hash == NULL);
-    }
-
-    id->DecRef();
-  }
-
-  if (fetch_callees.Size()) {
-    size_t modset_list_result = t->MakeVariable(true);
-
-    // make a transaction to fetch all the callee modsets.
-
-    TOperand *modset_list_arg = new TOperandVariable(t, modset_list_result);
-    TOperand *function_arg = new TOperandString(t, function->GetName()->Value());
-
-    size_t modset_data_var = t->MakeVariable();
-    TOperand *modset_data_arg = new TOperandVariable(t, modset_data_var);
-
-    Vector<TOperand*> empty_list_args;
-    t->PushAction(Backend::ListCreate(t, empty_list_args,
-                                      modset_list_result));
-
-    for (size_t find = 0; find < fetch_callees.Size(); find++) {
-      Variable *callee = fetch_callees[find];
-      TOperand *callee_arg = new TOperandString(t, callee->GetName()->Value());
-
-      if (dependency_hash != NULL)
-        t->PushAction(Backend::HashInsertValue(t, dependency_hash,
-                                               callee_arg, function_arg));
-      t->PushAction(Backend::XdbLookup(t, MODSET_DATABASE,
-                                       callee_arg, modset_data_var));
-      t->PushAction(Backend::ListPush(t, modset_list_arg, modset_data_arg,
-                                      modset_list_result));
-    }
-
+  if (pending_buf.pos != pending_buf.base) {
+    TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+    t->PushAction(Backend::BlockWriteList(t, list_op));
     SubmitTransaction(t);
-
-    // add the fetched modsets to the modset cache.
-
-    TOperandList *modset_list = t->LookupList(modset_list_result);
-    for (size_t oind = 0; oind < modset_list->GetCount(); oind++) {
-      TOperandString *modset_data = modset_list->GetOperand(oind)->AsString();
-
-      Vector<BlockModset*> bmod_list;
-      BlockModsetUncompress(t, modset_data, &bmod_list);
-      BlockModsetCacheAddList(bmod_list);
-    }
-
     t->Clear();
+    pending_buf.Reset();
   }
+
+  delete t;
 }
 
 NAMESPACE_XGILL_END

@@ -42,8 +42,17 @@ BlockId* BlockId::Copy(const BlockId *b)
 
 void BlockId::Write(Buffer *buf, const BlockId *b)
 {
+  BlockKind kind = b->Kind();
+
+  // do any modification of the kind to write out.
+  switch (kind) {
+  case B_ModsetFunction: kind = B_Function; break;
+  case B_ModsetLoop:     kind = B_Loop;     break;
+  default: break;
+  }
+
   WriteOpenTag(buf, TAG_BlockId);
-  WriteTagUInt32(buf, TAG_Kind, b->Kind());
+  WriteTagUInt32(buf, TAG_Kind, kind);
   Variable::Write(buf, b->BaseVar());
   if (b->Loop() != NULL)
     String::Write(buf, b->Loop());
@@ -79,15 +88,15 @@ BlockId::BlockId(BlockKind kind, Variable *var, String *loop)
   case B_FunctionWhole:
   case B_Function:
   case B_Initializer:
+  case B_ModsetFunction:
     Assert(!m_loop);
     break;
   case B_Loop:
   case B_AnnotationFunc:
   case B_AnnotationInit:
   case B_AnnotationComp:
+  case B_ModsetLoop:
     Assert(m_loop);
-    break;
-  case B_Scratch:
     break;
   default:
     Assert(false);
@@ -133,8 +142,10 @@ void BlockId::Print(OutStream &out) const
     out << ":annot_init:" << m_loop->Value(); break;
   case B_AnnotationComp:
     out << ":annot_comp:" << m_loop->Value(); break;
-  case B_Scratch:
-    out << ":scratch"; break;
+  case B_ModsetFunction:
+    out << ":modfunc"; break;
+  case B_ModsetLoop:
+    out << ":modloop:" << m_loop->Value(); break;
   default:
     Assert(false);
     break;
@@ -193,20 +204,7 @@ HashCons<BlockCFG> BlockCFG::g_table;
 
 int BlockCFG::Compare(const BlockCFG *cfg0, const BlockCFG *cfg1)
 {
-  BlockId *id0 = cfg0->GetId();
-  BlockId *id1 = cfg1->GetId();
-
-  if (id0->Kind() != B_Scratch || id1->Kind() != B_Scratch) {
-    TryCompareObjects(id0, id1, BlockId);
-    return 0;
-  }
-
-  // don't do any hash-consing for scratch CFGs, just compare based
-  // on the bits.
-  TryCompareValues((size_t)cfg0, (size_t)cfg1);
-
-  // we shouldn't be getting two identical CFG pointers here
-  Assert(false);
+  TryCompareObjects(cfg0->GetId(), cfg1->GetId(), BlockId);
   return 0;
 }
 

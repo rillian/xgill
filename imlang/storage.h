@@ -60,8 +60,8 @@ NAMESPACE_XGILL_BEGIN
 #define WORKLIST_GLOB_HASH "worklist_glob_hash"
 #define WORKLIST_COMP_HASH "worklist_comp_hash"
 
-// sort name for function worklist.
-#define WORKLIST_FUNC_SORT "worklist_func_sort"
+// secondary worklist hash for function iteration.
+#define WORKLIST_FUNC_NEXT "worklist_func_hash_next"
 
 // cache lookup structures.
 

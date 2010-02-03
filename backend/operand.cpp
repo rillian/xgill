@@ -47,11 +47,6 @@ void TOperand::Write(Buffer *buf, const TOperand *o)
     WriteString(buf, no->GetData(), no->GetDataLength());
     break;
   }
-  case TO_TimeStamp: {
-    const TOperandTimeStamp *no = (const TOperandTimeStamp*)o;
-    WriteTagUInt64(buf, TAG_TimeStamp, no->GetStamp());
-    break;
-  }
   case TO_Boolean: {
     const TOperandBoolean *no = (const TOperandBoolean*)o;
     WriteTagEmpty(buf, no->IsTrue() ? TAG_True : TAG_False);
@@ -73,7 +68,6 @@ TOperand* TOperand::Read(Buffer *buf, Transaction *t)
 {
   uint32_t kind = 0;
   uint32_t index = 0;
-  uint64_t timestamp = 0;
   bool is_true = false;
   bool is_false = false;
   const uint8_t *str_base = NULL;
@@ -105,10 +99,6 @@ TOperand* TOperand::Read(Buffer *buf, Transaction *t)
       Try(ReadString(buf, &str_base, &str_len));
       break;
     }
-    case TAG_TimeStamp: {
-      Try(ReadTagUInt64(buf, TAG_TimeStamp, &timestamp));
-      break;
-    }
     case TAG_TOperand: {
       TOperand *op;
       Try(op = TOperand::Read(buf, t));
@@ -138,8 +128,6 @@ TOperand* TOperand::Read(Buffer *buf, Transaction *t)
     buf->Append(str_base, str_len);
     return new TOperandString(t, buf->base, str_len);
   }
-  case TO_TimeStamp:
-    return new TOperandTimeStamp(t, timestamp);
   case TO_Boolean:
     Try(is_true || is_false);
     return new TOperandBoolean(t, is_true);
@@ -246,19 +234,6 @@ void TOperandString::Print(OutStream &out) const
   else {
     out << "null";
   }
-}
-
-/////////////////////////////////////////////////////////////////////
-// TOperandTimeStamp
-/////////////////////////////////////////////////////////////////////
-
-TOperandTimeStamp::TOperandTimeStamp(Transaction *t, TimeStamp stamp)
-  : TOperand(t, TO_TimeStamp), m_stamp(stamp)
-{}
-
-void TOperandTimeStamp::Print(OutStream &out) const
-{
-  out << "timestamp";
 }
 
 /////////////////////////////////////////////////////////////////////

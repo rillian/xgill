@@ -31,12 +31,8 @@
 //   TAG_Index (variable, integer)
 //   TAG_True / TAG_False (boolean)
 //   TAG_String (string)
-//   TAG_TimeStamp (timestamp)
 //   ordered list of TAG_TOperand (list)
 #define TAG_TOperand 500
-
-// children: TAG_UInt64
-#define TAG_TimeStamp 510
 
 ///////////////////////////////
 // TAction
@@ -69,7 +65,6 @@
 
 // children:
 //   TAG_True / TAG_False (for success)
-//   TAG_TimeStamp
 //   ordered list of TAG_TransactionVariable (return vars only)
 #define TAG_TransactionResult 540
 

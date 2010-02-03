@@ -62,12 +62,9 @@ void TransactionBackend::StartBackend()
   Assert(!started_backends);
   started_backends = true;
 
-  InitializeTimeStamp();
-
 #define START_BACKEND(BACKEND)  (BACKEND).m_start();
   ITERATE_BACKENDS(START_BACKEND)
 #undef START_BACKEND
-
 }
 
 void TransactionBackend::FinishBackend()

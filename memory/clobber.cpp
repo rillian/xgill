@@ -67,7 +67,10 @@ MemoryClobber mclobber_Default(MCLB_Default);
 class MemoryClobberModset : public MemoryClobber
 {
  public:
-  MemoryClobberModset() : MemoryClobber(MCLB_Modset) {}
+  bool m_indirect;
+  MemoryClobberModset(bool indirect)
+    : MemoryClobber(indirect ? MCLB_Modset : MCLB_ModsetNoIndirect),
+      m_indirect(indirect) {}
 
   void ComputeClobber(BlockMemory *mcfg, PEdge *edge,
                       Vector<GuardAssign> *assigns,
@@ -84,9 +87,9 @@ class MemoryClobberModset : public MemoryClobber
       is_direct = true;
       callees.PushBack(callee);
     }
-    else if (edge->IsCall()) {
+    else if (edge->IsCall() && m_indirect) {
       Variable *function = mcfg->GetId()->BaseVar();
-      CallEdgeSet *indirect_callees = GetIndirectCallEdges(function);
+      CallEdgeSet *indirect_callees = CalleeCache.Lookup(function);
 
       if (indirect_callees) {
         for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
@@ -99,6 +102,8 @@ class MemoryClobberModset : public MemoryClobber
           }
         }
       }
+
+      CalleeCache.Release(function);
     }
 
     for (size_t cind = 0; cind < callees.Size(); cind++) {
@@ -141,6 +146,7 @@ class MemoryClobberModset : public MemoryClobber
   }
 };
 
-MemoryClobberModset msimp_Modset;
+MemoryClobberModset msimp_Modset(true);
+MemoryClobberModset msimp_ModsetNoIndirect(false);
 
 NAMESPACE_XGILL_END

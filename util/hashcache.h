@@ -95,17 +95,16 @@ class HashCache
   // become the most recently used.
   void Insert(T v, U o);
 
-  // remove all entries in this cache, to a maximum limit of max_cleared
-  // entries (0 for no limit), except for those entries which have active
-  // lookups (Release() has not yet been called on a previous Lookup() for
-  // the entry).
-  void Clear(size_t max_cleared = 0);
+  // remove all entries in this cache, except for those entries which
+  // have active lookups (Release() has not yet been called on a previous
+  // Lookup() for the entry).
+  void Clear();
 
-  // remove the least recently used entries, to a maximum limit of max_cleared
-  // (0 for no limit), until we are under the maximum entry count or run
-  // out of entries without active lookups. does not do anything if the
-  // maximum entry count is not exceeded.
-  void RemoveLruEntries(size_t max_cleared = 0);
+  // remove the least recently used entries, until we are under
+  // the maximum the maximum entry count or run out of entries without
+  // active lookups. does not do anything if the maximum entry count
+  // is not exceeded.
+  void RemoveLruEntries();
 
  private:
 

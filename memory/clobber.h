@@ -36,7 +36,10 @@ enum MemoryClobberKind {
   MCLB_Default = 0,
 
   // clobber the lvalues indicated by modset information.
-  MCLB_Modset = 1
+  MCLB_Modset = 1,
+
+  // as with MCLB_Modset, but clobbers from indirect calls are not used.
+  MCLB_ModsetNoIndirect = 2
 };
 
 class MemoryClobber

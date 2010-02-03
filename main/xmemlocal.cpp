@@ -23,6 +23,7 @@
 #include <memory/block.h>
 #include <memory/escape.h>
 #include <memory/storage.h>
+#include <backend/backend_block.h>
 #include <backend/backend_compound.h>
 #include <util/config.h>
 #include <util/monitor.h>
@@ -33,14 +34,29 @@ NAMESPACE_XGILL_USING
 
 const char *USAGE = "xmemlocal [options] [function*]";
 
+// the memory model for a function is entirely determined from its CFG
+// and from the modsets of its callees. getting complete modsets is an
+// iterative process due to recursion, and we want to make this iteration
+// deterministic. the process for computing memory and modsets is as follows:
+//
+// 1. compute the memory/modsets for all but the last stage of the callgraph.
+// 2. run one pass over the last stage of the callgraph to compute modset
+// dependencies and the first cut of the modsets for these functions.
+// 3. run additional passes over the last stage of the callgraph.
+// maintain a worklist of the functions to analyze in the next pass
+// (any function with a callee whose modset changed in the current pass).
+
+// new memory or modset data is not written to the databases until a pass
+// is finished. the next pass does not start until after this writing is done.
+// this is managed using a barrier counter, which indicates the number of
+// outstanding workers for the current pass which have made new memory/modset
+// data but have not written it out yet.
+
 // hash name for the modset dependency information (if it is being generated).
 #define MODSET_DEPENDENCY_HASH "dependency_modset"
 
 // scratch buffer for database compression.
 static Buffer compress_buf("Buffer_xmemlocal");
-
-ConfigOption skip_indirect(CK_Flag, "skip-indirect", NULL,
-                           "skip generation of indirect calls");
 
 ConfigOption do_fixpoint(CK_Flag, "do-fixpoint", NULL,
                          "perform a fixpoint computation on modsets");
@@ -51,101 +67,331 @@ ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
 ConfigOption print_memory(CK_Flag, "print-memory", NULL,
                           "print generated memory information");
 
-void MakeInitTransaction(Transaction *t, const Vector<const char*> &functions)
+// counter indicating the index of the *next* pass we'll be processing.
+#define COUNTER_STAGE "counter"
+
+// counters used to make sure pending memory/modset data is written at the
+// right point. BARRIER_PROCESS indicates the number of workers that have
+// processed at least one function for the current stage and have not finished
+// with the stage yet. BARRIER_WRITE indicates the number of workers that
+// have finished processing functions for the stage but have not written
+// out their results yet. results cannot be written out until BARRIER_PROCESS
+// becomes zero, and the next stage cannot be started until both counters
+// become zero.
+#define BARRIER_PROCESS "barrier_process"
+#define BARRIER_WRITE "barrier_write"
+
+// number of callgraph stages.
+static size_t g_stage_count = 0;
+
+// make a transaction to get the next key from the worklist. the body data
+// will not be set if there are no nodes remaining in the worklist.
+// have_barrier increments whether we have a reference on the barrier counter;
+// a reference will be added if a key is found and have_barrier is not set.
+// if the worklist is empty, advances to the next stage if the counters are ok.
+void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
+                          size_t stage_result,
+                          size_t body_data_result, size_t modset_data_result,
+                          size_t barrier_process_result,
+                          size_t barrier_write_result)
 {
-  // clear the output databases if we are processing all functions.
-  if (functions.Empty()) {
-    t->PushAction(
-      Backend::Compound::XdbClearIfNotHash(
-        t, MEMORY_DATABASE, WORKLIST_FUNC_HASH));
-    t->PushAction(
-      Backend::Compound::XdbClearIfNotHash(
-        t, MODSET_DATABASE, WORKLIST_FUNC_HASH));
+  // $stage = CounterValue(stage)
+  // $body_key = HashChooseKey(worklist_name)
+  // $key_empty = StringIsEmpty($body_key)
+  // if !$key_empty
+  //   HashRemove(worklist_name, $body_key)
+  //   $body_data = XdbLookup(src_body, $body_key)
+  //   $modset_data = XdbLookup(src_modset, $body_key)
+  //   CounterInc(barrier_process) // if !have_barrier_process
+  // if $key_empty
+  //   $barrier_process = CounterValue(barrier_process)
+  //   $barrier_write = CounterValue(barrier_write)
+  //   $process_done = ValueEqual($barrier_process, 0)
+  //   $write_done = ValueEqual($barrier_write, 0)
+  //   if $process_done
+  //     if $write_done
+  //       $use_sort = ValueLessEqual($stage, stage_count)
+  //       if $use_sort
+  //         $next_list = GraphSortKeys(callgraph, $stage)
+  //       if !$use_sort
+  //         $next_list = HashAllKeys(worklist_next)
+  //         HashClear(worklist_next)
+  //       foreach $next_key in $next_list
+  //         HashInsertKey(worklist_name, $next_key)
+  //       CounterInc($stage)
+
+  TOperand *stage = new TOperandVariable(t, stage_result);
+
+  TRANSACTION_MAKE_VAR(body_key);
+  TRANSACTION_MAKE_VAR(key_empty);
+
+  t->PushAction(Backend::CounterValue(t, COUNTER_STAGE, stage_result));
+  t->PushAction(Backend::HashChooseKey(t, WORKLIST_FUNC_HASH, body_key_var));
+  t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));
+
+  TActionTest *non_empty_branch = new TActionTest(t, key_empty, false);
+  t->PushAction(non_empty_branch);
+
+  non_empty_branch->PushAction(
+    Backend::HashRemove(t, WORKLIST_FUNC_HASH, body_key));
+  non_empty_branch->PushAction(
+    Backend::XdbLookup(t, BODY_DATABASE, body_key, body_data_result));
+  non_empty_branch->PushAction(
+    Backend::XdbLookup(t, MODSET_DATABASE, body_key, modset_data_result));
+
+  if (!have_barrier_process)
+    non_empty_branch->PushAction(Backend::CounterInc(t, BARRIER_PROCESS));
+
+  TActionTest *empty_branch = new TActionTest(t, key_empty, true);
+  t->PushAction(empty_branch);
+
+  TOperand *barrier_process = new TOperandVariable(t, barrier_process_result);
+  TOperand *barrier_write = new TOperandVariable(t, barrier_write_result);
+  TRANSACTION_MAKE_VAR(process_done);
+  TRANSACTION_MAKE_VAR(write_done);
+  TRANSACTION_MAKE_VAR(use_sort);
+  TRANSACTION_MAKE_VAR(next_list);
+
+  TOperand *zero_val = new TOperandInteger(t, 0);
+  TOperand *max_val = new TOperandInteger(t, g_stage_count);
+
+  empty_branch->PushAction(
+    Backend::CounterValue(t, BARRIER_PROCESS, barrier_process_result));
+  empty_branch->PushAction(
+    Backend::CounterValue(t, BARRIER_WRITE, barrier_write_result));
+  empty_branch->PushAction(
+    Backend::ValueEqual(t, barrier_process, zero_val, process_done_var));
+  empty_branch->PushAction(
+    Backend::ValueEqual(t, barrier_write, zero_val, write_done_var));
+
+  TActionTest *process_done_branch = new TActionTest(t, process_done, true);
+  empty_branch->PushAction(process_done_branch);
+  TActionTest *write_done_branch = new TActionTest(t, write_done, true);
+  process_done_branch->PushAction(write_done_branch);
+
+  write_done_branch->PushAction(
+    Backend::ValueLessEqual(t, stage, max_val, use_sort_var));
+
+  TActionTest *use_sort_branch = new TActionTest(t, use_sort, true);
+  use_sort_branch->PushAction(
+    Backend::GraphSortKeys(t, CALLGRAPH_NAME, stage, next_list_var));
+  write_done_branch->PushAction(use_sort_branch);
+
+  TActionTest *not_sort_branch = new TActionTest(t, use_sort, false);
+  not_sort_branch->PushAction(
+    Backend::HashAllKeys(t, WORKLIST_FUNC_NEXT, next_list_var));
+  not_sort_branch->PushAction(Backend::HashClear(t, WORKLIST_FUNC_NEXT));
+  write_done_branch->PushAction(not_sort_branch);
+
+  TRANSACTION_MAKE_VAR(next_key);
+
+  TActionIterate *next_iterate =
+    new TActionIterate(t, next_key_var, next_list);
+  next_iterate->PushAction(
+    Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, next_key));
+  write_done_branch->PushAction(next_iterate);
+  write_done_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
+}
+
+// information about the generated memory and modsets for a function.
+struct MemoryKeyData
+{
+  // new memory to write out.
+  Vector<BlockMemory*> block_mems;
+
+  // new modsets to write out.
+  Vector<BlockModset*> block_mods;
+
+  // old modsets, if there are any.
+  Vector<BlockModset*> old_mods;
+
+  // if this function depends on callee modsets, the names of those callees.
+  Vector<Variable*> callees;
+
+  ~MemoryKeyData() {
+    DecRefVector<BlockMemory>(block_mems, NULL);
+    DecRefVector<BlockModset>(block_mods, NULL);
+    DecRefVector<BlockModset>(block_mods, NULL);
+    DecRefVector<Variable>(callees, NULL);
+  }
+};
+
+// get all the direct and indirect callees of this function.
+// we need this to do a batch load of all modsets for these callees,
+// and to track dependencies introduced by the callee modsets.
+void GetCalleeModsets(Transaction *t,
+                      const Vector<BlockCFG*> &block_cfgs, size_t stage,
+                      MemoryKeyData *data)
+{
+  Variable *function = block_cfgs[0]->GetId()->BaseVar();
+
+  // process direct calls.
+  for (size_t ind = 0; ind < block_cfgs.Size(); ind++) {
+    BlockCFG *cfg = block_cfgs[ind];
+    for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
+      if (PEdgeCall *edge = cfg->GetEdge(eind)->IfCall()) {
+        Variable *callee = edge->GetDirectFunction();
+        if (callee && !data->callees.Contains(callee)) {
+          callee->IncRef();
+          data->callees.PushBack(callee);
+        }
+      }
+    }
   }
 
-  if (functions.Size()) {
-    // insert the initial function/global names.
-    for (size_t uind = 0; uind < functions.Size(); uind++) {
-      TOperand *key = new TOperandString(t, functions[uind]);
-      t->PushAction(Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, key));
-      t->PushAction(Backend::HashInsertKey(t, WORKLIST_GLOB_HASH, key));
-    }
+  // process indirect calls. how this works depends on the stage.
+  if (stage < g_stage_count) {
+    // there are no indirect calls in this function.
+  }
+  else if (stage == g_stage_count) {
+    // there may be indirect calls, and this is the first time this function
+    // has been processed. compute the targets, and store in the merge
+    // list to write out when this stage finishes.
+    for (size_t ind = 0; ind < block_cfgs.Size(); ind++)
+      CallgraphProcessCFGIndirect(block_cfgs[ind], &data->callees);
   }
   else {
-    // fill in the worklist hash from the body and initializer databases.
-
-    t->PushAction(
-      Backend::Compound::HashCreateXdbKeys(
-        t, WORKLIST_FUNC_HASH, BODY_DATABASE));
-
-    t->PushAction(
-      Backend::Compound::HashCreateXdbKeys(
-        t, WORKLIST_GLOB_HASH, INIT_DATABASE));
+    // we already know the indirect targets of this function, get them
+    // from the callgraph.
+    CallEdgeSet *cset = CalleeCache.Lookup(function);
+    for (size_t ind = 0; cset && ind < cset->GetEdgeCount(); ind++) {
+      Variable *callee = cset->GetEdge(ind).callee;
+      if (!data->callees.Contains(callee)) {
+        callee->IncRef();
+        data->callees.PushBack(callee);
+      }
+    }
+    CalleeCache.Release(function);
   }
-}
 
-void MakeFetchTransaction(Transaction *t,
-                          size_t body_key_result, size_t body_data_result,
-                          size_t glob_key_result, size_t glob_data_result,
-                          size_t modset_data_result)
-{
-  t->PushAction(
-    Backend::Compound::HashRunIfEmpty(t, WORKLIST_FUNC_HASH,
-      Backend::Compound::HashPopXdbKey(
-        t, WORKLIST_GLOB_HASH, INIT_DATABASE,
-        glob_key_result, glob_data_result)));
+  // fetch the callee modsets as a single transaction.
+  size_t modset_list_result = t->MakeVariable(true);
+  TOperand *modset_list_arg = new TOperandVariable(t, modset_list_result);
 
-  t->PushAction(
-    Backend::Compound::HashPopXdbKey(
-      t, WORKLIST_FUNC_HASH, BODY_DATABASE,
-      body_key_result, body_data_result));
+  TRANSACTION_MAKE_VAR(modset_data);
 
-  TOperand *body_key_arg = new TOperandVariable(t, body_key_result);
+  Vector<TOperand*> empty_list_args;
+  t->PushAction(Backend::ListCreate(t, empty_list_args, modset_list_result));
 
-  t->PushAction(
-    Backend::XdbLookup(
-      t, MODSET_DATABASE, body_key_arg, modset_data_result));
-}
+  for (size_t find = 0; find < data->callees.Size(); find++) {
+    Variable *callee = data->callees[find];
+    TOperand *callee_arg = new TOperandString(t, callee->GetName()->Value());
 
-void MakeUpdateTransaction(Transaction *t,
-                           Buffer *key_buf, Buffer *old_modset_data,
-                           const Vector<BlockMemory*> &function_mems,
-                           const Vector<BlockModset*> &function_mods)
-{
-  TOperand *function_arg =
-    new TOperandString(t, (const char*) key_buf->base);
+    // don't get the modset if it is already cached.
+    callee->IncRef();
+    BlockId *id = BlockId::Make(B_Function, callee);
 
-  TOperandString *memory_data_arg = BlockMemoryCompress(t, function_mems);
-
-  t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,
-                                    function_arg, memory_data_arg));
-
-  if (!function_mods.Empty()) {
-    TOperandString *modset_data_arg = BlockModsetCompress(t, function_mods);
-
-    bool modset_changed = false;
-    if (old_modset_data == NULL)
-      modset_changed = true;
-    else if (old_modset_data->size != modset_data_arg->GetDataLength())
-      modset_changed = true;
-    else if (memcmp(old_modset_data->base, modset_data_arg->GetData(),
-                    old_modset_data->size) != 0)
-      modset_changed = true;
-
-    if (modset_changed && do_fixpoint.IsSpecified()) {
-      t->PushAction(
-        Backend::Compound::UpdateDependency(
-          t, MODSET_DEPENDENCY_HASH, function_arg, WORKLIST_FUNC_HASH));
+    if (!BlockModsetCache.IsMember(id)) {
+      t->PushAction(Backend::XdbLookup(t, MODSET_DATABASE,
+                                       callee_arg, modset_data_var));
+      t->PushAction(Backend::ListPush(t, modset_list_arg, modset_data,
+                                      modset_list_result));
     }
 
-    t->PushAction(Backend::XdbReplace(t, MODSET_DATABASE,
-                                      function_arg, modset_data_arg));
+    id->DecRef();
   }
+
+  SubmitTransaction(t);
+
+  // add the fetched modsets to the modset cache.
+  TOperandList *modset_list = t->LookupList(modset_list_result);
+  for (size_t oind = 0; oind < modset_list->GetCount(); oind++) {
+    TOperandString *modset_data = modset_list->GetOperand(oind)->AsString();
+
+    Vector<BlockModset*> bmod_list;
+    BlockModsetUncompress(t, modset_data, &bmod_list);
+    BlockModsetCacheAddList(bmod_list);
+  }
+
+  t->Clear();
 }
 
-// how often to print allocation information.
-#define PRINT_ALLOC_FREQUENCY 50
-size_t g_alloc_counter = 0;
+// generate the memory and modset information for the specified CFGs.
+// return whether the generation was successful (no timeout).
+bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
+                    MemoryKeyData *data)
+{
+  Variable *function = block_cfgs[0]->GetId()->BaseVar();
+  logout << "Generating memory for [#" << stage << "]"
+         << "'" << function->GetName()->Value() << "'" << endl << flush;
+
+  // did we have a timeout while processing the CFGs?
+  bool had_timeout = false;
+
+  // generate memory information and (possibly) modsets for each CFG.
+  for (size_t cind = 0; cind < block_cfgs.Size(); cind++) {
+    // set a soft timeout for memory/modset computation.
+    // we don't set a hard timeout as these break the indirect callgraph.
+    if (uint32_t timeout = GetTimeout())
+      TimerAlarm::StartActive(timeout);
+
+    BlockCFG *cfg = block_cfgs[cind];
+    BlockId *id = cfg->GetId();
+
+    if (print_cfgs.IsSpecified())
+      logout << cfg << endl;
+
+    bool indirect = (stage > g_stage_count);
+
+    MemoryClobberKind clobber_kind =
+      indirect ? MCLB_Modset : MCLB_ModsetNoIndirect;
+
+    id->IncRef();
+    BlockMemory *mem =
+      BlockMemory::Make(id, MSIMP_Scalar, MALIAS_Buffer, clobber_kind);
+
+    mem->SetCFG(cfg);
+    mem->ComputeTables();
+
+    String *loop = id->Loop();
+
+    // make a modset which we will fill in the new modset data from.
+    // this uses a temporary ID as we need to distinguish the modsets
+    // we are generating during this pass from the modsets we generated
+    // during a previous pass.
+    function->IncRef();
+    BlockKind kind = B_ModsetFunction;
+    if (loop) {
+      loop->IncRef();
+      kind = B_ModsetLoop;
+    }
+    BlockId *mod_id = BlockId::Make(kind, function, loop);
+    BlockModset *mod = BlockModset::Make(mod_id);
+
+    if (!TimerAlarm::ActiveExpired())
+      mod->ComputeModset(mem, indirect);
+
+    logout << "Computed modset:" << endl << mod << endl;
+    data->block_mods.PushBack(mod);
+
+    // add an entry to the modset cache. we process the function CFGs from
+    // innermost loop to the outermost function, and will add loop modsets
+    // to the cache as we go.
+    id->IncRef(&BlockModsetCache);
+    mod->IncRef(&BlockModsetCache);
+    BlockModsetCache.Insert(id, mod);
+
+    if (print_memory.IsSpecified()) {
+      logout << "Computed memory:" << endl;
+      mem->Print(logout);
+      logout << endl;
+    }
+
+    data->block_mems.PushBack(mem);
+    logout << endl;
+
+    if (TimerAlarm::ActiveExpired()) {
+      logout << "ERROR: Timeout while generating memory: ";
+      PrintTime(TimerAlarm::ActiveElapsed());
+      logout << endl;
+
+      had_timeout = true;
+      TimerAlarm::ClearActive();
+    }
+  }
+
+  return !had_timeout;
+}
 
 void RunAnalysis(const Vector<const char*> &functions)
 {
@@ -155,120 +401,237 @@ void RunAnalysis(const Vector<const char*> &functions)
   // we will manually manage clearing of entries in the modset cache.
   BlockModsetCache.SetLruEviction(false);
 
-  // construct and submit the worklist create transaction
-  MakeInitTransaction(t, functions);
+  // load the callgraph sort.
+  size_t stage_count_result = t->MakeVariable(true);
+  t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, stage_count_result));
   SubmitTransaction(t);
+
+  g_stage_count = t->LookupInteger(stage_count_result)->GetValue();
   t->Clear();
 
-  // generate modset dependency information if we will be fixpointing.
-  const char *dependency_hash = NULL;
-  if (do_fixpoint.IsSpecified())
-    dependency_hash = MODSET_DEPENDENCY_HASH;
+  // whether we have a reference on either of the barriers. if there is no
+  // pending data then these will be false, otherwise exactly one will be true.
+  bool have_barrier_process = false;
+  bool have_barrier_write = false;
+
+  // memory/modset data we have generated for the current stage but have
+  // not written out yet.
+  Vector<MemoryKeyData*> pending_data;
+
+  // current stage being processed.
+  size_t current_stage = 0;
 
   while (true) {
     Timer _timer(&analysis_timer);
 
-    g_alloc_counter++;
-    g_alloc_counter %= PRINT_ALLOC_FREQUENCY;
-
-    if (g_alloc_counter == 0) {
-      PrintTimers();
-      PrintAllocs();
-    }
-
-    // construct and submit a worklist fetch transaction.
-    size_t body_key_result = t->MakeVariable(true);
+    size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
-    size_t glob_key_result = t->MakeVariable(true);
-    size_t glob_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
-    MakeFetchTransaction(t, body_key_result, body_data_result,
-                         glob_key_result, glob_data_result,
-                         modset_data_result);
-    SubmitTransaction(t);
+    size_t barrier_process_result = t->MakeVariable(true);
+    size_t barrier_write_result = t->MakeVariable(true);
 
-    TOperandString *body_key = t->LookupString(body_key_result);
-    TOperandString *glob_key = t->LookupString(glob_key_result, false);
+    MakeFetchTransaction(t, have_barrier_process, stage_result,
+                         body_data_result, modset_data_result,
+                         barrier_process_result, barrier_write_result);
 
-    // make a copy of the function/initializer name.
-    Buffer key_buf;
+    size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
+    Assert(new_stage != (size_t) -1);
 
-    Vector<BlockCFG*> block_cfgs;
-    bool is_function;
-
-    if (body_key->GetDataLength() > 1) {
-      key_buf.Append(body_key->GetData(), body_key->GetDataLength());
-      BlockCFGUncompress(t, body_data_result, &block_cfgs);
-      is_function = true;
+    if (!pending_data.Empty()) {
+      // the stage should not have been advanced if we have pending data.
+      Assert(new_stage == current_stage);
     }
-    else if (glob_key && glob_key->GetDataLength() > 1) {
-      key_buf.Append(glob_key->GetData(), glob_key->GetDataLength());
-      BlockCFGUncompress(t, glob_data_result, &block_cfgs);
-      is_function = false;
-    }
-    else {
-      // done with all functions and initializers.
+    current_stage = new_stage;
+
+    if (!t->Lookup(body_data_result, false)) {
+      // there are no more functions in this stage.
+      size_t barrier_process =
+        t->LookupInteger(barrier_process_result)->GetValue();
+      size_t barrier_write =
+        t->LookupInteger(barrier_write_result)->GetValue();
       t->Clear();
-      break;
-    }
 
-    if (block_cfgs.Empty()) {
+      if (have_barrier_process) {
+        // we're done with processing functions from this stage.
+        Assert(barrier_process > 0);
+
+        t->PushAction(Backend::CounterDec(t, BARRIER_PROCESS));
+        t->PushAction(Backend::CounterInc(t, BARRIER_WRITE));
+        SubmitTransaction(t);
+        t->Clear();
+
+        have_barrier_process = false;
+        have_barrier_write = true;
+
+        // drop any modsets we have cached, these may change after
+        // we start the next stage.
+        BlockModsetCache.Clear();
+        continue;
+      }
+
+      if (have_barrier_write && barrier_process == 0) {
+        // everyone is done processing functions from this stage,
+        // write out our results.
+        Assert(barrier_write > 0);
+
+        // amount of data we've added to the transaction.
+        size_t data_written = 0;
+
+        for (size_t ind = 0; ind < pending_data.Size(); ind++) {
+          MemoryKeyData *data = pending_data[ind];
+          String *function = data->block_mems[0]->GetId()->Function();
+
+          TOperandString *body_key = new TOperandString(t, function->Value());
+          TOperandString *memory_data_arg =
+            BlockMemoryCompress(t, data->block_mems);
+          TOperandString *modset_data_arg =
+            BlockModsetCompress(t, data->block_mods);
+
+          data_written += memory_data_arg->GetDataLength();
+          data_written += modset_data_arg->GetDataLength();
+
+          t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,
+                                            body_key, memory_data_arg));
+          t->PushAction(Backend::XdbReplace(t, MODSET_DATABASE,
+                                            body_key, modset_data_arg));
+
+          if (current_stage == g_stage_count) {
+            // write out all dependencies this function has on callee modsets.
+            for (size_t ind = 0; ind < data->callees.Size(); ind++) {
+              String *callee = data->callees[ind]->GetName();
+              TOperand *callee_key = new TOperandString(t, callee->Value());
+              t->PushAction(Backend::HashInsertValue(t, MODSET_DEPENDENCY_HASH,
+                                                     callee_key, body_key));
+            }
+
+            // add this function to the next worklist.
+            t->PushAction(
+              Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, body_key));
+          }
+          else if (current_stage > g_stage_count) {
+            // check if our computed modset for the outer function differs
+            // from the old modset.
+            Assert(!data->block_mods.Empty() && !data->old_mods.Empty());
+
+            BlockModset *new_mod = data->block_mods.Back();
+            BlockModset *old_mod = data->old_mods.Back();
+
+            Assert(new_mod->GetId()->Kind() == B_ModsetFunction);
+            Assert(old_mod->GetId()->Kind() == B_Function);
+            Assert(new_mod->GetId()->BaseVar() == old_mod->GetId()->BaseVar());
+
+            if (!new_mod->Equivalent(old_mod)) {
+              // add all the callers of this function to the next worklist.
+              TRANSACTION_MAKE_VAR(caller_list);
+              TRANSACTION_MAKE_VAR(caller_key);
+
+              t->PushAction(Backend::HashLookup(t, MODSET_DEPENDENCY_HASH,
+                                                body_key, caller_list_var));
+
+              TActionIterate *caller_iter =
+                new TActionIterate(t, caller_key_var, caller_list);
+              caller_iter->PushAction(
+                Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, caller_key));
+              t->PushAction(caller_iter);
+            }
+          }
+
+          if (data_written > TRANSACTION_DATA_LIMIT) {
+            SubmitTransaction(t);
+            t->Clear();
+            data_written = 0;
+          }
+
+          delete data;
+        }
+
+        // write out any indirect callgraph edges we generated.
+        WritePendingEscape();
+
+        t->PushAction(Backend::CounterDec(t, BARRIER_WRITE));
+        SubmitTransaction(t);
+        t->Clear();
+
+        pending_data.Clear();
+        have_barrier_write = false;
+        continue;
+      }
+
+      // we're waiting on some other worker to either finish processing
+      // functions in this stage or finish writing out its results.
       t->Clear();
+      sleep(1);
       continue;
     }
 
-    // make a copy of the modset data. watch out for the case where
-    // there is no previous modset data.
+    have_barrier_process = true;
+
+    Vector<BlockCFG*> block_cfgs;
+    BlockCFGUncompress(t, body_data_result, &block_cfgs);
+    Assert(!block_cfgs.Empty());
 
     TOperandString *modset_data = t->LookupString(modset_data_result);
-
-    size_t modset_data_len = modset_data->GetDataLength();
-    Buffer modset_data_buf(modset_data_len);
-    if (modset_data_len) {
-      Assert(is_function);
-      memcpy(modset_data_buf.base, modset_data->GetData(), modset_data_len);
-    }
+    MemoryKeyData *data = new MemoryKeyData();
+    BlockModsetUncompress(t, modset_data, &data->block_mods);
 
     // done with the transaction's returned data.
     t->Clear();
 
-    Vector<BlockMemory*> block_mems;
-    Vector<BlockModset*> block_mods;
+    GetCalleeModsets(t, block_cfgs, current_stage, data);
+    bool success = GenerateMemory(block_cfgs, current_stage, data);
 
-    logout << "Generating memory for "
-           << "'" << (const char*) key_buf.base << "'" << endl << flush;
-
-    if (is_function) {
-      Variable *function = block_cfgs[0]->GetId()->BaseVar();
-
-      if (!skip_indirect.IsSpecified()) {
-        // process any indirect calls in the CFGs. this will fill in the
-        // merge cache for the function so that GetIndirectCallEdges
-        // works during memory/modset computation.
-        for (size_t cind = 0; cind < block_cfgs.Size(); cind++)
-          CallgraphProcessCFGIndirect(block_cfgs[cind]);
-      }
-
-      if (dependency_hash) {
-        // clear out any old modsets from the cache.
-        BlockModsetCache.Clear();
-      }
-
-      // pull in callee modsets and add dependencies on them.
-      GetCalleeModsets(t, function, block_cfgs, dependency_hash);
+    if (success) {
+      // remember this memory/modset data to write out later.
+      pending_data.PushBack(data);
+    }
+    else {
+      // had a timeout while generating the memory.
+      // discard this incomplete data.
+      delete data;
     }
 
-    // did we have a timeout while processing the CFGs?
-    bool had_timeout = false;
+    DecRefVector<BlockCFG>(block_cfgs, NULL);
+  }
 
-    // generate memory information and (possibly) modsets for each CFG.
-    for (size_t cind = 0; cind < block_cfgs.Size(); cind++) {
-      // set a soft timeout for memory/modset computation.
-      // we don't set a hard timeout as these break the indirect callgraph.
+  // compute memory for global variables.
+
+  t->PushAction(
+    Backend::Compound::HashCreateXdbKeys(t, WORKLIST_GLOB_HASH, INIT_DATABASE));
+  SubmitTransaction(t);
+  t->Clear();
+
+  while (true) {
+    Timer _timer(&analysis_timer);
+
+    size_t init_key_result = t->MakeVariable(true);
+    size_t init_data_result = t->MakeVariable(true);
+
+    t->PushAction(
+      Backend::Compound::HashPopXdbKey(
+        t, WORKLIST_GLOB_HASH, INIT_DATABASE,
+        init_key_result, init_data_result));
+    SubmitTransaction(t);
+
+    TOperandString *init_key = t->LookupString(init_key_result);
+
+    if (init_key->GetDataLength() == 0) {
+      // done with all globals.
+      t->Clear();
+      break;
+    }
+
+    Vector<BlockCFG*> block_cfgs;
+    BlockCFGUncompress(t, init_data_result, &block_cfgs);
+
+    t->Clear();
+
+    Vector<BlockMemory*> block_mems;
+
+    for (size_t ind = 0; ind < block_cfgs.Size(); ind++) {
       if (uint32_t timeout = GetTimeout())
         TimerAlarm::StartActive(timeout);
 
-      BlockCFG *cfg = block_cfgs[cind];
+      BlockCFG *cfg = block_cfgs[ind];
       BlockId *id = cfg->GetId();
 
       if (print_cfgs.IsSpecified())
@@ -278,97 +641,28 @@ void RunAnalysis(const Vector<const char*> &functions)
       BlockMemory *mem =
         BlockMemory::Make(id, MSIMP_Scalar, MALIAS_Buffer, MCLB_Modset);
 
-      if (is_function) {
-        Variable *function = id->BaseVar();
-        String *loop = id->Loop();
-
-        // make a modset which we will fill in the new modset data from.
-        // this uses a scratch ID because in the case of direct recursion
-        // we may need to refer to the modset for the id when generating
-        // this modset.
-        function->IncRef();
-        if (loop)
-          loop->IncRef();
-        BlockId *scratch_id = BlockId::Make(B_Scratch, function, loop);
-        BlockModset *scratch_mod = BlockModset::Make(scratch_id);
-
-        mem->SetCFG(cfg);
-        mem->ComputeTables();
-
-        if (!TimerAlarm::ActiveExpired())
-          scratch_mod->ComputeModset(mem);
-
-        // update the modset for the real ID and get rid of the scratch modset.
-        id->IncRef();
-        BlockModset *mod = BlockModset::Make(id);
-        mod->CopyModset(scratch_mod);
-        scratch_mod->DecRef();
-
-        logout << "Computed modset:" << endl << mod << endl;
-
-        block_mods.PushBack(mod);
-
-        // add an entry to the modset cache. we process the function CFGs from
-        // innermost loop to the outermost function, and will add loop modsets
-        // to the cache as we go.
-        id->IncRef(&BlockModsetCache);
-        mod->IncRef(&BlockModsetCache);
-        BlockModsetCache.Insert(id, mod);
-      }
-      else {
-        mem->SetCFG(cfg);
-        mem->ComputeTables();
-      }
-
-      if (print_memory.IsSpecified()) {
-        logout << "Computed memory:" << endl;
-        mem->Print(logout);
-        logout << endl;
-      }
+      mem->SetCFG(cfg);
+      mem->ComputeTables();
 
       block_mems.PushBack(mem);
-      logout << endl;
-
-      if (TimerAlarm::ActiveExpired()) {
-        logout << "ERROR: Timeout while generating memory: ";
-	PrintTime(TimerAlarm::ActiveElapsed());
-	logout << endl;
-
-        had_timeout = true;
-      }
-
-      TimerAlarm::ClearActive();
     }
 
-    // write out the generated modsets and memory. skip this if there was
-    // a timeout, in which case the data is incomplete.
-    if (!had_timeout) {
-      MakeUpdateTransaction(t, &key_buf,
-                            modset_data_len ? &modset_data_buf : NULL,
-                            block_mems, block_mods);
-      SubmitTransaction(t);
-      t->Clear();
-    }
+    String *function = block_cfgs[0]->GetId()->Function();
 
-    // clear out held references on CFGs, memory and modset information.
-    for (size_t find = 0; find < block_cfgs.Size(); find++)
-      block_cfgs[find]->DecRef();
-    for (size_t find = 0; find < block_mems.Size(); find++)
-      block_mems[find]->DecRef();
-    for (size_t find = 0; find < block_mods.Size(); find++)
-      block_mods[find]->DecRef();
+    init_key = new TOperandString(t, function->Value());
+    TOperandString *memory_data_arg = BlockMemoryCompress(t, block_mems);
+
+    t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,
+                                      init_key, memory_data_arg));
+    SubmitTransaction(t);
+    t->Clear();
+
+    DecRefVector<BlockCFG>(block_cfgs, NULL);
+    DecRefVector<BlockMemory>(block_mems, NULL);
   }
-
-  // flush the callgraph caches.
-  while (!MergeCachesEmpty(false))
-    FlushMergeCaches(false);
 
   delete t;
 }
-
-struct whatever {
-  static int Compare(char *a, char *b) { return strcmp(a, b); }
-};
 
 int main(int argc, const char **argv)
 {
@@ -377,7 +671,6 @@ int main(int argc, const char **argv)
   trans_initial.Enable();
 
   // do_fixpoint.Enable();
-  skip_indirect.Enable();
   print_cfgs.Enable();
   print_memory.Enable();
   print_indirect_calls.Enable();

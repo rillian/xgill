@@ -18,8 +18,7 @@
 
 #pragma once
 
-// backend for performing operations on Xdb databases, and tracking
-// timestamps for database updates.
+// backend for performing operations on Xdb databases.
 
 #include "backend.h"
 #include <xdb/xdb.h>
@@ -39,13 +38,6 @@ bool XdbFindUncompressed(Xdb *xdb, String *key, Buffer *data);
 void XdbReplaceCompress(Xdb *xdb, String *key, Buffer *data);
 
 NAMESPACE_BEGIN(Backend)
-
-// maintain timestamps on updates to a database. any updates made before
-// timestamp tracking is enabled (including those for database entries
-// which existed when the database was initially loaded) will have the
-// timestamp zero.
-TAction* XdbEnableTimeStamps(Transaction *t,
-                             const char *db_name);
 
 // clear out all entries from a database.
 TAction* XdbClear(Transaction *t,
@@ -74,14 +66,6 @@ TAction* XdbLookup(Transaction *t,
 TAction* XdbAllKeys(Transaction *t,
                     const char *db_name,
                     size_t var_result);
-
-// get a timestamp for the last time a particular entry in a
-// database was modified. enables timestamps on the database if
-// they weren't already.
-TAction* XdbTimeStamp(Transaction *t,
-                      const char *db_name,
-                      TOperand *key,
-                      size_t var_result);
 
 NAMESPACE_END(Backend)
 

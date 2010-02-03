@@ -45,8 +45,10 @@ enum BlockKind {
   B_AnnotationInit = 5,
   B_AnnotationComp = 6,
 
-  // scratch identifier used for temporary constructs. not serialized.
-  B_Scratch = 10
+  // temporary blocks used during modset computation for blocks.
+  // these are converted to B_Function and B_Loop when serialized.
+  B_ModsetFunction = 10,
+  B_ModsetLoop = 11
 };
 
 // unique identifier for a block

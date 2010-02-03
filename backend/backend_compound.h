@@ -50,58 +50,6 @@ TAction* HashPopXdbKey(Transaction *t,
                        size_t key_result,
                        size_t value_result);
 
-// XdbReplaceConditional is useful for updating databases for which
-// entries might be written in multiple places, but contains few
-// hot entries written in lots of places. replace the specified key
-// with the specified value unless it has changed since $rstamp,
-// in which case the new value of that entry should be returned
-// (after which the client will redo the merge and resubmit).
-
-TAction* XdbReplaceConditional(Transaction *t,
-                               const char *db_name,
-                               TOperand *key,
-                               TOperand *value,
-                               TimeStamp rstamp,
-                               TAction *succeed_action,
-                               size_t new_value_result);
-
-// XdbReplaceTry should be used for database entries where
-// there is only a single client which could write to the entry
-// (e.g. the summary for a function can be written only by
-// analyzing that function), but dependencies may cause the
-// entry to be reanalyzed. do the replace only if the entry
-// has not changed since $rstamp. otherwise discard the change.
-
-TAction* XdbReplaceTry(Transaction *t,
-                       const char *db_name,
-                       TOperand *key,
-                       TOperand *value,
-                       TimeStamp rstamp,
-                       TAction *succeed_action,
-                       size_t *pcmp_var = NULL);
-
-// dependencies are cases where when an entry in a bdb database
-// is modified then particular items should go back onto a worklist
-// for reanalysis.  A hash $depname is used to track the dependencies
-// for a database, and a second hash $workname is a set of worklist items.
-// XdbLookupDependency is used on database reads that should introduce
-// a dependency, and UpdateDependency is used as the $succeed_action
-// for database updates that can have dependencies.
-
-TAction* XdbLookupDependency(Transaction *t,
-                             const char *db_name,
-                             TOperand *key,
-                             const char *depname,
-                             TOperand *workval,
-                             size_t value_result);
-
-TAction* UpdateDependency(Transaction *t,
-                          const char *depname,
-                          TOperand *key,
-                          const char *workname);
-
-// simpler utilitarian compound actions
-
 // run action if the specified hash is empty.
 TAction* HashRunIfEmpty(Transaction *t,
                         const char *hash_name,

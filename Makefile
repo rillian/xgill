@@ -39,16 +39,14 @@ endif
 BACKEND_INC = \
 	backend/action.h \
 	backend/backend.h \
+	backend/backend_block.h \
 	backend/backend_compound.h \
 	backend/backend_graph.h \
 	backend/backend_hash.h \
 	backend/backend_util.h \
 	backend/backend_xdb.h \
-	backend/merge_lookup.h \
-	backend/merge_lookup_impl.h \
 	backend/operand.h \
 	backend/serial.h \
-	backend/timestamp.h \
 	backend/transaction.h
 
 IMLANG_INC = \
@@ -139,13 +137,13 @@ INCLUDE = \
 BACKEND_OBJS = \
 	backend/action.o \
 	backend/backend.o \
+	backend/backend_block.o \
 	backend/backend_compound.o \
 	backend/backend_graph.o \
 	backend/backend_hash.o \
 	backend/backend_util.o \
 	backend/backend_xdb.o \
 	backend/operand.o \
-	backend/timestamp.o \
 	backend/transaction.o
 
 IMLANG_OBJS = \

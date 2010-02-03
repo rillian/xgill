@@ -41,7 +41,6 @@ extern TransactionBackend backend_Graph;
 //             hash whose outgoing edges are not known (i.e. indirect calls).
 
 // access to the graph functions for sorting/storing a hash.
-// for use by the block backend.
 BACKEND_IMPL_BEGIN
 
 void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *hash_unk,
@@ -61,17 +60,16 @@ TAction* GraphSortHash(Transaction *t,
                        const char *db_name,
                        const char *sort_name, size_t stage_count);
 
-// load a sort from disk. overwrites any existing sort. returns the number
-// of intermediate stages which were read in. valid stage indexes are
-// [0, stage_count].
+// load a sort from disk, does not overwrite any existing sort.
+// returns the number of intermediate stages which were read in.
+// valid stage values for GraphPopSort are [0, stage_count].
 TAction* GraphLoadSort(Transaction *t,
-                       const char *sort_name, size_t stage_count,
-                       size_t var_result);
+                       const char *sort_name, size_t var_result);
 
-// pop the next node from the specified stage.
-TAction* GraphPopSort(Transaction *t,
-                      const char *sort_name, size_t stage,
-                      size_t var_result);
+// get a list with all entries in the specified stage of the sort.
+TAction* GraphSortKeys(Transaction *t,
+                       const char *sort_name, TOperand *stage,
+                       size_t var_result);
 
 NAMESPACE_END(Backend)
 

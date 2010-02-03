@@ -32,9 +32,8 @@ enum TOperandKind {
   TO_Variable = 1,
   TO_List = 2,
   TO_String = 3,
-  TO_TimeStamp = 4,
-  TO_Boolean = 5,
-  TO_Integer = 6
+  TO_Boolean = 4,
+  TO_Integer = 5
 };
 
 class TOperand
@@ -62,9 +61,6 @@ class TOperand
   }
   TOperandString* AsString() {
     Assert(m_kind == TO_String); return (TOperandString*) this;
-  }
-  TOperandTimeStamp* AsTimeStamp() {
-    Assert(m_kind == TO_TimeStamp); return (TOperandTimeStamp*) this;
   }
   TOperandBoolean* AsBoolean() {
     Assert(m_kind == TO_Boolean); return (TOperandBoolean*) this;
@@ -162,21 +158,6 @@ inline bool IsCStringOperand(const TOperandString *o)
 {
   return o == NULL || ValidString(o->GetData(), o->GetDataLength());
 }
-
-class TOperandTimeStamp : public TOperand
-{
- public:
-  TOperandTimeStamp(Transaction *t, TimeStamp stamp);
-
-  // get the timestamp for this operand
-  TimeStamp GetStamp() const { return m_stamp; }
-
-  // inherited methods
-  void Print(OutStream &out) const;
-
- private:
-  TimeStamp m_stamp;
-};
 
 class TOperandBoolean : public TOperand
 {

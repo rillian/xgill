@@ -168,33 +168,22 @@ void HashCache<T,U,HT>::Insert(T v, U o)
 }
 
 template <class T, class U, class HT>
-void HashCache<T,U,HT>::Clear(size_t max_entry_count)
+void HashCache<T,U,HT>::Clear()
 {
   // force the max entry count to zero to ensure we remove all free entries
   size_t old_max_entry_count = m_max_entry_count;
   m_max_entry_count = 0;
 
-  RemoveLruEntries(max_entry_count);
+  RemoveLruEntries();
 
   // restore the old maximum entry count
   m_max_entry_count = old_max_entry_count;
 }
 
 template <class T, class U, class HT>
-void HashCache<T,U,HT>::RemoveLruEntries(size_t max_entry_count)
+void HashCache<T,U,HT>::RemoveLruEntries()
 {
-  // number of entries we have removed from the cache.
-  size_t removed = 0;
-
   while (m_entry_count > m_max_entry_count) {
-
-    if (max_entry_count != 0) {
-      if (removed == max_entry_count) {
-        // hit the limit on the number of entries we can remove.
-        return;
-      }
-    }
-
     HashEntry *e = m_free_begin;
     if (e == NULL) {
       // we have more entries than permitted, but all of them are in use
@@ -229,7 +218,5 @@ void HashCache<T,U,HT>::RemoveLruEntries(size_t max_entry_count)
     // do the final delete
     delete e;
     m_entry_count--;
-
-    removed++;
   }
 }

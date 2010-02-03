@@ -23,7 +23,7 @@
 #include "loopsplit.h"
 #include "storage.h"
 
-#include <backend/backend_xdb.h>
+#include <backend/backend_block.h>
 #include <util/monitor.h>
 
 // we are pulling in escape/callgraph information from memory/.
@@ -36,9 +36,6 @@ NAMESPACE_XGILL_USING
 #define GET_OBJECT(TYPE, NAME)                  \
   TYPE * new_ ##NAME = (TYPE*) NAME;            \
   if (new_ ##NAME) new_ ##NAME ->IncRef();
-
-// number of stages to generate in the callgraph sort.
-#define CALLGRAPH_STAGES 10
 
 /////////////////////////////////////////////////////////////////////
 // Utility
@@ -855,633 +852,6 @@ void XIL_CFGEdgeAnnotation(XIL_PPoint source, XIL_PPoint target,
 }
 
 /////////////////////////////////////////////////////////////////////
-// Backend data
-/////////////////////////////////////////////////////////////////////
-
-// for backend functions.
-NAMESPACE_XGILL_BEGIN
-
-// databases accessed online by the block backend.
-static Xdb *csu_xdb = NULL;
-static Xdb *body_xdb = NULL;
-static Xdb *init_xdb = NULL;
-
-// sets of all annotations that have been processed.
-static HashTable<String*,BlockCFG*,String> g_backend_annot_func;
-static HashTable<String*,BlockCFG*,String> g_backend_annot_init;
-static HashTable<String*,BlockCFG*,String> g_backend_annot_comp;
-
-// sets of escape/callgraph information which the block backend has received.
-static HashTable<String*,EscapeEdgeSet*,String> g_backend_escape_forward;
-static HashTable<String*,EscapeEdgeSet*,String> g_backend_escape_backward;
-static HashTable<String*,EscapeAccessSet*,String> g_backend_escape_accesses;
-static HashSet<CallEdgeSet*,HashObject> g_backend_callers;
-static HashSet<CallEdgeSet*,HashObject> g_backend_callees;
-
-// quickly check whether escape information has been seen.
-// these do not hold references.
-static HashSet<EscapeEdgeSet*,HashObject> g_backend_seen_escape_edges;
-static HashSet<EscapeAccessSet*,HashObject> g_backend_seen_escape_accesses;
-
-// whether to merge with existing data when clearing the backend hashes.
-// this is set only if we had to flush the backend data before finishing
-// due to high memory usage.
-static bool g_backend_merge = false;
-
-// visitor to write out generated annotations to the databases.
-
-class WriteAnnotationVisitor : public HashTableVisitor<String*,BlockCFG*>
-{
-public:
-  const char *db_name;
-  WriteAnnotationVisitor(const char *_db_name) : db_name(_db_name) {}
-
-  void Visit(String *&key, Vector<BlockCFG*> &cfg_list)
-  {
-    if (cfg_list.Empty()) {
-      key->DecRef(&cfg_list);
-      return;
-    }
-
-    Xdb *xdb = GetDatabase(db_name, true);
-    static Buffer scratch_buf;
-
-    // lookup and write any old entries first. this is only useful to do when
-    // there isn't a manager running.
-    XdbFindUncompressed(xdb, key, &scratch_buf);
-
-    Vector<BlockCFG*> old_cfg_list;
-    Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
-    BlockCFG::ReadList(&read_buf, &old_cfg_list);
-    scratch_buf.Reset();
-
-    for (size_t ind = 0; ind < old_cfg_list.Size(); ind++) {
-      BlockCFG *cfg = old_cfg_list[ind];
-
-      // watch for duplicate CFGs.
-      if (cfg_list.Contains(cfg)) {
-        cfg->DecRef();
-      }
-      else {
-        cfg->MoveRef(NULL, &cfg_list);
-        cfg_list.PushBack(cfg);
-      }
-    }
-
-    // write the old and new entries out.
-    BlockCFG::WriteList(&scratch_buf, cfg_list);
-
-    XdbReplaceCompress(xdb, key, &scratch_buf);
-    scratch_buf.Reset();
-
-    key->DecRef(&cfg_list);
-    for (size_t ind = 0; ind < cfg_list.Size(); ind++)
-      cfg_list[ind]->DecRef(&cfg_list);
-  }
-};
-
-// visitors to write all generated escape/callgraph info to the databases.
-
-// read an escape edge set from buf and combine it with any in memory data.
-EscapeEdgeSet* CombineEscapeEdge(Buffer *buf)
-{
-  Trace *source = NULL;
-  bool forward = false;
-  Vector<EscapeEdge> edges;
-  EscapeEdgeSet::ReadMerge(buf, &source, &forward, &edges);
-
-  EscapeEdgeSet *eset = EscapeEdgeSet::Make(source, forward, false);
-
-  for (size_t ind = 0; ind < edges.Size(); ind++)
-    eset->AddEdge(edges[ind]);
-  return eset;
-}
-
-class WriteEscapeEdgeSetVisitor
-  : public HashTableVisitor<String*,EscapeEdgeSet*>
-{
-public:
-  bool forward;
-  WriteEscapeEdgeSetVisitor(bool _forward) : forward(_forward) {}
-
-  void Visit(String *&key, Vector<EscapeEdgeSet*> &eset_list)
-  {
-    Xdb *xdb = forward ?
-        GetDatabase(ESCAPE_EDGE_FORWARD_DATABASE, true)
-      : GetDatabase(ESCAPE_EDGE_BACKWARD_DATABASE, true);
-
-    static Buffer scratch_buf;
-
-    if (g_backend_merge) {
-      if (XdbFindUncompressed(xdb, key, &scratch_buf)) {
-        Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
-        while (read_buf.pos != read_buf.base + read_buf.size) {
-          EscapeEdgeSet *eset = CombineEscapeEdge(&read_buf);
-          if (!eset_list.Contains(eset)) {
-            eset->IncRef(&eset_list);
-            eset_list.PushBack(eset);
-          }
-          eset->DecRef();
-        }
-      }
-    }
-
-    for (size_t ind = 0; ind < eset_list.Size(); ind++) {
-      EscapeEdgeSet *eset = eset_list[ind];
-      EscapeEdgeSet::Write(&scratch_buf, eset);
-      eset->DecRef(&eset_list);
-    }
-
-    XdbReplaceCompress(xdb, key, &scratch_buf);
-
-    scratch_buf.Reset();
-    key->DecRef(&eset_list);
-  }
-};
-
-// read an escape access set from buf and combine it with any in memory data.
-EscapeAccessSet* CombineEscapeAccess(Buffer *buf)
-{
-  Trace *value = NULL;
-  Vector<EscapeAccess> accesses;
-  EscapeAccessSet::ReadMerge(buf, &value, &accesses);
-
-  EscapeAccessSet *aset = EscapeAccessSet::Make(value, false);
-
-  for (size_t ind = 0; ind < accesses.Size(); ind++)
-    aset->AddAccess(accesses[ind]);
-  return aset;
-}
-
-class WriteEscapeAccessSetVisitor
-  : public HashTableVisitor<String*,EscapeAccessSet*>
-{
-public:
-  void Visit(String *&key, Vector<EscapeAccessSet*> &aset_list)
-  {
-    Xdb *xdb = GetDatabase(ESCAPE_ACCESS_DATABASE, true);
-
-    static Buffer scratch_buf;
-
-    if (g_backend_merge) {
-      if (XdbFindUncompressed(xdb, key, &scratch_buf)) {
-        Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
-        while (read_buf.pos != read_buf.base + read_buf.size) {
-          EscapeAccessSet *aset = CombineEscapeAccess(&read_buf);
-          if (!aset_list.Contains(aset)) {
-            aset->IncRef(&aset_list);
-            aset_list.PushBack(aset);
-          }
-          aset->DecRef();
-        }
-      }
-    }
-
-    for (size_t ind = 0; ind < aset_list.Size(); ind++) {
-      EscapeAccessSet *aset = aset_list[ind];
-      EscapeAccessSet::Write(&scratch_buf, aset);
-      aset->DecRef(&aset_list);
-    }
-
-    XdbReplaceCompress(xdb, key, &scratch_buf);
-
-    scratch_buf.Reset();
-    key->DecRef(&aset_list);
-  }
-};
-
-// read a call edge set from buf and combine it with any in memory data.
-CallEdgeSet* CombineCallEdge(Buffer *buf)
-{
-  Variable *function = NULL;
-  bool callers = false;
-  Vector<CallEdge> edges;
-  CallEdgeSet::ReadMerge(buf, &function, &callers, &edges);
-
-  CallEdgeSet *cset = CallEdgeSet::Make(function, callers, false);
-
-  for (size_t ind = 0; ind < edges.Size(); ind++)
-    cset->AddEdge(edges[ind]);
-  return cset;
-}
-
-class WriteCallEdgeSetVisitor : public HashSetVisitor<CallEdgeSet*>
-{
-public:
-  bool callers;
-  WriteCallEdgeSetVisitor(bool _callers) : callers(_callers) {}
-
-  void Visit(CallEdgeSet *&cset)
-  {
-    Xdb *xdb = callers ?
-        GetDatabase(CALLER_DATABASE, true)
-      : GetDatabase(CALLEE_DATABASE, true);
-    String *key = cset->GetFunction()->GetName();
-
-    static Buffer scratch_buf;
-
-    if (g_backend_merge) {
-      if (XdbFindUncompressed(xdb, key, &scratch_buf)) {
-        Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
-        CallEdgeSet *new_cset = CombineCallEdge(&read_buf);
-        Assert(new_cset == cset);
-        new_cset->DecRef();
-      }
-    }
-
-    CallEdgeSet::Write(&scratch_buf, cset);
-
-    XdbReplaceCompress(xdb, key, &scratch_buf);
-
-    scratch_buf.Reset();
-    cset->DecRef();
-  }
-};
-
-// flush all escape/callgraph caches to disk.
-void FlushEscapeBackend()
-{
-  WriteEscapeEdgeSetVisitor visitor_eset_forward(true);
-  g_backend_escape_forward.VisitEach(&visitor_eset_forward);
-  g_backend_escape_forward.Clear();
-
-  WriteEscapeEdgeSetVisitor visitor_eset_backward(false);
-  g_backend_escape_backward.VisitEach(&visitor_eset_backward);
-  g_backend_escape_backward.Clear();
-
-  WriteEscapeAccessSetVisitor visitor_aset;
-  g_backend_escape_accesses.VisitEach(&visitor_aset);
-  g_backend_escape_accesses.Clear();
-
-  WriteCallEdgeSetVisitor visitor_cset_caller(true);
-  g_backend_callers.VisitEach(&visitor_cset_caller);
-  g_backend_callers.Clear();
-
-  WriteCallEdgeSetVisitor visitor_cset_callee(false);
-  g_backend_callees.VisitEach(&visitor_cset_callee);
-  g_backend_callees.Clear();
-
-  g_backend_seen_escape_edges.Clear();
-  g_backend_seen_escape_accesses.Clear();
-}
-
-/////////////////////////////////////////////////////////////////////
-// Backend implementations
-/////////////////////////////////////////////////////////////////////
-
-BACKEND_IMPL_BEGIN
-
-// determine whether an annotation CFG has been processed. takes three
-// arguments: the database name, variable name and annotation name.
-bool BlockQueryAnnot(Transaction *t, const Vector<TOperand*> &arguments,
-                     TOperand **result)
-{
-  BACKEND_ARG_COUNT(3);
-  BACKEND_ARG_STRING(0, db_name, db_length);
-  BACKEND_ARG_STRING(1, var_name, var_length);
-  BACKEND_ARG_STRING(2, annot_name, annot_length);
-
-  String *new_var_name = String::Make((const char*) var_name);
-
-  Vector<BlockCFG*> *cfg_list = NULL;
-  if (!strcmp((const char*) db_name, BODY_ANNOT_DATABASE))
-    cfg_list = g_backend_annot_func.Lookup(new_var_name);
-  else if (!strcmp((const char*) db_name, INIT_ANNOT_DATABASE))
-    cfg_list = g_backend_annot_init.Lookup(new_var_name);
-  else if (!strcmp((const char*) db_name, COMP_ANNOT_DATABASE))
-    cfg_list = g_backend_annot_comp.Lookup(new_var_name);
-  else
-    Assert(false);
-
-  new_var_name->DecRef();
-
-  bool found = false;
-  for (size_t ind = 0; cfg_list && ind < cfg_list->Size(); ind++) {
-    const char *exist_name = cfg_list->At(ind)->GetId()->Loop()->Value();
-    if (!strcmp((const char*) annot_name, exist_name))
-      found = true;
-  }
-
-  *result = new TOperandBoolean(t, found);
-  return true;
-}
-
-// write an annotation CFG to the appropriate hashtable.
-bool BlockWriteAnnot(Transaction *t, const Vector<TOperand*> &arguments,
-                     TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  Assert(arguments[0]->Kind() == TO_String);
-  TOperandString *list = (TOperandString*) arguments[0];
-
-  static Buffer data_buf;
-  TOperandString::Uncompress(list, &data_buf);
-  Buffer read_buf(data_buf.base, data_buf.pos - data_buf.base);
-
-  BlockCFG *annot_cfg = BlockCFG::Read(&read_buf);
-  BlockId *id = annot_cfg->GetId();
-  String *var_name = id->Function();
-  data_buf.Reset();
-
-  Vector<BlockCFG*> *cfg_list = NULL;
-
-  switch (id->Kind()) {
-  case B_AnnotationFunc:
-    cfg_list = g_backend_annot_func.Lookup(var_name, true); break;
-  case B_AnnotationInit:
-    cfg_list = g_backend_annot_init.Lookup(var_name, true); break;
-  case B_AnnotationComp:
-    cfg_list = g_backend_annot_comp.Lookup(var_name, true); break;
-  default: Assert(false);
-  }
-
-  if (cfg_list->Empty()) {
-    // first time we saw this key.
-    var_name->IncRef(cfg_list);
-  }
-
-  annot_cfg->MoveRef(NULL, cfg_list);
-  cfg_list->PushBack(annot_cfg);
-
-  return true;
-}
-
-// determine which in a list of CSUs and/or blocks needs to be processed.
-// takes one argument, a compressed series of Names and/or BlockIds,
-// and result receives the subset of that list which needs to be processed.
-bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
-                    TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  Assert(arguments[0]->Kind() == TO_String);
-  TOperandString *list = (TOperandString*) arguments[0];
-
-  // open up the databases if this is our first time here.
-  static bool have_query = false;
-  if (!have_query) {
-    have_query = true;
-    csu_xdb = GetDatabase(COMP_DATABASE, true);
-    body_xdb = GetDatabase(BODY_DATABASE, true);
-    init_xdb = GetDatabase(INIT_DATABASE, true);
-  }
-
-  static Buffer result_buf;
-
-  static Buffer data_buf;
-  TOperandString::Uncompress(list, &data_buf);
-  Buffer read_buf(data_buf.base, data_buf.pos - data_buf.base);
-
-  while (read_buf.pos != read_buf.base + read_buf.size) {
-    switch (PeekOpenTag(&read_buf)) {
-
-    case TAG_Name: {
-      String *name = String::ReadWithTag(&read_buf, TAG_Name);
-      const char *name_val = name->Value();
-      Buffer key_buf((const uint8_t*) name_val, strlen(name_val) + 1);
-
-      if (!csu_xdb->HasKey(&key_buf))
-        String::WriteWithTag(&result_buf, name, TAG_Name);
-
-      name->DecRef();
-      break;
-    }
-
-    case TAG_BlockId: {
-      BlockId *id = BlockId::Read(&read_buf);
-      const char *function = id->Function()->Value();
-      Buffer key_buf((const uint8_t*) function, strlen(function) + 1);
-
-      Xdb *xdb = NULL;
-      if (id->Kind() == B_FunctionWhole)
-        xdb = body_xdb;
-      else if (id->Kind() == B_Initializer)
-        xdb = init_xdb;
-      else
-        Assert(false);
-
-      if (!xdb->HasKey(&key_buf))
-        BlockId::Write(&result_buf, id);
-
-      id->DecRef();
-      break;
-    }
-
-    default:
-      Assert(false);
-    }
-  }
-
-  data_buf.Reset();
-
-  if (result_buf.pos == result_buf.base) {
-    // none of the elements in the list need to be processed.
-    *result = new TOperandString(t, NULL, 0);
-    return true;
-  }
-
-  Buffer *compress_buf = new Buffer();
-  t->AddBuffer(compress_buf);
-
-  CompressBufferInUse(&result_buf, compress_buf);
-  result_buf.Reset();
-
-  *result = new TOperandString(t, compress_buf->base,
-                               compress_buf->pos - compress_buf->base);
-  return true;
-}
-
-// add the results of processing a set of CSUs and/or blocks. list is
-// a compressed series of CompositeCSUs, TAG_Uint32 followed by BlockCFGs,
-// EscapeEdgeSets, EscapeAccessSets, and CallEdgeSets.
-bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
-                    TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  Assert(arguments[0]->Kind() == TO_String);
-  TOperandString *list = (TOperandString*) arguments[0];
-
-  // should not be able to get here without having done a query first.
-  Assert(csu_xdb && body_xdb && init_xdb);
-
-  static Buffer data_buf;
-  TOperandString::Uncompress(list, &data_buf);
-  Buffer read_buf(data_buf.base, data_buf.pos - data_buf.base);
-
-  static Buffer write_buf;
-
-  while (read_buf.pos != read_buf.base + read_buf.size) {
-    switch (PeekOpenTag(&read_buf)) {
-
-    case TAG_CompositeCSU: {
-      CompositeCSU *csu = CompositeCSU::Read(&read_buf);
-      CompositeCSU::Write(&write_buf, csu);
-
-      XdbReplaceCompress(csu_xdb, csu->GetName(), &write_buf);
-
-      csu->DecRef();
-      write_buf.Reset();
-      break;
-    }
-
-    case TAG_UInt32: {
-      uint32_t count = 0;
-      Try(ReadUInt32(&read_buf, &count));
-      Assert(count);
-
-      // the count indicates the number of CFGs for the next function/global.
-      Vector<BlockCFG*> function_cfgs;
-
-      for (size_t ind = 0; ind < count; ind++) {
-        BlockCFG *cfg = BlockCFG::Read(&read_buf);
-        BlockCFG::Write(&write_buf, cfg);
-        function_cfgs.PushBack(cfg);
-      }
-
-      BlockId *id = function_cfgs[0]->GetId();
-
-      Xdb *xdb = NULL;
-      if (id->Kind() == B_Function || id->Kind() == B_Loop)
-        xdb = body_xdb;
-      else if (id->Kind() == B_Initializer)
-        xdb = init_xdb;
-      else
-        Assert(false);
-
-      XdbReplaceCompress(xdb, id->Function(), &write_buf);
-
-      for (size_t ind = 0; ind < function_cfgs.Size(); ind++)
-        function_cfgs[ind]->DecRef();
-      write_buf.Reset();
-      break;
-    }
-
-    // these append to the existing set if there is one.
-
-    case TAG_EscapeEdgeSet: {
-      EscapeEdgeSet *eset = CombineEscapeEdge(&read_buf);
-
-      if (g_backend_seen_escape_edges.Insert(eset)) {
-        eset->DecRef();
-        break;
-      }
-
-      String *key = GetTraceKey(eset->GetSource());
-
-      Vector<EscapeEdgeSet*> *eset_list = (eset->IsForward()) ?
-          g_backend_escape_forward.Lookup(key, true)
-        : g_backend_escape_backward.Lookup(key, true);
-
-      if (eset_list->Empty())
-        key->IncRef(eset_list);
-      eset->MoveRef(NULL, eset_list);
-      eset_list->PushBack(eset);
-
-      key->DecRef();
-      break;
-    }
-
-    case TAG_EscapeAccessSet: {
-      EscapeAccessSet *aset = CombineEscapeAccess(&read_buf);
-
-      if (g_backend_seen_escape_accesses.Insert(aset)) {
-        aset->DecRef();
-        break;
-      }
-
-      String *key = GetTraceKey(aset->GetValue());
-
-      Vector<EscapeAccessSet*> *aset_list =
-        g_backend_escape_accesses.Lookup(key, true);
-
-      if (aset_list->Empty())
-        key->IncRef(aset_list);
-      aset->MoveRef(NULL, aset_list);
-      aset_list->PushBack(aset);
-
-      key->DecRef();
-      break;
-    }
-
-    case TAG_CallEdgeSet: {
-      CallEdgeSet *cset = CombineCallEdge(&read_buf);
-
-      bool exists = (cset->IsCallers()) ?
-          g_backend_callers.Insert(cset)
-        : g_backend_callees.Insert(cset);
-
-      if (exists)
-        cset->DecRef();
-      break;
-    }
-
-    default:
-      Assert(false);
-    }
-  }
-
-  if (IsHighVmUsage()) {
-    logout << "WARNING: High memory usage, flushing caches..." << endl;
-    FlushEscapeBackend();
-
-    // on subsequent flushes we will have to merge with the data on disk.
-    g_backend_merge = true;
-  }
-
-  data_buf.Reset();
-  return true;
-}
-
-BACKEND_IMPL_END
-
-/////////////////////////////////////////////////////////////////////
-// Backend
-/////////////////////////////////////////////////////////////////////
-
-static void start_Block()
-{
-  BACKEND_REGISTER(BlockQueryAnnot);
-  BACKEND_REGISTER(BlockWriteAnnot);
-  BACKEND_REGISTER(BlockQueryList);
-  BACKEND_REGISTER(BlockWriteList);
-}
-
-static void finish_Block()
-{
-  // write out any annotations we found.
-
-  WriteAnnotationVisitor func_visitor(BODY_ANNOT_DATABASE);
-  g_backend_annot_func.VisitEach(&func_visitor);
-
-  WriteAnnotationVisitor init_visitor(INIT_ANNOT_DATABASE);
-  g_backend_annot_init.VisitEach(&init_visitor);
-
-  WriteAnnotationVisitor comp_visitor(COMP_ANNOT_DATABASE);
-  g_backend_annot_comp.VisitEach(&comp_visitor);
-
-  if (g_backend_escape_forward.IsEmpty() &&
-      g_backend_escape_backward.IsEmpty() &&
-      g_backend_escape_accesses.IsEmpty() &&
-      g_backend_callers.IsEmpty() &&
-      g_backend_callees.IsEmpty() &&
-      !g_backend_merge)
-    return;
-
-  // sort and write out the callgraph hash.
-  BACKEND_IMPL::Backend_GraphSortHash((const uint8_t*) CALLGRAPH_NAME,
-                                      (const uint8_t*) CALLGRAPH_INDIRECT,
-                                      (const uint8_t*) BODY_DATABASE,
-                                      (const uint8_t*) CALLGRAPH_NAME,
-                                      CALLGRAPH_STAGES);
-
-  // flush any remaining escape/callgraph changes.
-  FlushEscapeBackend();
-}
-
-TransactionBackend backend_Block(start_Block, finish_Block);
-
-NAMESPACE_XGILL_END
-
-/////////////////////////////////////////////////////////////////////
 // Databases
 /////////////////////////////////////////////////////////////////////
 
@@ -1523,13 +893,9 @@ extern "C" void XIL_PrintGenerated()
 // buffer for writing out query or processed data.
 static Buffer g_data_buf;
 
-// soft limit on the amount of data we will write in one transaction when
-// querying whether to process data or writing out the processed data.
+// whether the amount of data in g_data_buf exceeds the soft data limit.
 // this limit is checked before compressing, so the amount of transmitted
 // data will be considerably less.
-#define TRANSACTION_DATA_LIMIT 512 * 1024
-
-// whether the amount of data in g_data_buf exceeds the data limit.
 #define TRANSACTION_DATA_EXCEEDED                               \
   (g_data_buf.pos - g_data_buf.base > TRANSACTION_DATA_LIMIT)
 
@@ -1541,11 +907,6 @@ static Vector<BlockCFG*> g_query_blocks;
 static Vector<CompositeCSU*> g_write_csus;
 static Vector<BlockCFG*> g_write_blocks;
 
-// lists with escape/callgraph information from the blocks we are processing.
-static Vector<EscapeEdgeSet*> g_escape_edges;
-static Vector<EscapeAccessSet*> g_escape_accesses;
-static Vector<CallEdgeSet*> g_call_edges;
-
 // data_buf contains the identifiers for all current query CSUs/blocks.
 // submit a transaction to see which of these should be processed,
 // adding entries to the write lists as necessary.
@@ -1554,10 +915,7 @@ static void ProcessQueryList(Transaction *t)
   size_t result_var = t->MakeVariable(true);
 
   TOperand *list_op = TOperandString::Compress(t, &g_data_buf);
-
-  BACKEND_CALL(BlockQueryList, result_var);
-  call->PushArgument(list_op);
-  t->PushAction(call);
+  t->PushAction(Backend::BlockQueryList(t, list_op, result_var));
 
   SubmitTransaction(t);
   g_data_buf.Reset();
@@ -1613,10 +971,7 @@ static void ProcessQueryList(Transaction *t)
 static void ProcessWriteList(Transaction *t)
 {
   TOperand *list_op = TOperandString::Compress(t, &g_data_buf);
-
-  BACKEND_CALL(BlockWriteList, 0);
-  call->PushArgument(list_op);
-  t->PushAction(call);
+  t->PushAction(Backend::BlockWriteList(t, list_op));
 
   SubmitTransaction(t);
   t->Clear();
@@ -1697,9 +1052,7 @@ extern "C" void XIL_WriteGenerated()
         TOperand *data = TOperandString::Compress(t, &g_data_buf);
         g_data_buf.Reset();
 
-        BACKEND_CALL(BlockWriteAnnot, 0);
-        call->PushArgument(data);
-        t->PushAction(call);
+        t->PushAction(Backend::BlockWriteAnnot(t, data));
       }
 
       SubmitTransaction(t);
@@ -1746,9 +1099,6 @@ extern "C" void XIL_WriteGenerated()
     if (TRANSACTION_DATA_EXCEEDED)
       ProcessWriteList(t);
   }
-
-  // use our global lists to remember all escape/callgraph info generated.
-  SetStaticMergeCaches(&g_escape_edges, &g_escape_accesses, &g_call_edges);
 
   // the CSU database is empty but all the CSUs the escape analysis will
   // need are still in memory.
@@ -1800,35 +1150,14 @@ extern "C" void XIL_WriteGenerated()
       ProcessWriteList(t);
   }
 
-  for (size_t ind = 0; ind < g_escape_edges.Size(); ind++) {
-    EscapeEdgeSet *eset = g_escape_edges[ind];
-    EscapeEdgeSet::Write(&g_data_buf, eset);
-
-    if (TRANSACTION_DATA_EXCEEDED)
-      ProcessWriteList(t);
-  }
-
-  for (size_t ind = 0; ind < g_escape_accesses.Size(); ind++) {
-    EscapeAccessSet *aset = g_escape_accesses[ind];
-    EscapeAccessSet::Write(&g_data_buf, aset);
-
-    if (TRANSACTION_DATA_EXCEEDED)
-      ProcessWriteList(t);
-  }
-
-  for (size_t ind = 0; ind < g_call_edges.Size(); ind++) {
-    CallEdgeSet *cset = g_call_edges[ind];
-    CallEdgeSet::Write(&g_data_buf, cset);
-
-    if (TRANSACTION_DATA_EXCEEDED)
-      ProcessWriteList(t);
-  }
-  
   if (g_data_buf.pos != g_data_buf.base)
     ProcessWriteList(t);
   Assert(g_data_buf.pos == g_data_buf.base);
 
   delete t;
+
+  WritePendingEscape();
+
   AnalysisCleanup();
 }
 
@@ -1836,6 +1165,7 @@ extern "C"
 int XIL_HasAnnotation(XIL_Var var, const char *annot_name, int annot_type)
 {
   GET_OBJECT(Variable, var);
+  const char *var_name = new_var->GetName()->Value();
 
   const char *db_name = NULL;
   if (annot_type)
@@ -1850,12 +1180,8 @@ int XIL_HasAnnotation(XIL_Var var, const char *annot_name, int annot_type)
   Transaction *t = new Transaction();
   size_t result = t->MakeVariable(true);
 
-  BACKEND_CALL(BlockQueryAnnot, result);
-  call->PushArgument(new TOperandString(t, db_name));
-  call->PushArgument(new TOperandString(t, new_var->GetName()->Value()));
-  call->PushArgument(new TOperandString(t, annot_name));
-  t->PushAction(call);
-
+  t->PushAction(
+    Backend::BlockQueryAnnot(t, db_name, var_name, annot_name, result));
   SubmitTransaction(t);
 
   TOperandBoolean *data = t->LookupBoolean(result);
@@ -1929,9 +1255,7 @@ void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
   TOperand *data = TOperandString::Compress(t, &g_data_buf);
   g_data_buf.Reset();
 
-  BACKEND_CALL(BlockWriteAnnot, 0);
-  call->PushArgument(data);
-  t->PushAction(call);
+  t->PushAction(Backend::BlockWriteAnnot(t, data));
 
   SubmitTransaction(t);
   delete t;

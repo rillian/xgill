@@ -82,8 +82,8 @@ class EscapeEdgeSet : public HashObject
   static void ReadMerge(Buffer *buf, Trace **psource, bool *pforward,
                         Vector<EscapeEdge> *pedges);
 
-  static EscapeEdgeSet* Make(Trace *source, bool forward, bool merge) {
-    EscapeEdgeSet xeset(source, forward, merge);
+  static EscapeEdgeSet* Make(Trace *source, bool forward) {
+    EscapeEdgeSet xeset(source, forward);
     return g_table.Lookup(xeset);
   }
 
@@ -118,10 +118,7 @@ class EscapeEdgeSet : public HashObject
   // all known escape edges for the source.
   Vector<EscapeEdge> *m_edges;
 
-  // whether this set is being used to merge data into.
-  bool m_merge;
-
-  EscapeEdgeSet(Trace *source, bool forward, bool merge);
+  EscapeEdgeSet(Trace *source, bool forward);
   static HashCons<EscapeEdgeSet> g_table;
 };
 
@@ -192,8 +189,8 @@ class EscapeAccessSet : public HashObject
   static void ReadMerge(Buffer *buf, Trace **pvalue,
                         Vector<EscapeAccess> *paccesses);
 
-  static EscapeAccessSet* Make(Trace *value, bool merge) {
-    EscapeAccessSet xaset(value, merge);
+  static EscapeAccessSet* Make(Trace *value) {
+    EscapeAccessSet xaset(value);
     return g_table.Lookup(xaset);
   }
 
@@ -222,10 +219,7 @@ class EscapeAccessSet : public HashObject
   // all known accesses on the value.
   Vector<EscapeAccess> *m_accesses;
 
-  // whether this set is being used to merge data into.
-  bool m_merge;
-
-  EscapeAccessSet(Trace *value, bool merge);
+  EscapeAccessSet(Trace *value);
   static HashCons<EscapeAccessSet> g_table;
 };
 

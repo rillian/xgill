@@ -56,8 +56,8 @@ class CallEdgeSet : public HashObject
   static void ReadMerge(Buffer *buf, Variable **pfunction, bool *pcallers,
                         Vector<CallEdge> *pedges);
 
-  static CallEdgeSet* Make(Variable *function, bool callers, bool merge) {
-    CallEdgeSet xcset(function, callers, merge);
+  static CallEdgeSet* Make(Variable *function, bool callers) {
+    CallEdgeSet xcset(function, callers);
     return g_table.Lookup(xcset);
   }
 
@@ -91,10 +91,7 @@ class CallEdgeSet : public HashObject
   // all known call edges for this function and direction.
   Vector<CallEdge> *m_edges;
 
-  // whether this set is being used to merge data into.
-  bool m_merge;
-
-  CallEdgeSet(Variable *function, bool callers, bool merge);
+  CallEdgeSet(Variable *function, bool callers);
   static HashCons<CallEdgeSet> g_table;
 };
 
@@ -103,14 +100,15 @@ class CallEdgeSet : public HashObject
 // these functions modify the edges stored in the append caller/callee caches
 // from storage.h; flushing these caches will write out the modified data.
 
-// add to the append callgraph caches any direct call edges in cfg.
+// add any direct call edges in cfg to the merge lists.
 // also adds those direct call edges to the callees list, and indicates
 // whether there are any indirect calls in cfg.
 void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
                          bool *indirect);
 
-// add to the append callgraph caches the call edges for any indirect
-// calls in CFG. uses the escape analysis to find the possible targets.
-void CallgraphProcessCFGIndirect(BlockCFG *cfg);
+// add any indirect call edges in CFG to the merge lists.
+// also adds those indirect call edges to the callees list.
+// each callee holds a reference.
+void CallgraphProcessCFGIndirect(BlockCFG *cfg, Vector<Variable*> *callees);
 
 NAMESPACE_XGILL_END

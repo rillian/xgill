@@ -26,58 +26,51 @@ NAMESPACE_XGILL_BEGIN
 
 BACKEND_IMPL_BEGIN
 
-bool TimeStampDeltaBefore(Transaction *t,
-                          const Vector<TOperand*> &arguments,
-                          TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  BACKEND_ARG_TIMESTAMP(0, delta);
+TAction* ValueLess(Transaction *t,
+                   TOperand *v0, TOperand *v1,
+                   size_t var_result);
 
-  TimeStamp stamp = t->GetTimeStamp();
+TAction* ValueLessEqual(Transaction *t,
+                        TOperand *v0, TOperand *v1,
+                        size_t var_result);
 
-  TimeStamp res = 0;
-  if (stamp >= delta)
-    res = stamp - delta;
+TAction* ValueEqual(Transaction *t,
+                    TOperand *v0, TOperand *v1,
+                    size_t var_result);
 
-  *result = new TOperandTimeStamp(t, res);
-  return true;
-}
-
-bool TimeStampDeltaAfter(Transaction *t,
-                         const Vector<TOperand*> &arguments,
-                         TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  BACKEND_ARG_TIMESTAMP(0, delta);
-
-  TimeStamp stamp = t->GetTimeStamp();
-  TimeStamp res = stamp + delta;
-
-  *result = new TOperandTimeStamp(t, res);
-  return true;
-}
-
-bool TimeStampLess(Transaction *t,
-                   const Vector<TOperand*> &arguments,
-                   TOperand **result)
+bool ValueLess(Transaction *t,
+               const Vector<TOperand*> &arguments,
+               TOperand **result)
 {
   BACKEND_ARG_COUNT(2);
-  BACKEND_ARG_TIMESTAMP(0, time0);
-  BACKEND_ARG_TIMESTAMP(1, time1);
+  BACKEND_ARG_INTEGER(0, v0);
+  BACKEND_ARG_INTEGER(1, v1);
 
-  *result = new TOperandBoolean(t, time0 < time1);
+  *result = new TOperandBoolean(t, v0 < v1);
   return true;
 }
 
-bool TimeStampLessEqual(Transaction *t,
-                        const Vector<TOperand*> &arguments,
-                        TOperand **result)
+bool ValueLessEqual(Transaction *t,
+                    const Vector<TOperand*> &arguments,
+                    TOperand **result)
 {
   BACKEND_ARG_COUNT(2);
-  BACKEND_ARG_TIMESTAMP(0, time0);
-  BACKEND_ARG_TIMESTAMP(1, time1);
+  BACKEND_ARG_INTEGER(0, v0);
+  BACKEND_ARG_INTEGER(1, v1);
 
-  *result = new TOperandBoolean(t, time0 <= time1);
+  *result = new TOperandBoolean(t, v0 <= v1);
+  return true;
+}
+
+bool ValueEqual(Transaction *t,
+                const Vector<TOperand*> &arguments,
+                TOperand **result)
+{
+  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_INTEGER(0, v0);
+  BACKEND_ARG_INTEGER(1, v1);
+
+  *result = new TOperandBoolean(t, v0 == v1);
   return true;
 }
 
@@ -122,16 +115,16 @@ bool ListPush(Transaction *t,
   return true;
 }
 
-// information about a barrier.
-struct BarrierInfo {
+// information about a counter.
+struct CounterInfo {
   String *name;
   size_t count;
 };
 
-// list of all barriers.
-Vector<BarrierInfo> barriers;
+// list of all counters.
+Vector<CounterInfo> counters;
 
-bool BarrierInc(Transaction *t,
+bool CounterInc(Transaction *t,
                 const Vector<TOperand*> &arguments,
                 TOperand **result)
 {
@@ -140,23 +133,23 @@ bool BarrierInc(Transaction *t,
 
   String *key = String::Make((const char*) name);
 
-  for (size_t ind = 0; ind < barriers.Size(); ind++) {
-    if (key == barriers[ind].name) {
-      barriers[ind].count++;
+  for (size_t ind = 0; ind < counters.Size(); ind++) {
+    if (key == counters[ind].name) {
+      counters[ind].count++;
       key->DecRef();
       return true;
     }
   }
 
-  BarrierInfo info;
+  CounterInfo info;
   info.name = key;
   info.count = 1;
-  barriers.PushBack(info);
+  counters.PushBack(info);
 
   return true;
 }
 
-bool BarrierDec(Transaction *t,
+bool CounterDec(Transaction *t,
                 const Vector<TOperand*> &arguments,
                 TOperand **result)
 {
@@ -165,27 +158,27 @@ bool BarrierDec(Transaction *t,
 
   String *key = String::Make((const char*) name);
 
-  for (size_t ind = 0; ind < barriers.Size(); ind++) {
-    if (key == barriers[ind].name) {
-      if (barriers[ind].count == 0) {
-        logout << "ERROR: Decrement on empty barrier: " << key << endl;
+  for (size_t ind = 0; ind < counters.Size(); ind++) {
+    if (key == counters[ind].name) {
+      if (counters[ind].count == 0) {
+        logout << "ERROR: Decrement on empty counter: " << key << endl;
         key->DecRef();
         return false;
       }
 
-      barriers[ind].count--;
+      counters[ind].count--;
       key->DecRef();
       return true;
     }
   }
 
-  logout << "ERROR: Decrement on missing barrier: " << key << endl;
+  logout << "ERROR: Decrement on missing counter: " << key << endl;
 
   key->DecRef();
   return true;
 }
 
-bool BarrierEmpty(Transaction *t,
+bool CounterValue(Transaction *t,
                   const Vector<TOperand*> &arguments,
                   TOperand **result)
 {
@@ -194,16 +187,39 @@ bool BarrierEmpty(Transaction *t,
 
   String *key = String::Make((const char*) name);
 
-  for (size_t ind = 0; ind < barriers.Size(); ind++) {
-    if (key == barriers[ind].name) {
+  for (size_t ind = 0; ind < counters.Size(); ind++) {
+    if (key == counters[ind].name) {
       key->DecRef();
-      *result = new TOperandBoolean(t, barriers[ind].count == 0);
+      *result = new TOperandInteger(t, counters[ind].count);
       return true;
     }
   }
 
   key->DecRef();
-  *result = new TOperandBoolean(t, true);
+  *result = new TOperandInteger(t, 0);
+  return true;
+}
+
+bool CounterEquals(Transaction *t,
+                   const Vector<TOperand*> &arguments,
+                   TOperand **result)
+{
+  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_STRING(0, name, name_length);
+  BACKEND_ARG_INTEGER(1, value);
+
+  String *key = String::Make((const char*) name);
+
+  for (size_t ind = 0; ind < counters.Size(); ind++) {
+    if (key == counters[ind].name) {
+      key->DecRef();
+      *result = new TOperandBoolean(t, counters[ind].count == value);
+      return true;
+    }
+  }
+
+  key->DecRef();
+  *result = new TOperandBoolean(t, 0 == value);
   return true;
 }
 
@@ -215,22 +231,22 @@ BACKEND_IMPL_END
 
 static void start_Util()
 {
-  BACKEND_REGISTER(TimeStampDeltaBefore);
-  BACKEND_REGISTER(TimeStampDeltaAfter);
-  BACKEND_REGISTER(TimeStampLess);
-  BACKEND_REGISTER(TimeStampLessEqual);
+  BACKEND_REGISTER(ValueLess);
+  BACKEND_REGISTER(ValueLessEqual);
+  BACKEND_REGISTER(ValueEqual);
   BACKEND_REGISTER(StringIsEmpty);
   BACKEND_REGISTER(ListCreate);
   BACKEND_REGISTER(ListPush);
-  BACKEND_REGISTER(BarrierInc);
-  BACKEND_REGISTER(BarrierDec);
-  BACKEND_REGISTER(BarrierEmpty);
+  BACKEND_REGISTER(CounterInc);
+  BACKEND_REGISTER(CounterDec);
+  BACKEND_REGISTER(CounterValue);
+  BACKEND_REGISTER(CounterEquals);
 }
 
 static void finish_Util()
 {
-  for (size_t ind = 0; ind < Backend_IMPL::barriers.Size(); ind++)
-    Backend_IMPL::barriers[ind].name->DecRef();
+  for (size_t ind = 0; ind < Backend_IMPL::counters.Size(); ind++)
+    Backend_IMPL::counters[ind].name->DecRef();
 }
 
 TransactionBackend backend_Util(start_Util, finish_Util);
@@ -241,58 +257,34 @@ TransactionBackend backend_Util(start_Util, finish_Util);
 
 NAMESPACE_BEGIN(Backend)
 
-TAction* TimeStampDeltaSeconds(Transaction *t,
-                               ssize_t seconds,
-                               size_t var_result)
+TAction* ValueLess(Transaction *t,
+                   TOperand *v0, TOperand *v1,
+                   size_t var_result)
 {
-  if (seconds < 0) {
-    TimeStamp delta = TimeSecondsToStamp(-seconds);
-
-    BACKEND_CALL(TimeStampDeltaBefore, var_result);
-    call->PushArgument(new TOperandTimeStamp(t, delta));
-    return call;
-  }
-  else {
-    TimeStamp delta = TimeSecondsToStamp(seconds);
-
-    BACKEND_CALL(TimeStampDeltaAfter, var_result);
-    call->PushArgument(new TOperandTimeStamp(t, delta));
-    return call;
-  }
-}
-
-TAction* TimeStampLess(Transaction *t,
-                       TOperand *time0, TOperand *time1,
-                       size_t var_result)
-{
-  BACKEND_CALL(TimeStampLess, var_result);
-  call->PushArgument(time0);
-  call->PushArgument(time1);
+  BACKEND_CALL(ValueLess, var_result);
+  call->PushArgument(v0);
+  call->PushArgument(v1);
   return call;
 }
 
-TAction* TimeStampLessEqual(Transaction *t,
-                            TOperand *time0, TOperand *time1,
-                            size_t var_result)
+TAction* ValueLessEqual(Transaction *t,
+                        TOperand *v0, TOperand *v1,
+                        size_t var_result)
 {
-  BACKEND_CALL(TimeStampLessEqual, var_result);
-  call->PushArgument(time0);
-  call->PushArgument(time1);
+  BACKEND_CALL(ValueLessEqual, var_result);
+  call->PushArgument(v0);
+  call->PushArgument(v1);
   return call;
 }
 
-TAction* TimeStampGreater(Transaction *t,
-                          TOperand *time0, TOperand *time1,
-                          size_t var_result)
+TAction* ValueEqual(Transaction *t,
+                    TOperand *v0, TOperand *v1,
+                    size_t var_result)
 {
-  return TimeStampLess(t, time1, time0, var_result);
-}
-
-TAction* TimeStampGreaterEqual(Transaction *t,
-                               TOperand *time0, TOperand *time1,
-                               size_t var_result)
-{
-  return TimeStampLessEqual(t, time1, time0, var_result);
+  BACKEND_CALL(ValueEqual, var_result);
+  call->PushArgument(v0);
+  call->PushArgument(v1);
+  return call;
 }
 
 TAction* StringIsEmpty(Transaction *t, TOperand *str,
@@ -324,6 +316,27 @@ TAction* ListPush(Transaction *t, TOperand *list, TOperand *arg,
   BACKEND_CALL(ListPush, var_result);
   call->PushArgument(list);
   call->PushArgument(arg);
+  return call;
+}
+
+TAction* CounterInc(Transaction *t, const char *name)
+{
+  BACKEND_CALL(CounterInc, 0);
+  call->PushArgument(new TOperandString(t, name));
+  return call;
+}
+
+TAction* CounterDec(Transaction *t, const char *name)
+{
+  BACKEND_CALL(CounterDec, 0);
+  call->PushArgument(new TOperandString(t, name));
+  return call;
+}
+
+TAction* CounterValue(Transaction *t, const char *name, size_t var_result)
+{
+  BACKEND_CALL(CounterValue, var_result);
+  call->PushArgument(new TOperandString(t, name));
   return call;
 }
 

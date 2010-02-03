@@ -28,53 +28,12 @@ NAMESPACE_XGILL_BEGIN
 
 BACKEND_IMPL_BEGIN
 
-// holds a reference for each key
-typedef HashTable< DataString*, TimeStamp, HashObject > TimeStampTable;
-
-class TimeStampDecRef : public HashTableVisitor<DataString*,TimeStamp>
-{
-  void Visit(DataString *&str, Vector<TimeStamp> &time_list) {
-    str->DecRef();
-  }
-};
-
-void ClearTimeStampTable(TimeStampTable *table)
-{
-  TimeStampDecRef decref_TimeStamp;
-  table->VisitEach(&decref_TimeStamp);
-  table->Clear();
-}
-
-void UpdateTimeStampTable(TimeStampTable *table,
-                          const uint8_t *key_data, size_t key_length,
-                          TimeStamp stamp)
-{
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<TimeStamp> *stamps = table->Lookup(keystr, true);
-
-  if (stamps->Empty()) {
-    // new entry consuming our reference on keystr.
-    stamps->PushBack(stamp);
-  }
-  else {
-    // existing entry, drop the reference on keystr.
-    keystr->DecRef();
-    Assert(stamps->Size() == 1);
-    stamps->At(0) = stamp;
-  }
-}
-
 // name and handle for an open database.
 struct XdbInfo {
   String *name;       // holds a reference
   Xdb *xdb;
 
-  // non-NULL iff we're tracking timestamps for this db
-  TimeStampTable *stamptable;
-
-  XdbInfo()
-    : name(NULL), xdb(NULL), stamptable(NULL)
-  {}
+  XdbInfo() : name(NULL), xdb(NULL) {}
 };
 
 // list of all opened databases
@@ -88,10 +47,6 @@ void ClearDatabases()
     info.name->DecRef();
     if (info.xdb != NULL)
       delete info.xdb;
-    if (info.stamptable != NULL) {
-      ClearTimeStampTable(info.stamptable);
-      delete info.stamptable;
-    }
   }
   databases.Clear();
 }
@@ -173,20 +128,6 @@ void XdbReplaceCompress(Xdb *xdb, String *key, Buffer *data)
 
 BACKEND_IMPL_BEGIN
 
-bool XdbEnableTimeStamps(Transaction *t, const Vector<TOperand*> &arguments,
-                         TOperand **result)
-{
-  BACKEND_ARG_COUNT(1);
-  BACKEND_ARG_STRING(0, db_name, db_length);
-
-  XdbInfo &info = GetDatabaseInfo(db_name, false);
-
-  if (info.stamptable == NULL)
-    info.stamptable = new TimeStampTable();
-
-  return true;
-}
-
 bool XdbClear(Transaction *t, const Vector<TOperand*> &arguments,
               TOperand **result)
 {
@@ -194,9 +135,6 @@ bool XdbClear(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, db_name, db_length);
 
   XdbInfo &info = GetDatabaseInfo(db_name, false);
-
-  if (info.stamptable != NULL)
-    ClearTimeStampTable(info.stamptable);
 
   // nothing to do if the database doesn't exist yet
   if (!info.xdb->Exists())
@@ -218,10 +156,6 @@ bool XdbReplace(Transaction *t, const Vector<TOperand*> &arguments,
 
   XdbInfo &info = GetDatabaseInfo(db_name, true);
 
-  if (info.stamptable != NULL)
-    UpdateTimeStampTable(info.stamptable, key_data, key_length,
-                         t->GetTimeStamp());
-
   Buffer keybuf(key_data, key_length);
   Buffer valuebuf(value_data, value_length);
 
@@ -240,10 +174,6 @@ bool XdbAppend(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_DATA(2, value_data, value_length);
 
   XdbInfo &info = GetDatabaseInfo(db_name, true);
-
-  if (info.stamptable != NULL)
-    UpdateTimeStampTable(info.stamptable, key_data, key_length,
-                         t->GetTimeStamp());
 
   Buffer keybuf(key_data, key_length);
   Buffer valuebuf(value_data, value_length);
@@ -329,12 +259,13 @@ bool XdbAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
     size_t key_length = key.pos - key.base;
 
     if (!ValidString(key.base, key_length)) {
-      logout << "ERROR: Database contains a key that is not NULL-terminated." << endl;
+      logout << "ERROR: Database contains a key that is not NULL-terminated."
+             << endl;
       return false;
     }
 
     if (buf == NULL || !buf->HasRemaining(key_length)) {
-      buf = new Buffer(4096 * 16);
+      buf = new Buffer(4096 * 16 + key_length);
       t->AddBuffer(buf);
     }
 
@@ -346,34 +277,6 @@ bool XdbAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
-bool XdbTimeStamp(Transaction *t, const Vector<TOperand*> &arguments,
-                  TOperand **result)
-{
-  BACKEND_ARG_COUNT(2);
-  BACKEND_ARG_STRING(0, db_name, db_length);
-  BACKEND_ARG_DATA(1, key_data, key_length);
-
-  XdbInfo &info = GetDatabaseInfo(db_name, false);
-
-  // enable timestamps if they aren't already enabled.
-  if (info.stamptable == NULL)
-    info.stamptable = new TimeStampTable();
-
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<TimeStamp> *stamps = info.stamptable->Lookup(keystr, false);
-  keystr->DecRef();
-
-  if (stamps != NULL) {
-    Assert(stamps->Size() == 1);
-    *result = new TOperandTimeStamp(t, stamps->At(0));
-  }
-  else {
-    *result = new TOperandTimeStamp(t, 0);
-  }
-
-  return true;
-}
-
 BACKEND_IMPL_END
 
 /////////////////////////////////////////////////////////////////////
@@ -382,13 +285,11 @@ BACKEND_IMPL_END
 
 static void start_Xdb()
 {
-  BACKEND_REGISTER(XdbEnableTimeStamps);
   BACKEND_REGISTER(XdbClear);
   BACKEND_REGISTER(XdbReplace);
   BACKEND_REGISTER(XdbAppend);
   BACKEND_REGISTER(XdbLookup);
   BACKEND_REGISTER(XdbAllKeys);
-  BACKEND_REGISTER(XdbTimeStamp);
 }
 
 static void finish_Xdb()
@@ -403,14 +304,6 @@ TransactionBackend backend_Xdb(start_Xdb, finish_Xdb);
 /////////////////////////////////////////////////////////////////////
 
 NAMESPACE_BEGIN(Backend)
-
-TAction* XdbEnableTimeStamps(Transaction *t,
-                             const char *db_name)
-{
-  BACKEND_CALL(XdbEnableTimeStamps, 0);
-  call->PushArgument(new TOperandString(t, db_name));
-  return call;
-}
 
 TAction* XdbClear(Transaction *t,
                   const char *db_name)
@@ -461,17 +354,6 @@ TAction* XdbAllKeys(Transaction *t,
 {
   BACKEND_CALL(XdbAllKeys, var_result);
   call->PushArgument(new TOperandString(t, db_name));
-  return call;
-}
-
-TAction* XdbTimeStamp(Transaction *t,
-                      const char *db_name,
-                      TOperand *key,
-                      size_t var_result)
-{
-  BACKEND_CALL(XdbTimeStamp, var_result);
-  call->PushArgument(new TOperandString(t, db_name));
-  call->PushArgument(key);
   return call;
 }
 

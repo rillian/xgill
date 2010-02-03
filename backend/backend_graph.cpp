@@ -37,7 +37,10 @@ struct SortStageInfo {
   // list of all nodes in this stage.
   Vector<DataString*> entries;
 
-  SortStageInfo() : name(NULL), stage(0) {}
+  // whether this stage has been read in (even if it is empty).
+  bool complete;
+
+  SortStageInfo() : name(NULL), stage(0), complete(false) {}
 };
 
 // list of all in-memory graph sorts.
@@ -64,9 +67,10 @@ SortStageInfo& GetSort(const uint8_t *name, size_t stage, bool clear = false)
     if (info.name == name_str && info.stage == stage) {
       name_str->DecRef();
 
-      if (clear && !info.entries.Empty()) {
+      if (clear && info.complete) {
         DecRefVector<DataString>(info.entries, &sort_stages);
         info.entries.Clear();
+        info.complete = false;
       }
 
       return info;
@@ -169,10 +173,13 @@ void Backend_GraphSortHash(const uint8_t *hash_name, const uint8_t *hash_unk,
 
     for (ind = 0; ind < info.entries.Size(); ind++)
       stage_members.Insert(info.entries[ind]);
+
+    info.complete = true;
   }
 
   // the last stage now has all the entries we want.
   SortVector<DataString*,SortDataString>(&last_info.entries);
+  last_info.complete = true;
 
   Buffer name_buf;
   BufferOutStream name_out(&name_buf);
@@ -222,7 +229,7 @@ bool GraphSortHash(Transaction *t, const Vector<TOperand*> &arguments,
 bool GraphLoadSort(Transaction *t, const Vector<TOperand*> &arguments,
                    TOperand **result)
 {
-  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, sort_name, sort_length);
 
   Buffer name_buf;
@@ -243,7 +250,7 @@ bool GraphLoadSort(Transaction *t, const Vector<TOperand*> &arguments,
   SplitBufferStrings(&file_buf, '\n', &entry_names);
 
   size_t stage_count = 0;
-  SortStageInfo *info = & GetSort(sort_name, 0, true);
+  SortStageInfo *info = & GetSort(sort_name, 0);
 
   for (size_t eind = 0; eind < entry_names.Size(); eind++) {
     char *str = entry_names[eind];
@@ -251,46 +258,46 @@ bool GraphLoadSort(Transaction *t, const Vector<TOperand*> &arguments,
     if (!*str) {
       // blank line, this is a separator for a new stage.
       stage_count++;
+      info->complete = true;
       info = & GetSort(sort_name, stage_count, true);
       continue;
     }
 
-    DataString *node = DataString::Make((uint8_t*) str, strlen(str) + 1);
-
-    node->MoveRef(NULL, &sort_stages);
-    info->entries.PushBack(node);
+    if (!info->complete) {
+      DataString *node = DataString::Make((uint8_t*) str, strlen(str) + 1);
+      node->MoveRef(NULL, &sort_stages);
+      info->entries.PushBack(node);
+    }
   }
+
+  info->complete = true;
 
   *result = new TOperandInteger(t, stage_count);
   return true;
 }
 
-bool GraphPopSort(Transaction *t, const Vector<TOperand*> &arguments,
-                  TOperand **result)
+bool GraphSortKeys(Transaction *t, const Vector<TOperand*> &arguments,
+                   TOperand **result)
 {
   BACKEND_ARG_COUNT(2);
   BACKEND_ARG_STRING(0, sort_name, sort_length);
   BACKEND_ARG_INTEGER(1, stage);
 
+  TOperandList *list = new TOperandList(t);
+
   SortStageInfo &info = GetSort(sort_name, stage);
 
-  if (info.entries.Empty()) {
-    *result = new TOperandString(t, "");
-  }
-  else {
-    DataString *node = info.entries.Back();
-    size_t length = node->ValueLength();
+  for (size_t ind = 0; ind < info.entries.Size(); ind++) {
+    DataString *node = info.entries[ind];
 
+    size_t length = node->ValueLength();
     Buffer *buf = new Buffer(length);
     t->AddBuffer(buf);
-
-    memcpy(buf->base, node->Value(), length);
-    *result = new TOperandString(t, buf->base, length);
-
-    node->DecRef(&sort_stages);
-    info.entries.PopBack();
+    buf->Append(node->Value(), length);
+    list->PushOperand(new TOperandString(t, buf->pos, length));
   }
 
+  *result = list;
   return true;
 }
 
@@ -304,7 +311,7 @@ static void start_Graph()
 {
   BACKEND_REGISTER(GraphSortHash);
   BACKEND_REGISTER(GraphLoadSort);
-  BACKEND_REGISTER(GraphPopSort);
+  BACKEND_REGISTER(GraphSortKeys);
 }
 
 static void finish_Graph()
@@ -335,21 +342,20 @@ TAction* GraphTopoSortHash(Transaction *t,
 }
 
 TAction* GraphLoadSort(Transaction *t,
-                       const char *sort_name, size_t stage_count)
+                       const char *sort_name, size_t var_result)
 {
-  BACKEND_CALL(GraphLoadSort, 0);
+  BACKEND_CALL(GraphLoadSort, var_result);
   call->PushArgument(new TOperandString(t, sort_name));
-  call->PushArgument(new TOperandInteger(t, stage_count));
   return call;
 }
 
-TAction* GraphReverseSort(Transaction *t,
-                          const char *sort_name, size_t stage,
-                          size_t var_result)
+TAction* GraphSortKeys(Transaction *t,
+                       const char *sort_name, TOperand *stage,
+                       size_t var_result)
 {
-  BACKEND_CALL(GraphReverseSort, var_result);
+  BACKEND_CALL(GraphSortKeys, var_result);
   call->PushArgument(new TOperandString(t, sort_name));
-  call->PushArgument(new TOperandInteger(t, stage));
+  call->PushArgument(stage);
   return call;
 }
 

@@ -23,7 +23,8 @@
 #include "block.h"
 #include "modset.h"
 #include "summary.h"
-#include <backend/merge_lookup.h>
+
+#include <backend/backend.h>
 
 NAMESPACE_XGILL_BEGIN
 
@@ -49,7 +50,6 @@ NAMESPACE_XGILL_BEGIN
 #define SUMMARY_DATABASE "body_summary.xdb"
 
 // clear the memory, modset and other caches from the memory representation.
-// this does not include the merge caches below.
 void ClearMemoryCaches();
 
 // memory information caches.
@@ -94,49 +94,17 @@ extern Cache_EscapeAccessSet EscapeAccessCache;
 extern Cache_CallEdgeSet CalleeCache;
 extern Cache_CallEdgeSet CallerCache;
 
-// merge caches for filling in escape information. these are only used
-// when filling in the contents of the corresponding databases.
+// lists which receive generated escape and callgraph information.
+extern HashTable<Trace*,EscapeEdgeSet*,Trace> g_pending_escape_forward;
+extern HashTable<Trace*,EscapeEdgeSet*,Trace> g_pending_escape_backward;
+extern HashTable<Trace*,EscapeAccessSet*,Trace> g_pending_escape_accesses;
+extern HashTable<Variable*,CallEdgeSet*,Variable> g_pending_callees;
+extern HashTable<Variable*,CallEdgeSet*,Variable> g_pending_callers;
 
-// get a reference on the key in the escape_edge or escape_access database
-// which will be used to access escape information for lt.
-String* GetTraceKey(Trace *trace);
+// write out any pending escape/callgraph data.
+void WritePendingEscape();
 
-// the lookup on these caches returns an empty set, and the flush
-// method remembers any entries in the set for merging to the
-// existing database. these caches are not automatically evicted;
-// if a program uses these caches (i.e. it calls the EscapeProcess
-// or CallgraphProcess methods from escape.h and callgraph.h),
-// it must call FlushMergeCaches() periodically.
-
-// keys in these caches are the result of GetTraceKey.
-typedef MergeExternalLookup<String,Trace,EscapeEdgeSet> MergeEscapeEdge;
-typedef MergeExternalLookup<String,Trace,EscapeAccessSet> MergeEscapeAccess;
-
-extern MergeEscapeEdge::Cache MergeEscapeForwardCache;
-extern MergeEscapeEdge::Cache MergeEscapeBackwardCache;
-extern MergeEscapeAccess::Cache MergeEscapeAccessCache;
-
-typedef MergeExternalLookup<Variable,Variable,CallEdgeSet> MergeCallEdge;
-
-extern MergeCallEdge::Cache MergeCalleeCache;
-extern MergeCallEdge::Cache MergeCallerCache;
-
-// flush changes in the merge caches to disk and remove them from
-// the caches. if lru_only is true then only the LRU entries are removed
-// (according to the cache capacity), otherwise all entries up to a
-// small fixed limit are removed.
-void FlushMergeCaches(bool lru_only);
-
-// returns whether all of the merge caches are empty of items to remove.
-// if lru_only is true this includes only items exceeding the LRU limits
-// of the cache, otherwise all entries.
-bool MergeCachesEmpty(bool lru_only);
-
-// disable LRU eviction on the merge caches and use the specified lists
-// to store all entries that have been inserted into the merge caches.
-void SetStaticMergeCaches(Vector<EscapeEdgeSet*> *escape_edge_list,
-                          Vector<EscapeAccessSet*> *escape_access_list,
-                          Vector<CallEdgeSet*> *call_edge_list);
+// memory cache utility.
 
 // read/write lists of compressed memory info in transaction operations.
 TOperandString* BlockMemoryCompress(Transaction *t,
@@ -155,19 +123,5 @@ TOperandString* BlockSummaryCompress(Transaction *t,
                                      const Vector<BlockSummary*> &sums);
 void BlockSummaryUncompress(Transaction *t, TOperandString *op_data,
                             Vector<BlockSummary*> *sums);
-
-// during indirect call generation, get the set of indirect calls generated
-// for the specified function, NULL if there are none. this should only
-// be called immediately after the indirect calls have been generated,
-// i.e. during memory or modset construction.
-CallEdgeSet* GetIndirectCallEdges(Variable *function);
-
-// load into the modset cache the modsets for all callees of function.
-// if dependency_hash is specified then function_name will be added to the
-// hash for each queried callee. this should only be called under the
-// same situations as GetIndirectCallEdges.
-void GetCalleeModsets(Transaction *t, Variable *function,
-                      const Vector<BlockCFG*> &function_cfgs,
-                      const char *dependency_hash = NULL);
 
 NAMESPACE_XGILL_END

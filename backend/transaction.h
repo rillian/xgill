@@ -18,7 +18,6 @@
 
 #pragma once
 
-#include "timestamp.h"
 #include <util/buffer.h>
 #include <util/primitive.h>
 
@@ -29,10 +28,7 @@ NAMESPACE_XGILL_BEGIN
 // a transaction is some set of read/write operations that can be performed
 // on an in-memory hash or on-disk database, and which executes atomically,
 // independent of all other actions. submitted transactions will always
-// execute; there is no rollback. however, every transaction has a timestamp,
-// and the timestamps for all updated hash and database entries are tracked
-// and can be tested by the transaction to make sure it does the right thing
-// in the presence of concurrency.
+// execute; there is no rollback.
 
 // a transaction's behavior is specified with a simple, dynamically typed
 // programming language. this language does not currently have a frontend
@@ -40,9 +36,7 @@ NAMESPACE_XGILL_BEGIN
 // the AST directly.
 
 // primitive values in a transaction (operand.h):
-//   string: a binary string
-//   timestamp: a transaction timestamp
-//   true/false: a boolean constant
+//   strings, boolean constants, integer constants
 //   list: a list of values
 //   variable: a variable whose value is one of the above. variables can
 //     be either temporary vars or return vars. after the transaction
@@ -59,13 +53,16 @@ NAMESPACE_XGILL_BEGIN
 // can be called. these are left unspecified here and a backend defining
 // the possible functions can be plugged in via backend.h
 
+// for operations which can be batched into multiple transactions,
+// soft limit on the amount of data that each transaction should contain.
+#define TRANSACTION_DATA_LIMIT 512 * 1024
+
 // Transaction class
 
 // forward declarations
 class TOperand;
 class TOperandList;
 class TOperandString;
-class TOperandTimeStamp;
 class TOperandBoolean;
 class TOperandInteger;
 class TAction;
@@ -92,9 +89,6 @@ class Transaction
 
   // execute this transaction.
   void Execute();
-
-  // get the timestamp used for this transaction.
-  TimeStamp GetTimeStamp() const;
 
   // return whether the transaction has been executed.
   bool HasExecuted() const;
@@ -164,16 +158,12 @@ class Transaction
 
   // Lookup specialized to different types of operands.
   // fail if the variable was not set to the specified type.
-  TOperandList*      LookupList(size_t var, bool required = true);
-  TOperandString*    LookupString(size_t var, bool required = true);
-  TOperandTimeStamp* LookupTimeStamp(size_t var, bool required = true);
-  TOperandBoolean*   LookupBoolean(size_t var, bool required = true);
-  TOperandInteger*   LookupInteger(size_t var, bool required = true);
+  TOperandList*     LookupList(size_t var, bool required = true);
+  TOperandString*   LookupString(size_t var, bool required = true);
+  TOperandBoolean*  LookupBoolean(size_t var, bool required = true);
+  TOperandInteger*  LookupInteger(size_t var, bool required = true);
 
  private:
-
-  // timestamp associated with this transaction
-  TimeStamp m_stamp;
 
   // main actions this transaction executes. these are included in the
   // m_owned_actions list.

@@ -391,6 +391,41 @@ bool HashRemove(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
+class DataStringGetKeys : public HashTableVisitor<DataString*,DataString*>
+{
+public:
+  Transaction *t;
+  TOperandList *list;
+
+  void Visit(DataString *&str, Vector<DataString*> &str_list)
+  {
+    size_t length = str->ValueLength();
+    Buffer *buf = new Buffer(length);
+    t->AddBuffer(buf);
+    buf->Append(str->Value(), length);
+    list->PushOperand(new TOperandString(t, buf->pos, length));
+  }
+};
+
+bool HashAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
+                 TOperand **result)
+{
+  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_STRING(0, hash_name, hash_length);
+
+  TOperandList *list = new TOperandList(t);
+
+  if (DataStringHash *hash = GetNamedHash(hash_name)) {
+    DataStringGetKeys visitor;
+    visitor.t = t;
+    visitor.list = list;
+    hash->VisitEach(&visitor);
+  }
+
+  *result = list;
+  return true;
+}
+
 BACKEND_IMPL_END
 
 /////////////////////////////////////////////////////////////////////
@@ -410,6 +445,7 @@ static void start_Hash()
   BACKEND_REGISTER(HashLookup);
   BACKEND_REGISTER(HashLookupSingle);
   BACKEND_REGISTER(HashRemove);
+  BACKEND_REGISTER(HashAllKeys);
 }
 
 static void finish_Hash()
@@ -535,6 +571,15 @@ TAction* HashRemove(Transaction *t,
   BACKEND_CALL(HashRemove, 0);
   call->PushArgument(new TOperandString(t, hash_name));
   call->PushArgument(key);
+  return call;
+}
+
+TAction* HashAllKeys(Transaction *t,
+                     const char *hash_name,
+                     size_t var_result)
+{
+  BACKEND_CALL(HashAllKeys, var_result);
+  call->PushArgument(new TOperandString(t, hash_name));
   return call;
 }
 

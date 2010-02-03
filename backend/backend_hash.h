@@ -109,6 +109,11 @@ TAction* HashRemove(Transaction *t,
                     const char *hash_name,
                     TOperand *key);
 
+// return a list of all the keys in a hash.
+TAction* HashAllKeys(Transaction *t,
+                     const char *hash_name,
+                     size_t var_result);
+
 NAMESPACE_END(Backend)
 
 NAMESPACE_XGILL_END

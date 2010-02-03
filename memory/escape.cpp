@@ -37,7 +37,6 @@ int EscapeEdgeSet::Compare(const EscapeEdgeSet *eset0,
 {
   TryCompareObjects(eset0->GetSource(), eset1->GetSource(), Trace);
   TryCompareValues((int)eset0->IsForward(), (int)eset1->IsForward());
-  TryCompareValues((int)eset0->m_merge, (int)eset1->m_merge);
   return 0;
 }
 
@@ -60,7 +59,7 @@ EscapeEdgeSet* EscapeEdgeSet::Read(Buffer *buf)
 
   ReadMerge(buf, &source, &forward, &edges);
 
-  EscapeEdgeSet *res = Make(source, forward, false);
+  EscapeEdgeSet *res = Make(source, forward);
   res->UnPersist();
 
   for (size_t eind = 0; eind < edges.Size(); eind++)
@@ -171,13 +170,12 @@ void EscapeEdgeSet::ReadMerge(Buffer *buf, Trace **psource, bool *pforward,
 
 HashCons<EscapeAccessSet> EscapeAccessSet::g_table;
 
-EscapeEdgeSet::EscapeEdgeSet(Trace *source, bool forward, bool merge)
-  : m_source(source), m_forward(forward), m_edges(NULL), m_merge(merge)
+EscapeEdgeSet::EscapeEdgeSet(Trace *source, bool forward)
+  : m_source(source), m_forward(forward), m_edges(NULL)
 {
   Assert(m_source);
   m_hash = m_source->Hash();
   m_hash = Hash32(m_hash, m_forward);
-  m_hash = Hash32(m_hash, m_merge);
 }
 
 size_t EscapeEdgeSet::GetEdgeCount() const
@@ -214,7 +212,6 @@ void EscapeEdgeSet::Print(OutStream &out) const
 {
   out << "Edge set"
       << (m_forward ? " [forward]" : " [backward]")
-      << (m_merge ? " [merge]" : "")
       << ": " << m_source << endl;
 
   if (m_edges != NULL) {
@@ -260,7 +257,6 @@ int EscapeAccessSet::Compare(const EscapeAccessSet *aset0,
                              const EscapeAccessSet *aset1)
 {
   TryCompareObjects(aset0->GetValue(), aset1->GetValue(), Trace);
-  TryCompareValues((int)aset0->m_merge, (int)aset1->m_merge);
   return 0;
 }
 
@@ -282,7 +278,7 @@ EscapeAccessSet* EscapeAccessSet::Read(Buffer *buf)
 
   ReadMerge(buf, &value, &accesses);
 
-  EscapeAccessSet *res = Make(value, false);
+  EscapeAccessSet *res = Make(value);
   res->UnPersist();
 
   for (size_t aind = 0; aind < accesses.Size(); aind++)
@@ -394,12 +390,11 @@ void PrintEscapeAccessKind(OutStream &out,
 // EscapeAccessSet
 /////////////////////////////////////////////////////////////////////
 
-EscapeAccessSet::EscapeAccessSet(Trace *value, bool merge)
-  : m_value(value), m_accesses(NULL), m_merge(merge)
+EscapeAccessSet::EscapeAccessSet(Trace *value)
+  : m_value(value), m_accesses(NULL)
 {
   Assert(m_value);
   m_hash = m_value->Hash();
-  m_hash = Hash32(m_hash, m_merge);
 }
 
 size_t EscapeAccessSet::GetAccessCount() const
@@ -429,9 +424,7 @@ void EscapeAccessSet::AddAccess(const EscapeAccess &access)
 
 void EscapeAccessSet::Print(OutStream &out) const
 {
-  out << "Access set"
-      << (m_merge ? " [merge]" : "")
-      << ": " << m_value << endl;
+  out << "Access set: " << m_value << endl;
 
   if (m_accesses != NULL) {
     for (size_t aind = 0; aind < m_accesses->Size(); aind++) {
@@ -586,16 +579,20 @@ static void ProcessEdge(BlockPPoint where, bool forward,
   Vector<Trace*> matches;
   source->GetMatches(&matches);
 
-  MergeEscapeEdge::Cache *cache =
-    forward ? &MergeEscapeForwardCache : &MergeEscapeBackwardCache;
-  MergeEscapeEdge *lookup = (MergeEscapeEdge*) cache->GetExternalLookup();
-
   // fill in the edges for all locations matching the initial source.
   for (size_t mind = 0; mind < matches.Size(); mind++) {
     Trace *match = matches[mind];
 
-    String *cache_key = GetTraceKey(match);
-    EscapeEdgeSet *eset = lookup->LookupSingle(cache, cache_key, match);
+    Vector<EscapeEdgeSet*> *entries = forward
+      ? g_pending_escape_forward.Lookup(match, true)
+      : g_pending_escape_backward.Lookup(match, true);
+
+    if (entries->Empty()) {
+      match->IncRef();
+      entries->PushBack(EscapeEdgeSet::Make(match, forward));
+    }
+
+    EscapeEdgeSet *eset = entries->At(0);
 
     target->IncRef();
     where.id->IncRef();
@@ -614,9 +611,7 @@ static void ProcessEdge(BlockPPoint where, bool forward,
     }
 
     eset->AddEdge(edge);
-
     match->DecRef(&matches);
-    cache_key->DecRef();
   }
 }
 
@@ -634,14 +629,18 @@ static void ProcessAccess(BlockPPoint where, Exp *exp,
   Vector<Trace*> matches;
   trace->GetMatches(&matches);
 
-  MergeEscapeAccess::Cache *cache = &MergeEscapeAccessCache;
-  MergeEscapeAccess *lookup = (MergeEscapeAccess*) cache->GetExternalLookup();
-
   for (size_t mind = 0; mind < matches.Size(); mind++) {
     Trace *match = matches[mind];
 
-    String *cache_key = GetTraceKey(match);
-    EscapeAccessSet *aset = lookup->LookupSingle(cache, cache_key, match);
+    Vector<EscapeAccessSet*> *entries =
+      g_pending_escape_accesses.Lookup(match, true);
+
+    if (entries->Empty()) {
+      match->IncRef();
+      entries->PushBack(EscapeAccessSet::Make(match));
+    }
+
+    EscapeAccessSet *aset = entries->At(0);
 
     if (print_escape.IsSpecified()) {
       logout << "ESCAPE_ACCESS: " << ": " << match << " @ " << trace << " ";
@@ -656,7 +655,6 @@ static void ProcessAccess(BlockPPoint where, Exp *exp,
     aset->AddAccess(EscapeAccess(kind, trace, where, field));
 
     match->DecRef(&matches);
-    cache_key->DecRef();
   }
 
   // drop the initial reference we got from MakeFromExp.

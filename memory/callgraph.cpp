@@ -37,7 +37,6 @@ int CallEdgeSet::Compare(const CallEdgeSet *cset0, const CallEdgeSet *cset1)
 {
   TryCompareObjects(cset0->GetFunction(), cset1->GetFunction(), Variable);
   TryCompareValues((int)cset0->IsCallers(), (int)cset1->IsCallers());
-  TryCompareValues((int)cset0->m_merge, (int)cset1->m_merge);
   return 0;
 }
 
@@ -60,7 +59,7 @@ CallEdgeSet* CallEdgeSet::Read(Buffer *buf)
 
   ReadMerge(buf, &function, &callers, &edges);
 
-  CallEdgeSet *res = Make(function, callers, false);
+  CallEdgeSet *res = Make(function, callers);
   Assert(res->GetEdgeCount() == 0);
 
   for (size_t eind = 0; eind < edges.Size(); eind++)
@@ -131,13 +130,12 @@ void CallEdgeSet::ReadMerge(Buffer *buf,
 // CallEdgeSet
 /////////////////////////////////////////////////////////////////////
 
-CallEdgeSet::CallEdgeSet(Variable *function, bool callers, bool merge)
-  : m_function(function), m_callers(callers), m_edges(NULL), m_merge(merge)
+CallEdgeSet::CallEdgeSet(Variable *function, bool callers)
+  : m_function(function), m_callers(callers), m_edges(NULL)
 {
   Assert(m_function);
   m_hash = m_function->Hash();
   m_hash = Hash32(m_hash, m_callers);
-  m_hash = Hash32(m_hash, m_merge);
 }
 
 size_t CallEdgeSet::GetEdgeCount() const
@@ -167,7 +165,6 @@ void CallEdgeSet::Print(OutStream &out) const
 {
   out << "Call edge set"
       << (m_callers ? " [callers]" : " [callees]")
-      << (m_merge ? " [merge]" : "")
       << ": " << m_function << endl;
 
   if (m_edges != NULL) {
@@ -220,15 +217,16 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
   BlockPPoint where(cfg->GetId(), edge->GetSource());
   Variable *caller = where.id->BaseVar();
 
-  MergeCallEdge *caller_lookup =
-    (MergeCallEdge*) MergeCallerCache.GetExternalLookup();
-  MergeCallEdge *callee_lookup =
-    (MergeCallEdge*) MergeCalleeCache.GetExternalLookup();
-
   // add the caller edge to the cache.
 
-  CallEdgeSet *caller_cset =
-    caller_lookup->LookupSingle(&MergeCallerCache, callee, callee);
+  Vector<CallEdgeSet*> *caller_entries =
+    g_pending_callers.Lookup(callee, true);
+  if (caller_entries->Empty()) {
+    callee->IncRef();
+    caller_entries->PushBack(CallEdgeSet::Make(callee, true));
+  }
+
+  CallEdgeSet *caller_cset = caller_entries->At(0);
 
   where.id->IncRef();
   callee->IncRef();
@@ -236,8 +234,14 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 
   // add the callee edge to the cache.
 
-  CallEdgeSet *callee_cset =
-    callee_lookup->LookupSingle(&MergeCalleeCache, caller, caller);
+  Vector<CallEdgeSet*> *callee_entries =
+    g_pending_callees.Lookup(caller, true);
+  if (callee_entries->Empty()) {
+    caller->IncRef();
+    callee_entries->PushBack(CallEdgeSet::Make(caller, true));
+  }
+
+  CallEdgeSet *callee_cset = callee_entries->At(0);
 
   where.id->IncRef();
   callee->IncRef();
@@ -292,11 +296,13 @@ class FunctionPointerEscape : public EscapeStatus
  public:
   BlockCFG *m_cfg;
   PEdgeCall *m_edge;
+  Vector<Variable*> *m_callees;
   bool m_found;
 
-  FunctionPointerEscape(BlockCFG *cfg, PEdgeCall *edge)
+  FunctionPointerEscape(BlockCFG *cfg, PEdgeCall *edge,
+                        Vector<Variable*> *callees)
     : EscapeStatus(false, FUNPTR_ESCAPE_LIMIT),
-      m_cfg(cfg), m_edge(edge), m_found(false)
+      m_cfg(cfg), m_edge(edge), m_callees(callees), m_found(false)
   {}
 
   Trace* Visit(Trace *trace, bool *skip_cutoff)
@@ -341,6 +347,11 @@ class FunctionPointerEscape : public EscapeStatus
                << ": " << function << endl;
       }
       else {
+        if (!m_callees->Contains(function)) {
+          function->IncRef();
+          m_callees->PushBack(function);
+        }
+
         CallgraphProcessCall(m_cfg, m_edge, function);
         m_found = true;
       }
@@ -368,7 +379,7 @@ class FunctionPointerEscape : public EscapeStatus
   }
 };
 
-void CallgraphProcessCFGIndirect(BlockCFG *cfg)
+void CallgraphProcessCFGIndirect(BlockCFG *cfg, Vector<Variable*> *callees)
 {
   static BaseTimer indirect_timer("cfg_indirect");
   Timer _timer(&indirect_timer);
@@ -383,7 +394,7 @@ void CallgraphProcessCFGIndirect(BlockCFG *cfg)
       continue;
     }
 
-    FunctionPointerEscape escape(cfg, edge);
+    FunctionPointerEscape escape(cfg, edge, callees);
     Exp *function = edge->GetFunction();
 
     // source we will propagate backwards from to get indirect targets.

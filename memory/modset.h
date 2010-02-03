@@ -45,14 +45,16 @@ class BlockModset : public HashObject
   // get the identifier of the CFG this models the modset for.
   BlockId* GetId() const { return m_id; }
 
-  // fill in this modset from the lvalues modified within a BlockMemory
-  // and its callees.
-  void ComputeModset(BlockMemory *mcfg);
+  // clear all information in this modset.
+  void ClearModset();
 
-  // fill in this modset with all the modset information from omod
-  // (except the modset ID itself). if omod == NULL this will
-  // be set to an empty modset.
-  void CopyModset(BlockModset *omod);
+  // fill in this modset from the lvalues modified within a BlockMemory
+  // and its callees. if indirect is set then includes modsets
+  // for indirect callees.
+  void ComputeModset(BlockMemory *mcfg, bool indirect);
+
+  // return whether this modset is equivalent to omod (except for the ID).
+  bool Equivalent(BlockModset *omod);
 
   // get the modified lvalues in this modset.
   size_t GetModsetCount() const {

@@ -38,18 +38,7 @@ int BlockModset::Compare(const BlockModset *mod0, const BlockModset *mod1)
 {
   BlockId *id0 = mod0->GetId();
   BlockId *id1 = mod1->GetId();
-
-  if (id0->Kind() != B_Scratch || id1->Kind() != B_Scratch) {
-    TryCompareObjects(id0, id1, BlockId);
-    return 0;
-  }
-
-  // don't do any hash-consing for scratch modsets, just compare
-  // based on the bits.
-  TryCompareValues((size_t)mod0, (size_t)mod1);
-
-  // we shouldn't be getting two identical modset pointers here
-  Assert(false);
+  TryCompareObjects(id0, id1, BlockId);
   return 0;
 }
 
@@ -99,10 +88,9 @@ BlockModset* BlockModset::Read(Buffer *buf)
       BlockId *id = BlockId::Read(buf);
       res = Make(id);
 
-      // if the result was already in memory and had its data loaded,
-      // this will clear it out so that we don't add the same entries
-      // multiple times.
-      res->CopyModset(NULL);
+      // clear out the modset in case it was in memory so we don't add the
+      // same entries multiple times.
+      res->ClearModset();
       break;
     }
     case TAG_ModsetEntry: {
@@ -168,6 +156,31 @@ BlockModset::BlockModset(BlockId *id)
   m_hash = m_id->Hash();
 }
 
+void BlockModset::ClearModset()
+{
+  if (m_modset_list) {
+    for (size_t ind = 0; ind < m_modset_list->Size(); ind++) {
+      const PointValue &v = m_modset_list->At(ind);
+      v.lval->DecRef(this);
+      if (v.kind)
+        v.kind->DecRef(this);
+    }
+    m_modset_list->Clear();
+    m_modset_list = NULL;
+  }
+
+  if (m_assign_list) {
+    for (size_t ind = 0; ind < m_assign_list->Size(); ind++) {
+      const GuardAssign &v = m_assign_list->At(ind);
+      v.left->DecRef(this);
+      v.right->DecRef(this);
+      v.guard->DecRef(this);
+    }
+    m_assign_list->Clear();
+    m_assign_list = NULL;
+  }
+}
+
 struct compare_PointValue
 {
   static int Compare(const PointValue &lval0, const PointValue &lval1)
@@ -201,22 +214,16 @@ struct compare_GuardAssign
   }
 };
 
-void BlockModset::ComputeModset(BlockMemory *mcfg)
+void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
 {
   static BaseTimer compute_timer("modset_compute");
   Timer _timer(&compute_timer);
 
-  // we should only be computing modsets for scratch identifiers,
-  // to ensure we don't try accessing this modset during analysis
-  // if there is direct recursion.
-  Assert(m_id->Kind() == B_Scratch);
-
-  // initialize to an empty modset.
-  CopyModset(NULL);
-
-  // get any indirect callees for this function, which haven't been flushed
-  // to the database yet.
-  CallEdgeSet *indirect_callees = GetIndirectCallEdges(m_id->BaseVar());
+  // get any indirect callees for this function, provided they have been
+  // computed and stored in the callee database (indirect is set).
+  CallEdgeSet *indirect_callees = NULL;
+  if (indirect)
+    indirect_callees = CalleeCache.Lookup(m_id->BaseVar());
 
   BlockCFG *cfg = mcfg->GetCFG();
   for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
@@ -252,7 +259,7 @@ void BlockModset::ComputeModset(BlockMemory *mcfg)
       for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
         const CallEdge &edge = indirect_callees->GetEdge(ind);
 
-        // when comparing watch out for the case that this is a scratch
+        // when comparing watch out for the case that this is a temporary
         // modset and does not share the same block kind as the edge point.
         if (edge.where.point == point &&
             edge.where.id->Function() == m_id->Function() &&
@@ -286,61 +293,54 @@ void BlockModset::ComputeModset(BlockMemory *mcfg)
     }
   }
 
-  // sort the modset exps to ensure a consistent serial representation.
+  // sort the modset exps to ensure a consistent representation.
   if (m_modset_list)
     SortVector<PointValue,compare_PointValue>(m_modset_list);
   if (m_assign_list)
     SortVector<GuardAssign,compare_GuardAssign>(m_assign_list);
+
+  if (indirect)
+    CalleeCache.Release(m_id->BaseVar());
 }
 
-void BlockModset::CopyModset(BlockModset *omod)
+bool BlockModset::Equivalent(BlockModset *omod)
 {
-  if (m_modset_list) {
-    for (size_t ind = 0; ind < m_modset_list->Size(); ind++) {
-      const PointValue &v = m_modset_list->At(ind);
-      v.lval->DecRef(this);
-      if (v.kind)
-        v.kind->DecRef(this);
-    }
-    m_modset_list->Clear();
+  // since the modset and assign lists are sorted, we can do a value by value
+  // comparison to test for equivalence.
+
+  if (GetModsetCount() != omod->GetModsetCount())
+    return false;
+
+  for (size_t ind = 0; ind < GetModsetCount(); ind++) {
+    const PointValue &lv = GetModsetLval(ind);
+    const PointValue &olv = omod->GetModsetLval(ind);
+
+    Assert(lv.point == 0 && olv.point == 0);
+
+    if (lv.lval != olv.lval)
+      return false;
+    if (lv.kind != olv.kind)
+      return false;
   }
 
-  if (m_assign_list) {
-    for (size_t ind = 0; ind < m_assign_list->Size(); ind++) {
-      const GuardAssign &v = m_assign_list->At(ind);
-      v.left->DecRef(this);
-      v.right->DecRef(this);
-      v.guard->DecRef(this);
-    }
-    m_assign_list->Clear();
+  if (GetAssignCount() != omod->GetAssignCount())
+    return false;
+
+  for (size_t ind = 0; ind < GetAssignCount(); ind++) {
+    const GuardAssign &gasn = GetAssign(ind);
+    const GuardAssign &ogasn = omod->GetAssign(ind);
+
+    if (gasn.left != ogasn.left)
+      return false;
+    if (gasn.right != ogasn.right)
+      return false;
+    if (gasn.guard != ogasn.guard)
+      return false;
+    if (gasn.kind != ogasn.kind)
+      return false;
   }
 
-  if (!omod)
-    return;
-
-  if (omod->m_modset_list) {
-    if (!m_modset_list)
-      m_modset_list = new Vector<PointValue>();
-    for (size_t eind = 0; eind < omod->m_modset_list->Size(); eind++) {
-      const PointValue &lval = omod->m_modset_list->At(eind);
-      lval.lval->IncRef(this);
-      if (lval.kind)
-        lval.kind->IncRef(this);
-      m_modset_list->PushBack(lval);
-    }
-  }
-
-  if (omod->m_assign_list) {
-    if (!m_assign_list)
-      m_assign_list = new Vector<GuardAssign>();
-    for (size_t aind = 0; aind < omod->m_assign_list->Size(); aind++) {
-      const GuardAssign &gasn = omod->m_assign_list->At(aind);
-      gasn.left->IncRef(this);
-      gasn.right->IncRef(this);
-      gasn.guard->IncRef(this);
-      m_assign_list->PushBack(gasn);
-    }
-  }
+  return true;
 }
 
 void BlockModset::AddModset(Exp *lval, Exp *kind)
@@ -548,7 +548,7 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
     m_assign_list = new Vector<GuardAssign>();
 
   // use the ID from the memory rather than the ID from this modset,
-  // as this modset has a scratch ID.
+  // as this modset has a temporary ID.
   BlockId *use_id = mcfg->GetId();
 
   // hold a reference on the lvalue, drop it at exit.
