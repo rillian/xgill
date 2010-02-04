@@ -58,8 +58,8 @@ const char *USAGE = "xmemlocal [options] [function*]";
 // scratch buffer for database compression.
 static Buffer compress_buf("Buffer_xmemlocal");
 
-ConfigOption pass_limit(CK_UInt, "pass-limit", "2",
-                        "maximum number of passes to perform");
+ConfigOption pass_limit(CK_UInt, "pass-limit", "0",
+                        "maximum number of passes to perform, 0 for no limit");
 
 ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
                         "print input CFGs");
@@ -198,25 +198,23 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
     Backend::CounterValue(t, COUNTER_STAGE, stage_result));
 }
 
-// information about the generated memory and modsets for a function.
+// information about the generated modsets for a function.
 struct MemoryKeyData
 {
-  // new memory to write out.
-  Vector<BlockMemory*> block_mems;
-
   // new modsets to write out.
   Vector<BlockModset*> block_mods;
 
-  // old modsets, if there are any.
-  Vector<BlockModset*> old_mods;
+  // whether the modset for the function itself has changed. modsets for inner
+  // loops may have changed, so the modset needs to be written.
+  bool mod_changed;
 
   // if this function depends on callee modsets, the names of those callees.
   Vector<Variable*> callees;
 
+  MemoryKeyData() : mod_changed(false) {}
+
   ~MemoryKeyData() {
-    DecRefVector<BlockMemory>(block_mems, NULL);
     DecRefVector<BlockModset>(block_mods, NULL);
-    DecRefVector<BlockModset>(old_mods, NULL);
     DecRefVector<Variable>(callees, NULL);
   }
 };
@@ -314,10 +312,10 @@ void GetCalleeModsets(Transaction *t,
 // generate the memory and modset information for the specified CFGs.
 // return whether the generation was successful (no timeout).
 bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
-                    MemoryKeyData *data)
+                    Vector<BlockMemory*> *block_mems, MemoryKeyData *data)
 {
   Variable *function = block_cfgs[0]->GetId()->BaseVar();
-  logout << "Generating memory for [#" << stage << "] "
+  logout << "Generating memory [#" << stage << "] "
          << "'" << function->GetName()->Value() << "'" << endl << flush;
 
   // did we have a timeout while processing the CFGs?
@@ -382,7 +380,7 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
       logout << endl;
     }
 
-    data->block_mems.PushBack(mem);
+    block_mems->PushBack(mem);
     logout << endl;
 
     if (TimerAlarm::ActiveExpired()) {
@@ -391,12 +389,17 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
       logout << endl;
 
       had_timeout = true;
-      TimerAlarm::ClearActive();
     }
+
+    TimerAlarm::ClearActive();
   }
 
   return !had_timeout;
 }
+
+// how often to print allocation/timer information.
+#define PRINT_FREQUENCY 50
+size_t g_print_counter = 0;
 
 void RunAnalysis(const Vector<const char*> &functions)
 {
@@ -432,6 +435,13 @@ void RunAnalysis(const Vector<const char*> &functions)
   while (true) {
     Timer _timer(&analysis_timer);
 
+    g_print_counter++;
+
+    if (g_print_counter % PRINT_FREQUENCY == 0) {
+      PrintTimers();
+      PrintAllocs();
+    }
+
     size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
@@ -446,22 +456,29 @@ void RunAnalysis(const Vector<const char*> &functions)
     size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
     Assert(new_stage != (size_t) -1);
 
-    if (!pending_data.Empty()) {
-      // the stage should not have been advanced if we have pending data.
-      Assert(new_stage == current_stage);
-    }
-
     if (new_stage > current_stage) {
+      Assert(!have_barrier_process);
+      Assert(!have_barrier_write);
+
       if (pass_limit.UIntValue() > 0) {
-        if (new_stage >= g_stage_count + pass_limit.UIntValue())
+        if (new_stage >= g_stage_count + pass_limit.UIntValue()) {
+          cout << "Finished functions [#" << new_stage
+               << "]: hit pass limit" << endl;
           break;
+        }
       }
 
-      // if we never processed anything from the current one, either the
-      // worklist has been drained or has become so small there's no useful
-      // work anymore.
-      if (new_stage > g_stage_count && !current_stage_processed)
+      // if we never processed anything from the old stage (and didn't
+      // get an item for the new stage), either the worklist has been drained
+      // or has become so small there's not enough work for this core.
+      if (new_stage > g_stage_count && !current_stage_processed &&
+          !t->Lookup(body_data_result, false)) {
+        cout << "Finished functions [#" << new_stage
+             << "]: exhausted worklist" << endl;
         break;
+      }
+
+      cout << "New stage [#" << new_stage << "]" << endl;
 
       current_stage = new_stage;
       current_stage_processed = false;
@@ -490,6 +507,8 @@ void RunAnalysis(const Vector<const char*> &functions)
         // drop any modsets we have cached, these may change after
         // we start the next stage.
         BlockModsetCache.Clear();
+
+        cout << "Finished processing stage #" << current_stage << endl;
         continue;
       }
 
@@ -503,7 +522,7 @@ void RunAnalysis(const Vector<const char*> &functions)
 
         for (size_t ind = 0; ind < pending_data.Size(); ind++) {
           MemoryKeyData *data = pending_data[ind];
-          String *function = data->block_mems[0]->GetId()->Function();
+          String *function = data->block_mods[0]->GetId()->Function();
           size_t function_len = strlen(function->Value()) + 1;
 
           Buffer *buf = new Buffer(200);
@@ -512,20 +531,33 @@ void RunAnalysis(const Vector<const char*> &functions)
           TOperandString *body_key =
             new TOperandString(t, buf->base, function_len);
 
-          TOperandString *memory_data_arg =
-            BlockMemoryCompress(t, data->block_mems);
           TOperandString *modset_data_arg =
             BlockModsetCompress(t, data->block_mods);
 
-          data_written += memory_data_arg->GetDataLength();
           data_written += modset_data_arg->GetDataLength();
-
-          t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,
-                                            body_key, memory_data_arg));
           t->PushAction(Backend::XdbReplace(t, MODSET_DATABASE,
                                             body_key, modset_data_arg));
 
-          if (current_stage == g_stage_count) {
+          if (data->mod_changed) {
+            Assert(current_stage > g_stage_count);
+
+            // add all the callers of this function to the next worklist.
+            TRANSACTION_MAKE_VAR(caller_list);
+            TRANSACTION_MAKE_VAR(caller_key);
+
+            t->PushAction(Backend::HashLookup(t, MODSET_DEPENDENCY_HASH,
+                                              body_key, caller_list_var));
+
+            TActionIterate *caller_iter =
+              new TActionIterate(t, caller_key_var, caller_list);
+            caller_iter->PushAction(
+              Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, caller_key));
+            t->PushAction(caller_iter);
+
+            cout << "ModsetChanged [#" << current_stage << "]: "
+                 << function->Value() << endl;
+          }
+          else if (current_stage == g_stage_count) {
             // write out all dependencies this function has on callee modsets.
             for (size_t ind = 0; ind < data->callees.Size(); ind++) {
               String *callee = data->callees[ind]->GetName();
@@ -544,33 +576,6 @@ void RunAnalysis(const Vector<const char*> &functions)
             // add this function to the next worklist.
             t->PushAction(
               Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, body_key));
-          }
-          else if (current_stage > g_stage_count) {
-            // check if our computed modset for the outer function differs
-            // from the old modset.
-            Assert(!data->block_mods.Empty() && !data->old_mods.Empty());
-
-            BlockModset *new_mod = data->block_mods.Back();
-            BlockModset *old_mod = data->old_mods.Back();
-
-            Assert(new_mod->GetId()->Kind() == B_ModsetFunction);
-            Assert(old_mod->GetId()->Kind() == B_Function);
-            Assert(new_mod->GetId()->BaseVar() == old_mod->GetId()->BaseVar());
-
-            if (!new_mod->Equivalent(old_mod)) {
-              // add all the callers of this function to the next worklist.
-              TRANSACTION_MAKE_VAR(caller_list);
-              TRANSACTION_MAKE_VAR(caller_key);
-
-              t->PushAction(Backend::HashLookup(t, MODSET_DEPENDENCY_HASH,
-                                                body_key, caller_list_var));
-
-              TActionIterate *caller_iter =
-                new TActionIterate(t, caller_key_var, caller_list);
-              caller_iter->PushAction(
-                Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, caller_key));
-              t->PushAction(caller_iter);
-            }
           }
 
           if (data_written > TRANSACTION_DATA_LIMIT) {
@@ -591,6 +596,8 @@ void RunAnalysis(const Vector<const char*> &functions)
 
         pending_data.Clear();
         have_barrier_write = false;
+
+        cout << "Finished writing stage #" << current_stage << endl;
         continue;
       }
 
@@ -603,6 +610,8 @@ void RunAnalysis(const Vector<const char*> &functions)
       continue;
     }
 
+    // have a function to process.
+
     have_barrier_process = true;
     current_stage_processed = true;
 
@@ -610,19 +619,52 @@ void RunAnalysis(const Vector<const char*> &functions)
     BlockCFGUncompress(t, body_data_result, &block_cfgs);
     Assert(!block_cfgs.Empty());
 
+    Vector<BlockModset*> old_mods;
     TOperandString *modset_data = t->LookupString(modset_data_result);
-    MemoryKeyData *data = new MemoryKeyData();
-    BlockModsetUncompress(t, modset_data, &data->old_mods);
+    BlockModsetUncompress(t, modset_data, &old_mods);
 
     // done with the transaction's returned data.
     t->Clear();
 
+    // data to store the modset results.
+    MemoryKeyData *data = new MemoryKeyData();
+
+    Vector<BlockMemory*> block_mems;
+
     GetCalleeModsets(t, block_cfgs, current_stage, data);
-    bool success = GenerateMemory(block_cfgs, current_stage, data);
+    bool success = GenerateMemory(block_cfgs, current_stage,
+                                  &block_mems, data);
 
     if (success) {
       // remember this memory/modset data to write out later.
       pending_data.PushBack(data);
+
+      // write out the generated memory. other functions do not use this
+      // and a lot of temporary data is generated which we want to get rid of.
+      String *function = block_cfgs[0]->GetId()->Function();
+
+      TOperand *body_key = new TOperandString(t, function->Value());
+      TOperandString *memory_data_arg = BlockMemoryCompress(t, block_mems);
+
+      t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,
+                                        body_key, memory_data_arg));
+      SubmitTransaction(t);
+      t->Clear();
+
+      if (current_stage > g_stage_count) {
+        // check if our computed modset for the outer function has changed.
+        Assert(!data->block_mods.Empty() && !old_mods.Empty());
+
+        BlockModset *new_mod = data->block_mods.Back();
+        BlockModset *old_mod = old_mods.Back();
+
+        Assert(new_mod->GetId()->Kind() == B_ModsetFunction);
+        Assert(old_mod->GetId()->Kind() == B_Function);
+        Assert(new_mod->GetId()->BaseVar() == old_mod->GetId()->BaseVar());
+
+        if (new_mod->MergeModset(old_mod))
+          data->mod_changed = true;
+      }
     }
     else {
       // had a timeout while generating the memory.
@@ -631,6 +673,8 @@ void RunAnalysis(const Vector<const char*> &functions)
     }
 
     DecRefVector<BlockCFG>(block_cfgs, NULL);
+    DecRefVector<BlockMemory>(block_mems, NULL);
+    DecRefVector<BlockModset>(old_mods, NULL);
   }
 
   t->Clear();
@@ -667,6 +711,10 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     t->Clear();
 
+    String *global = block_cfgs[0]->GetId()->Function();
+    logout << "Generating initializer memory "
+           << "'" << global->Value() << "'" << endl << flush;
+
     Vector<BlockMemory*> block_mems;
 
     for (size_t ind = 0; ind < block_cfgs.Size(); ind++) {
@@ -687,11 +735,10 @@ void RunAnalysis(const Vector<const char*> &functions)
       mem->ComputeTables();
 
       block_mems.PushBack(mem);
+      TimerAlarm::ClearActive();
     }
 
-    String *function = block_cfgs[0]->GetId()->Function();
-
-    init_key = new TOperandString(t, function->Value());
+    init_key = new TOperandString(t, global->Value());
     TOperandString *memory_data_arg = BlockMemoryCompress(t, block_mems);
 
     t->PushAction(Backend::XdbReplace(t, MEMORY_DATABASE,

@@ -53,8 +53,9 @@ class BlockModset : public HashObject
   // for indirect callees.
   void ComputeModset(BlockMemory *mcfg, bool indirect);
 
-  // return whether this modset is equivalent to omod (except for the ID).
-  bool Equivalent(BlockModset *omod);
+  // merge any data from omod into this modset. return true if the merged
+  // modset differs from omod.
+  bool MergeModset(BlockModset *omod);
 
   // get the modified lvalues in this modset.
   size_t GetModsetCount() const {

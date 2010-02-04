@@ -324,8 +324,9 @@ class Exp : public HashObject
   // is relative, the base field is the field wrapping the empty inner value.
   Field* BaseField();
 
-  // for an lvalue, get the number of contained dereferences.
+  // for an lvalue, get the number of contained Drf or Fld expressions.
   size_t DerefCount();
+  size_t FieldCount();
 
   // get the number of non-constant terms appearing in an rvalue. if the same
   // term appears multiple times it will be counted repeatedly, e.g. the size

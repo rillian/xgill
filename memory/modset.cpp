@@ -303,44 +303,49 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
     CalleeCache.Release(m_id->BaseVar());
 }
 
-bool BlockModset::Equivalent(BlockModset *omod)
+bool BlockModset::MergeModset(BlockModset *omod)
 {
-  // since the modset and assign lists are sorted, we can do a value by value
-  // comparison to test for equivalence.
-
-  if (GetModsetCount() != omod->GetModsetCount())
-    return false;
-
-  for (size_t ind = 0; ind < GetModsetCount(); ind++) {
-    const PointValue &lv = GetModsetLval(ind);
+  for (size_t ind = 0; ind < omod->GetModsetCount(); ind++) {
     const PointValue &olv = omod->GetModsetLval(ind);
 
-    Assert(lv.point == 0 && olv.point == 0);
+    if (!m_modset_list)
+      m_modset_list = new Vector<PointValue>();
 
-    if (lv.lval != olv.lval)
-      return false;
-    if (lv.kind != olv.kind)
-      return false;
+    if (!m_modset_list->Contains(olv)) {
+      olv.lval->IncRef(this);
+      if (olv.kind)
+        olv.kind->IncRef(this);
+      m_modset_list->PushBack(olv);
+    }
   }
 
-  if (GetAssignCount() != omod->GetAssignCount())
-    return false;
-
-  for (size_t ind = 0; ind < GetAssignCount(); ind++) {
-    const GuardAssign &gasn = GetAssign(ind);
+  for (size_t ind = 0; ind < omod->GetAssignCount(); ind++) {
     const GuardAssign &ogasn = omod->GetAssign(ind);
 
-    if (gasn.left != ogasn.left)
-      return false;
-    if (gasn.right != ogasn.right)
-      return false;
-    if (gasn.guard != ogasn.guard)
-      return false;
-    if (gasn.kind != ogasn.kind)
-      return false;
+    if (!m_assign_list)
+      m_assign_list = new Vector<GuardAssign>();
+
+    if (!m_assign_list->Contains(ogasn)) {
+      ogasn.left->IncRef(this);
+      ogasn.right->IncRef(this);
+      ogasn.guard->IncRef(this);
+      m_assign_list->PushBack(ogasn);
+    }
   }
 
-  return true;
+  // resort the modset contents.
+  if (m_modset_list)
+    SortVector<PointValue,compare_PointValue>(m_modset_list);
+  if (m_assign_list)
+    SortVector<GuardAssign,compare_GuardAssign>(m_assign_list);
+
+  // check if this modset is bigger than omod. since everything in omod is
+  // also in this modset, this will determine if the two are different.
+  if (GetModsetCount() != omod->GetModsetCount())
+    return true;
+  if (GetAssignCount() != omod->GetAssignCount())
+    return true;
+  return false;
 }
 
 void BlockModset::AddModset(Exp *lval, Exp *kind)
@@ -446,9 +451,8 @@ class ModsetIncludeVisitor : public ExpVisitor
   BlockKind kind;
 
   // whether this modset data was propagated out from a function call.
-  // we include globals in the modset only when they were directly modified
-  // (TODO: fix hack).
-  bool is_call;
+  // we include globals in the modset only when they were directly modified.
+  bool from_call;
 
   // encountered an lval which should be excluded from generated information.
   Exp *excluded;
@@ -459,9 +463,9 @@ class ModsetIncludeVisitor : public ExpVisitor
   // whether we are scanning the rvalue for an assignment.
   bool rvalue;
 
-  ModsetIncludeVisitor(BlockKind _kind, bool _is_call)
+  ModsetIncludeVisitor(BlockKind _kind, bool _from_call)
     : ExpVisitor(VISK_All),
-      kind(_kind), is_call(_is_call), excluded(NULL),
+      kind(_kind), from_call(_from_call), excluded(NULL),
       buffer(false), rvalue(false)
   {}
 
@@ -479,7 +483,7 @@ class ModsetIncludeVisitor : public ExpVisitor
       Variable *root = exp->AsVar()->GetVariable();
 
       // allow global exps when the assign was not generated from a call.
-      if (root->IsGlobal() && (!is_call || rvalue))
+      if (root->IsGlobal() && (!from_call || rvalue))
         return;
 
       if (kind == B_Function) {
@@ -530,8 +534,14 @@ class ModsetIncludeVisitor : public ExpVisitor
       break;
     }
 
-    case EK_Fld:
+    case EK_Fld: {
+      // limit on the number of fields in expressions. this cuts off infinite
+      // recursion during modset computation when the program does funny casts.
+      if (exp->FieldCount() > 6)
+        excluded = exp;
       break;
+    }
+
     default:
       excluded = exp;
       break;
@@ -540,7 +550,7 @@ class ModsetIncludeVisitor : public ExpVisitor
 };
 
 void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
-                                     bool consider_assign, bool is_call)
+                                     bool consider_assign, bool from_call)
 {
   if (!m_modset_list)
     m_modset_list = new Vector<PointValue>();
@@ -563,7 +573,7 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
 
  entry:
 
-  ModsetIncludeVisitor visitor(use_id->Kind(), is_call);
+  ModsetIncludeVisitor visitor(use_id->Kind(), from_call);
 
   // use the base buffer if we are updating a terminator.
   if (kind) {

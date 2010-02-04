@@ -2433,11 +2433,12 @@ class ExpVisitor_AnySub : public ExpVisitor
   bool index;
   Field *base_field;
   size_t derefs;
+  size_t fields;
 
   ExpVisitor_AnySub()
     : ExpVisitor(VISK_SubExprs),
       root(NULL), clobber_root(NULL), relative(false), index(false),
-      base_field(NULL), derefs(0)
+      base_field(NULL), derefs(0), fields(0)
   {}
 
   void Visit(Exp *exp)
@@ -2455,6 +2456,7 @@ class ExpVisitor_AnySub : public ExpVisitor
       index = true;
 
     if (ExpFld *nexp = exp->IfFld()) {
+      fields++;
       if (nexp->GetTarget()->IsEmpty())
         base_field = nexp->GetField();
     }
@@ -2506,6 +2508,14 @@ size_t Exp::DerefCount()
   DoVisit(&visitor);
 
   return visitor.derefs;
+}
+
+size_t Exp::FieldCount()
+{
+  ExpVisitor_AnySub visitor;
+  DoVisit(&visitor);
+
+  return visitor.fields;
 }
 
 class ExpVisitor_TermCount : public ExpVisitor

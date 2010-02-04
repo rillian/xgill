@@ -26,12 +26,6 @@ NAMESPACE_XGILL_BEGIN
 // scratch buffer for doing compression.
 static Buffer scratch_buf("Buffer_memory_compress");
 
-// maximum capacities for the merge caches.
-
-#define MERGE_CAP_ESCAPE_EDGE    40000
-#define MERGE_CAP_ESCAPE_ACCESS  40000
-#define MERGE_CAP_CALLGRAPH      10000
-
 // maximum capacities for the storage caches.
 
 #define CAP_BLOCK_MEMORY   10000
@@ -40,11 +34,6 @@ static Buffer scratch_buf("Buffer_memory_compress");
 #define CAP_ESCAPE_EDGE    5000
 #define CAP_ESCAPE_ACCESS  5000
 #define CAP_CALLGRAPH      20000
-
-// maximum number of entries, for each database, we will flush in a
-// single transaction; the number of database operations performed by a
-// transaction is at most this limit times the number of merge caches.
-#define MERGE_TRANSACTION_LIMIT  20
 
 void ClearMemoryCaches()
 {
