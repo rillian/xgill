@@ -119,6 +119,16 @@ struct BlockPPoint {
   bool operator != (const BlockPPoint &o) const {
     return id != o.id || point != o.point;
   }
+
+  static int Compare(const BlockPPoint &v0, const BlockPPoint &v1)
+  {
+    int cmp = BlockId::Compare(v0.id, v1.id);
+    if (cmp) return cmp;
+
+    if (v0.point < v1.point) return -1;
+    if (v0.point > v1.point) return 1;
+    return 0;
+  }
 };
 
 // print block/point identifiers directly to a stream.

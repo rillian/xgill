@@ -166,6 +166,8 @@ static void RemoveValBits(CheckerFrame *frame, const GuardBitVector &input,
       output->PushBack(GuardBit(rgb.bit, new_guard));
     }
   }
+
+  output->SortCombine();
 }
 
 void Where::GetAssertBits(CheckerFrame *frame, PPoint point,

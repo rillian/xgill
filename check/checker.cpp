@@ -518,6 +518,14 @@ struct HeapWriteInfo
     // expressions are considered equivalent.
     return mcfg == o.mcfg && lval == o.lval;
   }
+
+  static int Compare(const HeapWriteInfo &v0, const HeapWriteInfo &v1)
+  {
+    int cmp = BlockId::Compare(v0.mcfg->GetId(), v1.mcfg->GetId());
+    if (cmp) return cmp;
+
+    return Exp::Compare(v0.lval, v1.lval);
+  }
 };
 
 bool CheckSingleHeapWrite(CheckerState *state, CheckerFrame *frame,
@@ -732,6 +740,8 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
     logout << "CHECK: " << frame
            << ": Found " << writes.Size() << " matching writes" << endl;
 
+  SortVector<HeapWriteInfo,HeapWriteInfo>(&writes);
+
   bool res = false;
 
   for (size_t wind = 0; wind < writes.Size(); wind++) {
@@ -865,41 +875,47 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
       Variable *function = id->BaseVar();
       CallEdgeSet *callees = CalleeCache.Lookup(function);
 
-      bool found_callee = false;
+      Vector<Variable*> callee_vars;
 
       if (callees) {
         for (size_t eind = 0; eind < callees->GetEdgeCount(); eind++) {
           const CallEdge &edge = callees->GetEdge(eind);
-          if (edge.where.id == id && edge.where.point == point) {
-            found_callee = true;
-
-            if (checker_verbose.IsSpecified())
-              logout << "CHECK: " << frame
-                     << ": Expanding indirect callee at " << point << endl;
-
-            edge.callee->IncRef();
-            BlockId *callee = BlockId::Make(B_Function, edge.callee);
-
-            state->PushContext();
-
-            if (CheckSingleCallee(state, frame, point,
-                                  nwhere, callee, false)) {
-              CalleeCache.Release(function);
-              return true;
-            }
-
-            state->PopContext();
-          }
+          if (edge.where.id == id && edge.where.point == point)
+            callee_vars.PushBack(edge.callee);
         }
       }
 
-      CalleeCache.Release(function);
+      SortVector<Variable*,Variable>(&callee_vars);
 
-      if (!found_callee) {
+      for (size_t cind = 0; cind < callee_vars.Size(); cind++) {
+        Variable *callee = callee_vars[cind];
+
+        if (checker_verbose.IsSpecified())
+          logout << "CHECK: " << frame
+                 << ": Expanding indirect callee at " << point
+                 << ": " << callee << endl;
+
+        callee->IncRef();
+        BlockId *callee_id = BlockId::Make(B_Function, callee);
+
+        state->PushContext();
+
+        if (CheckSingleCallee(state, frame, point,
+                              nwhere, callee_id, false)) {
+          CalleeCache.Release(function);
+          return true;
+        }
+
+        state->PopContext();
+      }
+
+      if (callee_vars.Empty()) {
         if (checker_verbose.IsSpecified())
           logout << "CHECK: " << frame
                  << ": No callees to expand at " << point << endl;
       }
+
+      CalleeCache.Release(function);
     }
 
     return false;
@@ -990,29 +1006,37 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
     Variable *function = id->BaseVar();
     CallEdgeSet *callers = CallerCache.Lookup(function);
 
-    if (callers == NULL || callers->GetEdgeCount() == 0) {
+    Vector<BlockPPoint> caller_points;
+
+    for (size_t eind = 0; callers && eind < callers->GetEdgeCount(); eind++) {
+      const CallEdge &edge = callers->GetEdge(eind);
+      Assert(edge.callee == function);
+
+      caller_points.PushBack(edge.where);
+    }
+
+    SortVector<BlockPPoint,BlockPPoint>(&caller_points);
+
+    for (size_t cind = 0; cind < caller_points.Size(); cind++) {
+      BlockPPoint caller = caller_points[cind];
+
+      if (checker_verbose.IsSpecified())
+        logout << "CHECK: " << frame
+               << ": Checking caller: " << caller << endl;
+
+      state->PushContext();
+
+      if (CheckSingleCaller(state, frame, precondition, caller)) {
+        CallerCache.Release(function);
+        return true;
+      }
+
+      state->PopContext();
+    }
+
+    if (caller_points.Empty()) {
       if (checker_verbose.IsSpecified())
         logout << "CHECK: " << frame << ": No callers to expand" << endl;
-    }
-    else {
-      // check each caller to see if the error condition holds.
-      for (size_t eind = 0; eind < callers->GetEdgeCount(); eind++) {
-        const CallEdge &edge = callers->GetEdge(eind);
-        Assert(edge.callee == function);
-
-        if (checker_verbose.IsSpecified())
-          logout << "CHECK: " << frame
-                 << ": Checking caller: " << edge.where << endl;
-
-        state->PushContext();
-
-        if (CheckSingleCaller(state, frame, precondition, edge.where)) {
-          CallerCache.Release(function);
-          return true;
-        }
-
-        state->PopContext();
-      }
     }
 
     CallerCache.Release(function);

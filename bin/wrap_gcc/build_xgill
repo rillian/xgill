@@ -93,7 +93,8 @@ $ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
 build_project();
 
 # signal the manager that it's over.
-system("xsource -remote=$address -end-manager") or die;
+system("xsource -remote=$address -end-manager")
+or print "WARNING: xsource failed\n";
 
 # wait for the manager to clean up and finish termination.
 print "Waiting for manager to finish...\n";
