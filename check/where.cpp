@@ -301,36 +301,14 @@ void WherePrecondition::PrintUI(OutStream &out) const
   }
 }
 
-// get the loop counter for a specific loop in function,
-// as well as the total number of loops.
-static void GetLoopSingle(Variable *function, BlockId *loop,
-                          size_t *counter, size_t *total)
-{
-  Vector<LoopCounter> loop_list;
-  GetLoopCounters(function, &loop_list);
-
-  *counter = 0;
-  *total = loop_list.Size();
-
-  for (size_t ind = 0; ind < loop_list.Size(); ind++) {
-    if (loop_list[ind].loop == loop)
-      *counter = loop_list[ind].counter;
-    loop_list[ind].loop->DecRef(&loop_list);
-  }
-}
-
 void WherePrecondition::PrintHook(OutStream &out) const
 {
   Variable *func_var = m_mcfg->GetId()->BaseVar();
 
-  if (m_mcfg->GetId()->Kind() == B_Loop) {
-    size_t counter, total;
-    GetLoopSingle(func_var, m_mcfg->GetId(), &counter, &total);
-    out << "loop/" << counter << "/" << total << " ";
-  }
-  else {
+  if (m_mcfg->GetId()->Kind() == B_Loop)
+    out << m_mcfg->GetId()->Loop()->Value() << " ";
+  else
     out << "pre ";
-  }
 
   out << func_var->GetName()->Value();
 }
@@ -468,9 +446,7 @@ void WherePostcondition::PrintHook(OutStream &out) const
   PEdge *edge = m_frame->CFG()->GetSingleOutgoingEdge(m_point);
 
   if (PEdgeLoop *nedge = edge->IfLoop()) {
-    size_t counter, total;
-    GetLoopSingle(func_var, nedge->GetLoopId(), &counter, &total);
-    out << "loop/" << counter << "/" << total << " "
+    out << nedge->GetLoopId()->Loop()->Value() << " "
         << func_var->GetName()->Value();
   }
   else {

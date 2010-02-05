@@ -676,8 +676,8 @@ void TopoSortCFG(BlockCFG *cfg)
   // map from new points back to original CFG points.
   Vector<PPoint> old_points;
 
-  // worklist items are points we need to examine the incoming edges on
-  // to see if they should be added to points.
+  // worklist items are the points where the sources of incoming edges have
+  // already been added to the remapping, the point itself has not.
   Vector<PPoint> worklist;
 
   PPoint entry_point = cfg->GetEntryPoint();
@@ -687,41 +687,68 @@ void TopoSortCFG(BlockCFG *cfg)
   worklist.PushBack(entry_point);
 
   while (!worklist.Empty()) {
-    PPoint back = worklist.Back();
-    worklist.PopBack();
+    // pick the point from the worklist with the minimum line number.
+    // if there is code like:
+    //   if (x)
+    //     a;
+    //   else
+    //     b;
+    // we could add either a or b to the remapping first, but we want to add
+    // a first. the ordering of points is used for naming loops, and we want
+    // this ordering to be deterministic and map back to the code predictably.
 
-    if (remapping.Lookup(back, false))
-      continue;
+    size_t best_index = 0;
+    size_t best_line = cfg->GetPointLocation(worklist[0])->Line();
 
-    // is there an incoming edge whose source we haven't added?
-    bool missing_incoming = false;
-
-    const Vector<PEdge*> &incoming = cfg->GetIncomingEdges(back);
-    for (size_t iind = 0; iind < incoming.Size(); iind++) {
-      PEdge *edge = incoming[iind];
-      PPoint source = edge->GetSource();
-      if (!remapping.Lookup(source, false)) {
-        missing_incoming = true;
-        break;
+    for (size_t ind = 1; ind < worklist.Size(); ind++) {
+      size_t new_line = cfg->GetPointLocation(worklist[ind])->Line();
+      if (new_line < best_line) {
+        best_index = ind;
+        best_line = new_line;
       }
     }
 
-    // can't add this node yet. we'll come back to it later.
-    if (missing_incoming)
-      continue;
+    PPoint point = worklist[best_index];
+    worklist[best_index] = worklist.Back();
+    worklist.PopBack();
 
-    Location *loc = cfg->GetPointLocation(back);
+    Assert(!remapping.Lookup(point, false));
+
+    Location *loc = cfg->GetPointLocation(point);
     loc->IncRef();
     new_points.PushBack(loc);
-    old_points.PushBack(back);
+    old_points.PushBack(point);
 
-    remapping.Insert(back, new_points.Size());
+    remapping.Insert(point, new_points.Size());
 
-    const Vector<PEdge*> &outgoing = cfg->GetOutgoingEdges(back);
+    const Vector<PEdge*> &outgoing = cfg->GetOutgoingEdges(point);
     for (size_t oind = 0; oind < outgoing.Size(); oind++) {
       PEdge *edge = outgoing[oind];
       PPoint target = edge->GetTarget();
-      worklist.PushBack(target);
+
+      // this can happen if there are multiple edges from the worklist point
+      // to the target, e.g. 'if (x) {}'. not going to happen much.
+      if (worklist.Contains(target))
+        continue;
+
+      Assert(!remapping.Lookup(target, false));
+
+      // we can add the target to the worklist if it has no incoming edges
+      // from points not in the remapping.
+      bool missing_incoming = false;
+
+      const Vector<PEdge*> &incoming = cfg->GetIncomingEdges(target);
+      for (size_t iind = 0; iind < incoming.Size(); iind++) {
+        PEdge *edge = incoming[iind];
+        PPoint source = edge->GetSource();
+        if (!remapping.Lookup(source, false)) {
+          missing_incoming = true;
+          break;
+        }
+      }
+
+      if (!missing_incoming)
+        worklist.PushBack(target);
     }
   }
 
@@ -868,11 +895,9 @@ void ReduceLoop(BlockCFG *cfg, PPoint loophead,
 BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
                           BlockCFG *base_cfg)
 {
-  // compute the name we will use for this loop.
-  Location *loop_head_loc = base_cfg->GetPointLocation(loophead);
+  // make a temporary name for the loop.
   char loop_name[100];
-  snprintf(loop_name, sizeof(loop_name),
-           "loop:%d:%d", loophead, loop_head_loc->Line());
+  snprintf(loop_name, sizeof(loop_name), "scratch#%d", loophead);
 
   Variable *function_info = base_cfg->GetId()->BaseVar();
 
@@ -898,6 +923,8 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
   // - add the new point to the body of any loop also containing the head.
   // - change all loop entry edges to go to the new point instead of the head.
   // - delete all backedges on the loop by pointing them to point 0.
+
+  Location *loop_head_loc = base_cfg->GetPointLocation(loophead);
 
   loop_head_loc->IncRef();
   PPoint summary_point = base_cfg->AddPoint(loop_head_loc);
@@ -1016,8 +1043,10 @@ void GetLoopIsomorphicPoints(BlockCFG *cfg, PEdge *loop_edge,
 
     PPoint loop_point = remapping.LookupSingle(cfg_point);
 
-    const Vector<PEdge*> &cfg_outgoing = cfg->GetOutgoingEdges(cfg_point);
-    const Vector<PEdge*> &loop_outgoing = loop_cfg->GetOutgoingEdges(loop_point);
+    const Vector<PEdge*> &cfg_outgoing =
+      cfg->GetOutgoingEdges(cfg_point);
+    const Vector<PEdge*> &loop_outgoing =
+      loop_cfg->GetOutgoingEdges(loop_point);
 
     for (size_t eind = 0; eind < cfg_outgoing.Size(); eind++) {
       PEdge *edge = cfg_outgoing[eind];
@@ -1050,6 +1079,46 @@ void GetLoopIsomorphicPoints(BlockCFG *cfg, PEdge *loop_edge,
       cfg->AddLoopIsomorphic(target);
       worklist.PushBack(target);
     }
+  }
+}
+
+// assign the final names to all loops within cfg. loop naming is done after
+// the CFGs have been finalized as it depends on the topo ordering of points.
+static void FillLoopNames(BlockCFG *cfg, const char *prefix,
+                          const Vector<BlockCFG*> &cfg_list)
+{
+  size_t found_loops = 0;
+
+  for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
+    PEdgeLoop *edge = cfg->GetEdge(eind)->IfLoop();
+    if (!edge)
+      continue;
+
+    BlockId *loop = edge->GetLoopId();
+
+    // check for a duplicate. there can be multiple summary edges for
+    // a loop if we reduced some irreducible loops or if there are
+    // isomorphic points in the outer body of a nested loop.
+    if (loop->HasWriteLoop())
+      continue;
+
+    char name_buf[100];
+    snprintf(name_buf, sizeof(name_buf), "%s#%d", prefix, (int) found_loops);
+    String *write_name = String::Make(name_buf);
+    loop->SetWriteLoop(write_name);
+
+    found_loops++;
+
+    // recurse on the CFG for the loop itself, to get any nested loops.
+    bool found = false;
+    for (size_t ind = 0; ind < cfg_list.Size(); ind++) {
+      if (cfg_list[ind]->GetId() == loop) {
+        Assert(!found);
+        found = true;
+        FillLoopNames(cfg_list[ind], name_buf, cfg_list);
+      }
+    }
+    Assert(found);
   }
 }
 
@@ -1220,73 +1289,9 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
       }
     }
   }
-}
 
-// get the IDs and line numbers of all loops nested within cfg.
-// TODO: this way of traversal is kind of silly but we don't have a way
-// currently to get the names of all loops associated with a function.
-static void FillCounters(BlockCFG *cfg, Vector<LoopCounter> *loop_list)
-{
-  for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
-    PEdgeLoop *edge = cfg->GetEdge(eind)->IfLoop();
-    if (!edge)
-      continue;
-
-    BlockId *loop = edge->GetLoopId();
-
-    // check for a duplicate. there can be multiple summary edges for
-    // a loop if we reduced some irreducible loops or if there are
-    // isomorphic points in the outer body of a nested loop.
-    bool duplicate = false;
-    for (size_t ind = 0; ind < loop_list->Size(); ind++) {
-      if (loop == loop_list->At(ind).loop)
-        duplicate = true;
-    }
-
-    if (duplicate)
-      continue;
-
-    BlockCFG *loop_cfg = GetBlockCFG(loop);
-    Location *entry = loop_cfg->GetPointLocation(loop_cfg->GetEntryPoint());
-
-    loop_list->PushBack(LoopCounter());
-    LoopCounter &counter = loop_list->Back();
-
-    loop->IncRef(loop_list);
-    counter.loop = loop;
-    counter.line = entry->Line();
-
-    FillCounters(loop_cfg, loop_list);
-    loop_cfg->DecRef();
-  }
-}
-
-void GetLoopCounters(Variable *function, Vector<LoopCounter> *loop_list)
-{
-  function->IncRef();
-  BlockId *id = BlockId::Make(B_Function, function);
-  BlockCFG *cfg = GetBlockCFG(id);
-
-  FillCounters(cfg, loop_list);
-
-  id->DecRef();
-  cfg->DecRef();
-
-  SortVector<LoopCounter,LoopCounter>(loop_list);
-
-  // assign counters according to the sorted order of loops.
-  for (size_t ind = 0; ind < loop_list->Size(); ind++) {
-    LoopCounter &c = loop_list->At(ind);
-
-    // check for lines which are the head of multiple loops.
-    if ((ind > 0 && c.line == loop_list->At(ind-1).line) ||
-        (ind < loop_list->Size()-1 && c.line == loop_list->At(ind+1).line)) {
-      c.counter = 0;
-    }
-    else {
-      c.counter = ind + 1;
-    }
-  }
+  // assign the final names to the various loop CFGs.
+  FillLoopNames(func_cfg, "loop", *result_cfg_list);
 }
 
 NAMESPACE_XGILL_END

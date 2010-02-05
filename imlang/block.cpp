@@ -54,8 +54,12 @@ void BlockId::Write(Buffer *buf, const BlockId *b)
   WriteOpenTag(buf, TAG_BlockId);
   WriteTagUInt32(buf, TAG_Kind, kind);
   Variable::Write(buf, b->BaseVar());
-  if (b->Loop() != NULL)
-    String::Write(buf, b->Loop());
+  if (b->Loop() != NULL) {
+    if (b->m_write_loop)
+      String::Write(buf, b->m_write_loop);
+    else
+      String::Write(buf, b->Loop());
+  }
   WriteCloseTag(buf, TAG_BlockId);
 }
 
@@ -81,7 +85,7 @@ BlockId* BlockId::Read(Buffer *buf)
 /////////////////////////////////////////////////////////////////////
 
 BlockId::BlockId(BlockKind kind, Variable *var, String *loop)
-  : m_kind(kind), m_var(var), m_loop(loop)
+  : m_kind(kind), m_var(var), m_loop(loop), m_write_loop(NULL)
 {
   Assert(m_var);
   switch (m_kind) {
@@ -112,17 +116,31 @@ const char* BlockId::LoopName() const
   static char loop_buf[100];
   Assert(m_kind == B_Loop);
 
-  // parse the line number from the 'loop:point:line' format.
-  const char *line = m_loop->Value();
+  // we need the CFG to know the line number this loop starts on.
+  // this should only be invoked during UI printing, so the CFG will be around.
 
-  line = strchr(line, ':');
-  Assert(line);
+  BlockCFG *loop_cfg = GetBlockCFG((BlockId*) this);
+  Assert(loop_cfg);
 
-  line = strchr(line + 1, ':');
-  Assert(line);
+  PPoint point = loop_cfg->GetEntryPoint();
+  int line = loop_cfg->GetPointLocation(point)->Line();
+  snprintf(loop_buf, sizeof(loop_buf), "loop:%d", line);
 
-  snprintf(loop_buf, sizeof(loop_buf), "loop:%s", line + 1);
+  loop_cfg->DecRef();
   return loop_buf;
+}
+
+bool BlockId::HasWriteLoop() const
+{
+  Assert(m_kind == B_Loop);
+  return (m_write_loop != NULL);
+}
+
+void BlockId::SetWriteLoop(String *name)
+{
+  Assert(!HasWriteLoop());
+  name->MoveRef(NULL, this);
+  m_write_loop = name;
 }
 
 void BlockId::Print(OutStream &out) const
@@ -157,6 +175,8 @@ void BlockId::DecMoveChildRefs(ORef ov, ORef nv)
   m_var->DecMoveRef(ov, nv);
   if (m_loop)
     m_loop->DecMoveRef(ov, nv);
+  if (m_write_loop)
+    m_write_loop->DecMoveRef(ov, nv);
 }
 
 /////////////////////////////////////////////////////////////////////

@@ -46,34 +46,4 @@ void TopoSortCFG(BlockCFG *cfg);
 // also removes Skip edges from the result CFGs.
 void SplitLoops(BlockCFG *cfg, Vector<BlockCFG*> *resultCFGs);
 
-// counter associated with a loop block identifier.
-struct LoopCounter {
-  // holds a reference.
-  BlockId *loop;
-
-  // line for the head of this loop.
-  uint32_t line;
-
-  // count of this loop's position within its function.
-  size_t counter;
-
-  LoopCounter() : loop(NULL), line(0), counter(0) {}
-
-  // comparison method to sort counters by line.
-  static int Compare(const LoopCounter &c0, const LoopCounter &c1)
-  {
-    if (c0.line < c1.line) return -1;
-    if (c0.line > c1.line) return 1;
-    return 0;
-  }
-};
-
-// compute an ordering for all the loops in function and store
-// in counter_list. loops are ordered by their line numbers relative to one
-// another, so that moving the function around in its file or
-// inserting/removing non-loop code in the function will not affect
-// the counters. if there are multiple loops defined on the same line
-// (usually from a macro expansion) then they will have counter zero.
-void GetLoopCounters(Variable *function, Vector<LoopCounter> *loop_list);
-
 NAMESPACE_XGILL_END

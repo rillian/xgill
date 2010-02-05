@@ -84,6 +84,13 @@ class BlockId : public HashObject
   // by a subsequent call to some LoopName.
   const char* LoopName() const;
 
+  // query/set whether this has a write name specified. write names are used
+  // to set the real name of a loop ID after it has been initially constructed
+  // (loops can't get their full name until after loop splitting has finished).
+  // this write name replaces the Loop() value, but *only* when serializing.
+  bool HasWriteLoop() const;
+  void SetWriteLoop(String *name);
+
   // inherited methods
   void Print(OutStream &out) const;
   void DecMoveChildRefs(ORef ov, ORef nv);
@@ -92,6 +99,9 @@ class BlockId : public HashObject
   BlockKind m_kind;
   Variable *m_var;  // VK_Func or VK_Glob (for initializers)
   String *m_loop;   // NULL for main function body
+
+  // alternate write name for loop IDs.
+  String *m_write_loop;
 
   BlockId(BlockKind kind, Variable *var, String *loop);
 
