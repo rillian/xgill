@@ -254,10 +254,31 @@ close INDEX;
 
 print "Wrote $assertkind/index.html\n";
 
-foreach my $report (@reports)
+# fork off some processes so we can construct the index in parallel.
+# constructing the index is disk bound so this should be advantageous
+# even with just a single core. this is setup to use four processes,
+# which each handle a different band of the reports.
+
+# child pid, if there is one.
+my $pid;
+
+defined($pid = fork) or die "Can't fork";
+if (!$pid) {
+    shift @reports;
+    defined ($pid = fork) or die "Can't fork";
+    if (!$pid) {
+        shift @reports;
+        defined ($pid = fork) or die "Can't fork";
+        if (!$pid) {
+            shift @reports;
+        }
+    }
+}
+
+my $report = shift @reports;
+while ($report)
 {
     my $nameid = report_file($report);
-
     my $output = "$assertkind/$nameid.html";
 
     # check for a name collision
@@ -277,7 +298,16 @@ foreach my $report (@reports)
     }
 
     print("Wrote report to $output\n");
+
+    # advance to the next report in our band. shift once for each process.
+    $report = shift @reports;
+    $report = shift @reports;
+    $report = shift @reports;
+    $report = shift @reports;
 }
+
+# wait for any child process to finish.
+waitpid($pid, 0) if ($pid);
 
 # get the printable version of a report, stripping file and assert
 # identifier info.

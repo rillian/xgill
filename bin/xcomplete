@@ -41,6 +41,10 @@ my $xmemlocal = "xmemlocal -timeout=20";
 my $xinfer = "xinfer -timeout=60";
 my $xcheck = "xcheck -timeout=30";
 
+# output directory to do a diff against. leave as "" for no diffing.
+my $old_dir = "";
+die "Need old directory: $old_dir\n" if ($old_dir ne "" && not -d $old_dir);
+
 ##########################
 # general purpose script #
 ##########################
@@ -77,6 +81,7 @@ run_pass("xcheck_oflow", "$xcheck -check-kind=write_overflow");
 run_index("index_annot", "annotation");
 run_index("index_rtime", "annotation_runtime");
 run_index("index_oflow", "write_overflow");
+archive_indexes();
 
 close(OUT);
 
@@ -141,21 +146,45 @@ sub run_pass
     system("cat $name.*.log > $name.log");
 }
 
+# the names of all directories containing reports to archive.
+my $indexes;
+
 sub run_index
 {
     my ($name, $kind) = @_;
+
+    return if (not (-e "report_$kind.xdb"));
 
     print OUT "$name started: ";
     print OUT scalar(localtime());
     print OUT "\n";
 
-    system("make_index $kind > $name.log");
+    # make an index for the report diff if applicable.
+    if ($old_dir ne "") {
+        system("make_index $kind $old_dir > $name.diff.log");
+        system("mv $kind diff_$kind");
+        $indexes .= " diff_$kind";
+    }
 
-    # make an archive for the output directory.
-    system("tar -czf $kind.tgz $kind");
-    system("rm -rf $kind");
+    # make an index for the full set of reports.
+    system("make_index $kind > $name.log");
+    $indexes .= " $kind";
 
     print OUT "$name finished: ";
+    print OUT scalar(localtime());
+    print OUT "\n";
+}
+
+sub archive_indexes
+{
+    print OUT "archive started: ";
+    print OUT scalar(localtime());
+    print OUT "\n";
+
+    system("tar -czf reports.tgz $indexes");
+    system("rm -rf $indexes");
+
+    print OUT "archive finished: ";
     print OUT scalar(localtime());
     print OUT "\n";
 }
