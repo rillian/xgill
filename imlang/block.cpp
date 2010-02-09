@@ -44,10 +44,10 @@ void BlockId::Write(Buffer *buf, const BlockId *b)
 {
   BlockKind kind = b->Kind();
 
-  // do any modification of the kind to write out.
+  // convert cloned IDs to regular IDs for writing.
   switch (kind) {
-  case B_ModsetFunction: kind = B_Function; break;
-  case B_ModsetLoop:     kind = B_Loop;     break;
+  case B_CloneFunction: kind = B_Function; break;
+  case B_CloneLoop:     kind = B_Loop;     break;
   default: break;
   }
 
@@ -63,7 +63,7 @@ void BlockId::Write(Buffer *buf, const BlockId *b)
   WriteCloseTag(buf, TAG_BlockId);
 }
 
-BlockId* BlockId::Read(Buffer *buf)
+BlockId* BlockId::Read(Buffer *buf, bool clone)
 {
   uint32_t kind = 0;
   Variable *var = NULL;
@@ -77,7 +77,18 @@ BlockId* BlockId::Read(Buffer *buf)
     Try(ReadCloseTag(buf, TAG_BlockId));
   }
 
-  return Make((BlockKind)kind, var, loop);
+  BlockKind nkind = (BlockKind) kind;
+
+  // convert regular IDs to cloned IDs if desired.
+  if (clone) {
+    switch (nkind) {
+    case B_Function: nkind = B_CloneFunction; break;
+    case B_Loop:     nkind = B_CloneLoop; break;
+    default: Assert(false);
+    }
+  }
+
+  return Make(nkind, var, loop);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -92,14 +103,14 @@ BlockId::BlockId(BlockKind kind, Variable *var, String *loop)
   case B_FunctionWhole:
   case B_Function:
   case B_Initializer:
-  case B_ModsetFunction:
+  case B_CloneFunction:
     Assert(!m_loop);
     break;
   case B_Loop:
   case B_AnnotationFunc:
   case B_AnnotationInit:
   case B_AnnotationComp:
-  case B_ModsetLoop:
+  case B_CloneLoop:
     Assert(m_loop);
     break;
   default:
@@ -160,10 +171,10 @@ void BlockId::Print(OutStream &out) const
     out << ":annot_init:" << m_loop->Value(); break;
   case B_AnnotationComp:
     out << ":annot_comp:" << m_loop->Value(); break;
-  case B_ModsetFunction:
-    out << ":modfunc"; break;
-  case B_ModsetLoop:
-    out << ":modloop:" << m_loop->Value(); break;
+  case B_CloneFunction:
+    out << ":clonefunc"; break;
+  case B_CloneLoop:
+    out << ":cloneloop:" << m_loop->Value(); break;
   default:
     Assert(false);
     break;
@@ -292,7 +303,7 @@ void BlockCFG::Write(Buffer *buf, const BlockCFG *cfg)
   WriteCloseTag(buf, TAG_BlockCFG);
 }
 
-BlockCFG* BlockCFG::Read(Buffer *buf)
+BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
 {
   BlockCFG *res = NULL;
   bool drop_info = false;
@@ -303,7 +314,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf)
     case TAG_BlockId: {
       Assert(!res);
 
-      BlockId *id = BlockId::Read(buf);
+      BlockId *id = BlockId::Read(buf, clone);
       res = Make(id);
 
       // throw away all the data we read if the CFG is already filled in.
@@ -438,13 +449,13 @@ void BlockCFG::WriteList(Buffer *buf, const Vector<BlockCFG*> &cfgs)
     Write(buf, cfgs[ind]);
 }
 
-void BlockCFG::ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs)
+void BlockCFG::ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs, bool clone)
 {
   Assert(buf->pos == buf->base);
 
   while (buf->pos != buf->base + buf->size) {
     BlockCFG *cfg;
-    Try(cfg = Read(buf));
+    Try(cfg = Read(buf, clone));
     cfgs->PushBack(cfg);
   }
 }
@@ -480,6 +491,29 @@ Variable* BlockCFG::FindMatchingVariable(Variable *var) const
   }
 
   return NULL;
+}
+
+bool BlockCFG::Isomorphic(BlockCFG *cfg) const
+{
+  // two CFGs are isomorphic if their edges are identical. the edges do not
+  // contain location information (which we are not comparing), and any other
+  // difference between the CFGs will be reflected in a difference in the edges
+  // (though the difference may be in a loop parent of this CFG).
+
+  if (GetEntryPoint() != cfg->GetEntryPoint())
+    return false;
+  if (GetExitPoint() != cfg->GetExitPoint())
+    return false;
+
+  if (GetEdgeCount() != cfg->GetEdgeCount())
+    return false;
+
+  for (size_t ind = 0; ind < GetEdgeCount(); ind++) {
+    if (GetEdge(ind) != cfg->GetEdge(ind))
+      return false;
+  }
+
+  return true;
 }
 
 void BlockCFG::AddVariable(Variable *var, Type *type)

@@ -76,6 +76,12 @@ TAction* CounterDec(Transaction *t, const char *name);
 // get the value of a counter.
 TAction* CounterValue(Transaction *t, const char *name, size_t var_result);
 
+// File functions
+
+// read an entire file's contents into the result variable.
+// the result will be the empty string if the file does not exist.
+TAction* FileRead(Transaction *t, const char *name, size_t var_result);
+
 NAMESPACE_END(Backend)
 
 NAMESPACE_XGILL_END

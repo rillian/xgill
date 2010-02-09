@@ -95,6 +95,9 @@ foreach my $report (@reports)
     }
 }
 
+my $title = "Reports: $assertkind";
+$title .= " [diff]" if ($diffdir ne "");
+
 open(INDEX, "> $assertkind/index.html");
 
 print INDEX <<EOF;
@@ -144,12 +147,11 @@ function toggleDir(name)
 
 </script>
 
-</head>
-<body>
-
 EOF
 
-print INDEX "<h2>Reports</h2>\n";
+print INDEX "<title>$title</title>\n";
+print INDEX "</head>\n<body>\n";
+print INDEX "<h2>$title</h2>\n";
 
 my %next_hash;
 my %prev_hash;

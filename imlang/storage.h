@@ -26,6 +26,9 @@
 
 NAMESPACE_XGILL_BEGIN
 
+// whether we are doing an incremental analysis for some patch.
+extern ConfigOption option_incremental;
+
 // database name containing function/initializer CFGs.
 #define BODY_DATABASE "src_body.xdb"
 #define INIT_DATABASE "src_init.xdb"
@@ -37,6 +40,9 @@ NAMESPACE_XGILL_BEGIN
 #define BODY_ANNOT_DATABASE "annot_body.xdb"
 #define INIT_ANNOT_DATABASE "annot_init.xdb"
 #define COMP_ANNOT_DATABASE "annot_comp.xdb"
+
+// file to read/write information for an incremental analysis we're doing.
+#define INCREMENTAL_FILE "incremental.list"
 
 // hash name and sort for the callgraph we will topo sort from.
 #define CALLGRAPH_NAME "callgraph"
@@ -95,5 +101,13 @@ void ClearBlockCaches();
 // read lists of compressed CFGs in transaction operations.
 void BlockCFGUncompress(Transaction *t, size_t var_result,
                         Vector<BlockCFG*> *cfgs);
+
+// if we are doing incremental analysis, get the list of functions that are
+// either new or have changed.
+void IncrementalGetFunctions(Vector<const char*> *functions);
+
+// if we are doing incremental analysis, return whether cfg no longer exists
+// and should not be analyzed.
+bool IncrementalExclude(BlockCFG *cfg);
 
 NAMESPACE_XGILL_END

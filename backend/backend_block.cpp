@@ -28,6 +28,9 @@ NAMESPACE_XGILL_BEGIN
 // number of stages to generate in the callgraph sort.
 #define CALLGRAPH_STAGES 5
 
+ConfigOption option_incremental_files(CK_String, "incremental-files", "",
+  "for incremental analysis, colon-separated list of changed files");
+
 /////////////////////////////////////////////////////////////////////
 // backend data
 /////////////////////////////////////////////////////////////////////
@@ -41,6 +44,22 @@ static Xdb *g_init_xdb = NULL;
 
 // whether we've written out any function bodies.
 static bool g_have_body = false;
+
+// all CSUs, function bodies and globals we've written out.
+static HashSet<String*,String> g_write_csu;
+static HashSet<String*,String> g_write_body;
+static HashSet<String*,String> g_write_init;
+
+// for incremental analysis, names of functions which have are new or changed.
+// this table does not hold references.
+static HashSet<String*,String> g_body_new;
+
+// map from filenames to all functions in that file which we've written out.
+// holds references for the keys.
+static HashTable<String*,String*,String> g_body_files;
+
+// list of filenames whose contents have changed in some way.
+static Vector<String*> g_file_changed;
 
 // sets of all annotations that have been processed.
 static HashTable<String*,BlockCFG*,String> g_annot_func;
@@ -290,6 +309,56 @@ void FlushEscapeBackend()
   g_seen_escape_accesses.Clear();
 }
 
+// write out either the program's callgraph or any incremental information,
+// depending on whether we are doing incremental analysis.
+void WriteFunctionData()
+{
+  if (option_incremental.IsSpecified()) {
+    // write out the incremental file.
+    ofstream out(INCREMENTAL_FILE);
+
+    // write out all the changed files.
+    for (size_t ind = 0; ind < g_file_changed.Size(); ind++)
+      out << g_file_changed[ind]->Value() << endl;
+    out << endl;
+
+    // write out unchanged functions from changed files.
+    for (size_t ind = 0; ind < g_file_changed.Size(); ind++) {
+      String *filename = g_file_changed[ind];
+      Vector<String*> *all_functions = g_body_files.Lookup(filename, false);
+      if (all_functions) {
+        for (size_t find = 0; find < all_functions->Size(); find++) {
+          if (!g_body_new.Lookup(all_functions->At(find)))
+            out << all_functions->At(find) << endl;
+        }
+      }
+    }
+    out << endl;
+
+    // write out new or changed functions from changed files.
+    for (size_t ind = 0; ind < g_file_changed.Size(); ind++) {
+      String *filename = g_file_changed[ind];
+      Vector<String*> *all_functions = g_body_files.Lookup(filename, false);
+      if (all_functions) {
+        for (size_t find = 0; find < all_functions->Size(); find++) {
+          if (g_body_new.Lookup(all_functions->At(find)))
+            out << all_functions->At(find) << endl;
+        }
+      }
+    }
+
+    DecRefVector<String>(g_file_changed, NULL);
+  }
+  else {
+    // sort and write out the callgraph hash.
+    BACKEND_IMPL::Backend_GraphSortHash((const uint8_t*) CALLGRAPH_NAME,
+                                        (const uint8_t*) CALLGRAPH_INDIRECT,
+                                        (const uint8_t*) BODY_DATABASE,
+                                        (const uint8_t*) CALLGRAPH_NAME,
+                                        CALLGRAPH_STAGES);
+  }
+}
+
 /////////////////////////////////////////////////////////////////////
 // Backend implementations
 /////////////////////////////////////////////////////////////////////
@@ -393,10 +462,8 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
 
     case TAG_Name: {
       String *name = String::ReadWithTag(&read_buf, TAG_Name);
-      const char *name_val = name->Value();
-      Buffer key_buf((const uint8_t*) name_val, strlen(name_val) + 1);
 
-      if (!g_csu_xdb->HasKey(&key_buf))
+      if (!g_write_csu.Lookup(name))
         String::WriteWithTag(&result_buf, name, TAG_Name);
 
       name->DecRef();
@@ -405,19 +472,18 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
 
     case TAG_BlockId: {
       BlockId *id = BlockId::Read(&read_buf);
-      const char *function = id->Function()->Value();
-      Buffer key_buf((const uint8_t*) function, strlen(function) + 1);
 
-      Xdb *xdb = NULL;
-      if (id->Kind() == B_FunctionWhole)
-        xdb = g_body_xdb;
-      else if (id->Kind() == B_Initializer)
-        xdb = g_init_xdb;
-      else
+      if (id->Kind() == B_FunctionWhole) {
+        if (!g_write_body.Lookup(id->Function()))
+          BlockId::Write(&result_buf, id);
+      }
+      else if (id->Kind() == B_Initializer) {
+        if (!g_write_init.Lookup(id->Function()))
+          BlockId::Write(&result_buf, id);
+      }
+      else {
         Assert(false);
-
-      if (!xdb->HasKey(&key_buf))
-        BlockId::Write(&result_buf, id);
+      }
 
       id->DecRef();
       break;
@@ -470,6 +536,11 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
       Assert(g_csu_xdb);
       XdbReplaceCompress(g_csu_xdb, csu->GetName(), &write_buf);
 
+      String *name = csu->GetName();
+      name->IncRef();
+
+      Try(!g_write_csu.Insert(name));
+
       csu->DecRef();
       write_buf.Reset();
       break;
@@ -493,11 +564,89 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
 
       BlockId *id = function_cfgs[0]->GetId();
 
+      String *name = id->Function();
+      name->IncRef();
+
       Xdb *xdb = NULL;
-      if (id->Kind() == B_Function || id->Kind() == B_Loop)
+      if (id->Kind() == B_Function || id->Kind() == B_Loop) {
         xdb = g_body_xdb;
-      else if (id->Kind() == B_Initializer)
+        Try(!g_write_body.Insert(name));
+
+        if (option_incremental.IsSpecified()) {
+          // remember the file this function was defined in.
+          String *filename = function_cfgs[0]->GetBeginLocation()->FileName();
+
+          if (!g_body_files.Insert(filename, name))
+            filename->IncRef();
+
+          // mark as changed any files specified at the command line.
+          // this is primarily so that we can account for files deleted by the
+          // patch used for the incremental analysis, or files where the only
+          // change was deleting functions. this only needs to be done once.
+          static bool marked_option = false;
+          if (!marked_option) {
+            marked_option = true;
+            const char *option = option_incremental_files.StringValue();
+
+            Buffer option_buf;
+            option_buf.Append((const uint8_t*) option, strlen(option) + 1);
+
+            Vector<char*> option_files;
+            SplitBufferStrings(&option_buf, ':', &option_files);
+
+            for (size_t ind = 0; ind < option_files.Size(); ind++) {
+              char *file = option_files[ind];
+              if (*file)
+                g_file_changed.PushBack(String::Make(file));
+            }
+          }
+
+          // look for an old function and check if the new one is isomorphic.
+          bool incremental_new = false;
+
+          static Buffer compare_buf;
+          if (XdbFindUncompressed(xdb, name, &compare_buf)) {
+            // clone the old CFGs when reading them in to distinguish them
+            // from the new CFGs we're writing out.
+            Vector<BlockCFG*> old_cfgs;
+            BlockCFG::ReadList(&compare_buf, &old_cfgs, true);
+
+            if (old_cfgs.Size() == function_cfgs.Size()) {
+              for (size_t ind = 0; ind < old_cfgs.Size(); ind++) {
+                if (!old_cfgs[ind]->Isomorphic(function_cfgs[ind])) {
+                  // change in the contents of this function/loop.
+                  incremental_new = true;
+                }
+              }
+            }
+            else {
+              // change in the number of loops.
+              incremental_new = true;
+            }
+
+            DecRefVector<BlockCFG>(old_cfgs, NULL);
+            compare_buf.Reset();
+          }
+          else {
+            // this is a new function, there is no old one to compare with.
+            incremental_new = true;
+          }
+
+          if (incremental_new) {
+            g_body_new.Insert(name);
+
+            // mark the file as changed if this was not already known.
+            if (!g_file_changed.Contains(filename)) {
+              filename->IncRef();
+              g_file_changed.PushBack(filename);
+            }
+          }
+        }
+      }
+      else if (id->Kind() == B_Initializer) {
         xdb = g_init_xdb;
+        Try(!g_write_init.Insert(name));
+      }
       Assert(xdb);
 
       XdbReplaceCompress(xdb, id->Function(), &write_buf);
@@ -604,9 +753,20 @@ static void start_Block()
   BACKEND_REGISTER(BlockFlush);
 }
 
+class DropWriteVisitor : public HashSetVisitor<String*>
+{
+  void Visit(String *&name) { name->DecRef(); }
+};
+
+class DropFileVisitor : public HashTableVisitor<String*,String*>
+{
+  void Visit(String *&filename, Vector<String*>&) { filename->DecRef(); }
+};
+
 static void finish_Block()
 {
   // write out any annotations we found.
+
   Backend_IMPL::WriteAnnotationVisitor func_visitor(BODY_ANNOT_DATABASE);
   Backend_IMPL::g_annot_func.VisitEach(&func_visitor);
 
@@ -619,13 +779,19 @@ static void finish_Block()
   // flush any escape/callgraph changes.
   Backend_IMPL::FlushEscapeBackend();
 
-  // sort and write out the callgraph hash.
+  // flush any callgraph or incremental information.
   if (Backend_IMPL::g_have_body)
-    BACKEND_IMPL::Backend_GraphSortHash((const uint8_t*) CALLGRAPH_NAME,
-                                        (const uint8_t*) CALLGRAPH_INDIRECT,
-                                        (const uint8_t*) BODY_DATABASE,
-                                        (const uint8_t*) CALLGRAPH_NAME,
-                                        CALLGRAPH_STAGES);
+    Backend_IMPL::WriteFunctionData();
+
+  // drop references on written names.
+
+  DropWriteVisitor drop_visitor;
+  Backend_IMPL::g_write_csu.VisitEach(&drop_visitor);
+  Backend_IMPL::g_write_body.VisitEach(&drop_visitor);
+  Backend_IMPL::g_write_init.VisitEach(&drop_visitor);
+
+  DropFileVisitor drop_file_visitor;
+  Backend_IMPL::g_body_files.VisitEach(&drop_file_visitor);
 }
 
 TransactionBackend backend_Block(start_Block, finish_Block);

@@ -20,6 +20,9 @@
 
 NAMESPACE_XGILL_BEGIN
 
+ConfigOption option_incremental(CK_Flag, "incremental", NULL,
+  "perform an incremental analysis for a patch");
+
 static Buffer scratch_buf("Buffer_imlang_storage");
 
 // maximum size we will tolerate for the scratch buffer before
@@ -278,5 +281,111 @@ ExternalLookup_Annotation lookup_CompAnnot(COMP_ANNOT_DATABASE);
 Cache_Annotation BodyAnnotCache(&lookup_BodyAnnot, CAP_ANNOTATION);
 Cache_Annotation InitAnnotCache(&lookup_InitAnnot, CAP_ANNOTATION);
 Cache_Annotation CompAnnotCache(&lookup_CompAnnot, CAP_ANNOTATION);
+
+/////////////////////////////////////////////////////////////////////
+// Incremental analysis
+/////////////////////////////////////////////////////////////////////
+
+// buffer to store the incremental file's contents.
+static Buffer incremental_buf;
+
+// result of processing the incremental file's contents: the files which
+// changed, functions in those files which did not change, and functions in
+// those files which are new or changed. these strings are cursors into
+// incremental_buf.
+static Vector<const char*> g_incremental_files;
+static Vector<const char*> g_incremental_old_functions;
+static Vector<const char*> g_incremental_new_functions;
+
+// do a transaction to get the incremental file and parse its contents.
+static void ReadIncrementalFile()
+{
+  // we only need to do this once.
+  static bool incremental_processed = false;
+  if (incremental_processed) return;
+  incremental_processed = true;
+
+  Transaction *t = new Transaction();
+
+  size_t file_var = t->MakeVariable(true);
+  t->PushAction(Backend::FileRead(t, INCREMENTAL_FILE, file_var));
+  SubmitTransaction(t);
+
+  TOperandString *file_val = t->LookupString(file_var);
+  incremental_buf.Append(file_val->GetData(), file_val->GetDataLength());
+  t->Clear();
+
+  Vector<char*> strings;
+  SplitBufferStrings(&incremental_buf, '\n', &strings);
+
+  size_t ind = 0;
+
+  // read the list of files which changed.
+  for (; ind < strings.Size(); ind++) {
+    if (!*(strings[ind])) { ind++; break; }
+    g_incremental_files.PushBack(strings[ind]);
+  }
+
+  // read the list of functions in the modified files which did not change.
+  for (; ind < strings.Size(); ind++) {
+    if (!*(strings[ind])) { ind++; break; }
+    g_incremental_old_functions.PushBack(strings[ind]);
+  }
+
+  // read the list of functions in the modified files which are new or changed.
+  for (; ind < strings.Size(); ind++) {
+    if (!*(strings[ind])) { ind++; break; }
+    g_incremental_new_functions.PushBack(strings[ind]);
+  }
+}
+
+void IncrementalGetFunctions(Vector<const char*> *functions)
+{
+  if (!option_incremental.IsSpecified())
+    return;
+
+  ReadIncrementalFile();
+
+  for (size_t ind = 0; ind < g_incremental_new_functions.Size(); ind++)
+    functions->PushBack(g_incremental_new_functions[ind]);
+}
+
+bool IncrementalExclude(BlockCFG *cfg)
+{
+  if (!option_incremental.IsSpecified())
+    return false;
+
+  ReadIncrementalFile();
+
+  Assert(cfg->GetId()->Kind() == B_Function ||
+         cfg->GetId()->Kind() == B_Loop);
+
+  // whether the file containing the CFG was modified.
+  bool file_changed = false;
+
+  String *file = cfg->GetBeginLocation()->FileName();
+  for (size_t ind = 0; ind < g_incremental_files.Size(); ind++) {
+    if (!strcmp(file->Value(), g_incremental_files[ind]))
+      file_changed = true;
+  }
+
+  if (!file_changed)
+    return false;
+
+  // this CFG was deleted if its name is not in the old or new lists.
+  String *name = cfg->GetId()->Function();
+
+  for (size_t ind = 0; ind < g_incremental_old_functions.Size(); ind++) {
+    if (!strcmp(name->Value(), g_incremental_old_functions[ind]))
+      return false;
+  }
+
+  for (size_t ind = 0; ind < g_incremental_new_functions.Size(); ind++) {
+    if (!strcmp(name->Value(), g_incremental_new_functions[ind]))
+      return false;
+  }
+
+  return true;
+}
 
 NAMESPACE_XGILL_END

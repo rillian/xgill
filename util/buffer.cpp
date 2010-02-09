@@ -180,7 +180,7 @@ bool Buffer::TestSeenRev(uint32_t id, void **pv, CleanupFn *pcleanup)
 
 void ReadInStream(InStream &in, Buffer *buf)
 {
-  while (true) {
+  while (!in.IsError() && !in.IsEOF()) {
     buf->Ensure(BUFFER_STREAM_STRIDE);
     size_t count = in.Get(buf->pos, BUFFER_STREAM_STRIDE);
     buf->pos += count;

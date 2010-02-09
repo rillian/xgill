@@ -99,10 +99,13 @@ U& HashTable<T,U,HT>::LookupSingle(const T &o)
 }
 
 template <class T, class U, class HT>
-void HashTable<T,U,HT>::Insert(const T &o, const U &v)
+bool HashTable<T,U,HT>::Insert(const T &o, const U &v)
 {
   Vector<U> *array = Lookup(o, true);
   array->PushBack(v);
+
+  // if there was already an association there are at least two entries now.
+  return (array->Size() >= 2);
 }
 
 template <class T, class U, class HT>

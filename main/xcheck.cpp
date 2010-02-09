@@ -56,19 +56,12 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
           t, report_database, WORKLIST_FUNC_HASH));
   }
 
-  // setup the analysis worklist hash.
+  // get the functions to analyze, either from the command line checks
+  // or from the incremental list.
+  Vector<const char*> functions;
+
   if (checks.Size()) {
-    // just insert the specified functions into the worklist.
-    // test for existence of the worklist hash so that if we crash and
-    // restart we don't reinsert all the entries.
-
-    size_t existvar = t->MakeVariable();
-    TOperand *existarg = new TOperandVariable(t, existvar);
-
-    TActionTest *nex_test = new TActionTest(t, existarg, false);
-    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_HASH, existvar));
-    t->PushAction(nex_test);
-
+    // parse the function names from the assertion format.
     for (size_t uind = 0; uind < checks.Size(); uind++) {
       const char *check = checks[uind];
 
@@ -80,7 +73,27 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
         continue;
       }
 
-      TOperand *key = new TOperandString(t, (const char*) buf->base);
+      functions.PushBack((const char*) buf->base);
+    }
+  }
+  else if (option_incremental.IsSpecified()) {
+    IncrementalGetFunctions(&functions);
+  }
+
+  if (!functions.Empty() || option_incremental.IsSpecified()) {
+    // insert the specified functions into the worklist.
+    // test for existence of the worklist hash so that if we crash and
+    // restart we don't reinsert all the entries.
+
+    size_t existvar = t->MakeVariable();
+    TOperand *existarg = new TOperandVariable(t, existvar);
+
+    TActionTest *nex_test = new TActionTest(t, existarg, false);
+    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_HASH, existvar));
+    t->PushAction(nex_test);
+
+    for (size_t ind = 0; ind < functions.Size(); ind++) {
+      TOperand *key = new TOperandString(t, functions[ind]);
       nex_test->PushAction(
         Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, key));
     }
@@ -93,14 +106,13 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
   }
 
   SubmitTransaction(t);
-  t->Clear();
 }
 
-void MakeFetchTransaction(Transaction *t, const Vector<const char*> &checks,
-                          size_t body_key_result, size_t body_data_result,
-                          size_t memory_data_result,
-                          size_t modset_data_result,
-                          size_t summary_data_result)
+void DoFetchTransaction(Transaction *t, const Vector<const char*> &checks,
+                        size_t body_key_result, size_t body_data_result,
+                        size_t memory_data_result,
+                        size_t modset_data_result,
+                        size_t summary_data_result)
 {
   TOperand *body_key_arg = new TOperandVariable(t, body_key_result);
 
@@ -134,6 +146,8 @@ void MakeFetchTransaction(Transaction *t, const Vector<const char*> &checks,
   t->PushAction(
     Backend::XdbLookup(
       t, SUMMARY_DATABASE, body_key_arg, summary_data_result));
+
+  SubmitTransaction(t);
 }
 
 void StoreDisplayPath(DisplayPath *path, const char *name, BlockId *id)
@@ -177,6 +191,7 @@ void RunAnalysis(const Vector<const char*> &checks)
 
   // construct and submit the worklist create transaction.
   DoInitTransaction(t, checks);
+  t->Clear();
 
   bool first = true;
 
@@ -201,10 +216,9 @@ void RunAnalysis(const Vector<const char*> &checks)
     size_t memory_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
     size_t summary_data_result = t->MakeVariable(true);
-    MakeFetchTransaction(t, checks, body_key_result, body_data_result,
-                         memory_data_result, modset_data_result,
-                         summary_data_result);
-    SubmitTransaction(t);
+    DoFetchTransaction(t, checks, body_key_result, body_data_result,
+                       memory_data_result, modset_data_result,
+                       summary_data_result);
 
     // make sure the key is NULL terminated.
     TOperandString *body_key = t->LookupString(body_key_result);
@@ -400,6 +414,7 @@ int main(int argc, const char **argv)
   timeout.Enable();
   trans_remote.Enable();
   trans_initial.Enable();
+  option_incremental.Enable();
 
   checker_verbose.Enable();
   checker_sufficient.Enable();

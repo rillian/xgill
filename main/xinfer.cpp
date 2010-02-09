@@ -28,27 +28,104 @@ NAMESPACE_XGILL_USING
 
 const char *USAGE = "xinfer [options] [function*]";
 
-// xinfer not currently entirely deterministic. this is not a big deal,
+// currently, xinfer is not entirely deterministic. this is not a big problem,
 // there isn't much cross-function dependency here (unlike xmemlocal).
 // there are two issues:
 // 1. after finishing a stage, analysis does not wait for all summaries for
 // that stage to come in before starting the next stage. we can't use the
 // same barriers as in xmemlocal as we want to be tolerant of crashes/failures.
 // 2. analysis of functions in the last stage may use the summaries computed
-// for other functions in that stage.
+// earlier for other functions in that stage.
 
 // counter indicating the index of the *next* pass we'll be processing.
 #define COUNTER_STAGE "counter"
 
-// make a transaction to get the next key from the worklist. the body data
+// whether we are using the callgraph to process the functions.
+static bool g_use_callgraph = false;
+
+// number of callgraph stages.
+static size_t g_stage_count = 0;
+
+// perform an initialization transaction to setup the callgraph/worklist.
+void DoInitTransaction(Transaction *t, const Vector<const char*> &functions)
+{
+  // the cases here are pretty much the same as for memory/modset computation,
+  // we'll setup the callgraph sort if we're analyzing all functions,
+  // or seed a worklist with the functions to analyze if we got functions
+  // at the command line or for an incremental analysis.
+
+  // handle the command line and incremental cases together,
+  Vector<const char*> new_functions;
+
+  if (!functions.Empty()) {
+    for (size_t ind = 0; ind < functions.Size(); ind++)
+      new_functions.PushBack(functions[ind]);
+  }
+  else if (option_incremental.IsSpecified()) {
+    IncrementalGetFunctions(&new_functions);
+  }
+
+  if (!new_functions.Empty() || option_incremental.IsSpecified()) {
+    g_use_callgraph = false;
+
+    size_t existvar = t->MakeVariable();
+    TOperand *existarg = new TOperandVariable(t, existvar);
+
+    TActionTest *nex_test = new TActionTest(t, existarg, false);
+    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_HASH, existvar));
+    t->PushAction(nex_test);
+
+    for (size_t ind = 0; ind < new_functions.Size(); ind++) {
+      TOperand *key = new TOperandString(t, new_functions[ind]);
+      nex_test->PushAction(
+        Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, key));
+    }
+
+    SubmitTransaction(t);
+    t->Clear();
+  }
+  else {
+    g_use_callgraph = true;
+
+    // analysis of all functions, load the callgraph sort.
+    size_t count_result = t->MakeVariable(true);
+    t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, count_result));
+    SubmitTransaction(t);
+
+    g_stage_count = t->LookupInteger(count_result)->GetValue();
+    t->Clear();
+  }
+}
+
+// perform a transaction to get the next key from the worklist. the body data
 // will not be set if there are no nodes remaining in the worklist.
 // if the worklist is empty, advances to the next stage if the counters are ok.
-void MakeFetchTransaction(Transaction *t, size_t stage_result,
-                          size_t body_data_result, size_t memory_data_result,
-                          size_t modset_data_result)
+void DoFetchTransaction(Transaction *t, size_t stage_result,
+                        size_t body_data_result, size_t memory_data_result,
+                        size_t modset_data_result)
 {
-  // since we won't be fixpointing the summaries, this is simpler than
-  // the memory/modset fetch transaction.
+  // we need to get functions from either the worklist or the callgraph,
+  // depending on whether we're doing an incremental analysis.
+
+  if (!g_use_callgraph) {
+    TRANSACTION_MAKE_VAR(body_key);
+
+    t->PushAction(
+      Backend::Compound::HashPopXdbKey(
+        t, WORKLIST_FUNC_HASH, BODY_DATABASE,
+        body_key_var, body_data_result));
+
+    t->PushAction(
+      Backend::XdbLookup(t, MEMORY_DATABASE, body_key, memory_data_result));
+    t->PushAction(
+      Backend::XdbLookup(t, MODSET_DATABASE, body_key, modset_data_result));
+
+    SubmitTransaction(t);
+    return;
+  }
+
+  // since we won't be fixpointing the summaries, the callgraph case
+  // is simpler than the memory/modset fetch transaction.
 
   // $stage = CounterValue(stage)
   // $body_key = HashChooseKey(worklist_name)
@@ -103,6 +180,8 @@ void MakeFetchTransaction(Transaction *t, size_t stage_result,
   empty_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
   empty_branch->PushAction(
     Backend::CounterValue(t, COUNTER_STAGE, stage_result));
+
+  SubmitTransaction(t);
 }
 
 ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
@@ -110,9 +189,6 @@ ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
 
 ConfigOption print_memory(CK_Flag, "print-memory", NULL,
                           "print input memory information");
-
-// number of callgraph stages.
-static size_t g_stage_count = 0;
 
 // how often to print allocation/timer information.
 #define PRINT_FREQUENCY 50
@@ -126,13 +202,7 @@ void RunAnalysis(const Vector<const char*> &functions)
   // we will manually manage clearing of entries in the summary cache.
   BlockSummaryCache.SetLruEviction(false);
 
-  // load the callgraph sort.
-  size_t stage_count_result = t->MakeVariable(true);
-  t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, stage_count_result));
-  SubmitTransaction(t);
-
-  g_stage_count = t->LookupInteger(stage_count_result)->GetValue();
-  t->Clear();
+  DoInitTransaction(t, functions);
 
   // current stage being processed.
   size_t current_stage = 0;
@@ -153,26 +223,35 @@ void RunAnalysis(const Vector<const char*> &functions)
     size_t memory_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
 
-    MakeFetchTransaction(t, stage_result, body_data_result,
-                         memory_data_result, modset_data_result);
-    SubmitTransaction(t);
+    DoFetchTransaction(t, stage_result, body_data_result,
+                       memory_data_result, modset_data_result);
 
-    size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
-    Assert(new_stage != (size_t) -1);
+    size_t new_stage = 0;
 
-    if (new_stage > current_stage) {
-      if (new_stage > g_stage_count) {
-        // we've generated summaries for every function. end the analysis.
+    if (g_use_callgraph) {
+      new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
+      Assert(new_stage != (size_t) -1);
+
+      if (new_stage > current_stage) {
+        if (new_stage > g_stage_count) {
+          // we've generated summaries for every function. end the analysis.
+          break;
+        }
+        current_stage = new_stage;
+      }
+
+      if (!t->Lookup(body_data_result, false)) {
+        // the current stage is finished, and the transaction bumped the stage
+        // counter. retry, we'll get any item from the new stage.
+        t->Clear();
+        continue;
+      }
+    }
+    else {
+      if (!t->Lookup(body_data_result, false)) {
+        // ran out of functions to analyze.
         break;
       }
-      current_stage = new_stage;
-    }
-
-    if (!t->Lookup(body_data_result, false)) {
-      // the current stage is finished, and the transaction bumped the stage
-      // counter. retry, we'll get any item from the new stage.
-      t->Clear();
-      continue;
     }
 
     Vector<BlockCFG*> block_cfgs;
@@ -262,6 +341,7 @@ int main(int argc, const char **argv)
   timeout.Enable();
   trans_remote.Enable();
   trans_initial.Enable();
+  option_incremental.Enable();
 
   solver_use.Enable();
   solver_verbose.Enable();

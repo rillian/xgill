@@ -200,26 +200,20 @@ bool CounterValue(Transaction *t,
   return true;
 }
 
-bool CounterEquals(Transaction *t,
-                   const Vector<TOperand*> &arguments,
-                   TOperand **result)
+bool FileRead(Transaction *t,
+              const Vector<TOperand*> &arguments,
+              TOperand **result)
 {
-  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, name, name_length);
-  BACKEND_ARG_INTEGER(1, value);
 
-  String *key = String::Make((const char*) name);
+  Buffer *buf = new Buffer();
+  t->AddBuffer(buf);
 
-  for (size_t ind = 0; ind < counters.Size(); ind++) {
-    if (key == counters[ind].name) {
-      key->DecRef();
-      *result = new TOperandBoolean(t, counters[ind].count == value);
-      return true;
-    }
-  }
+  ifstream in((const char*) name);
+  ReadInStream(in, buf);
 
-  key->DecRef();
-  *result = new TOperandBoolean(t, 0 == value);
+  *result = new TOperandString(t, (const char*) buf->base);
   return true;
 }
 
@@ -240,7 +234,7 @@ static void start_Util()
   BACKEND_REGISTER(CounterInc);
   BACKEND_REGISTER(CounterDec);
   BACKEND_REGISTER(CounterValue);
-  BACKEND_REGISTER(CounterEquals);
+  BACKEND_REGISTER(FileRead);
 }
 
 static void finish_Util()
@@ -336,6 +330,13 @@ TAction* CounterDec(Transaction *t, const char *name)
 TAction* CounterValue(Transaction *t, const char *name, size_t var_result)
 {
   BACKEND_CALL(CounterValue, var_result);
+  call->PushArgument(new TOperandString(t, name));
+  return call;
+}
+
+TAction* FileRead(Transaction *t, const char *name, size_t var_result)
+{
+  BACKEND_CALL(FileRead, var_result);
   call->PushArgument(new TOperandString(t, name));
   return call;
 }

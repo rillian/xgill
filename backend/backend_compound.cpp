@@ -62,10 +62,12 @@ TAction* HashCreateXdbKeys(Transaction *t,
   return sequence;
 }
 
-// HashPopXdbKey ($hashname, $dbname)
-//   $return_key = HashChooseKey($hashname)
-//   HashRemove($hashname, $return_key)
-//   $return_value = XdbLookup($dbname, $return_key)
+// HashPopXdbKey (hashname, dbname)
+//   $return_key = HashChooseKey(hashname)
+//   $key_empty = StringIsEmpty($body_key)
+//   if !$key_empty
+//     HashRemove(hashname, $return_key)
+//     $return_value = XdbLookup(dbname, $return_key)
 
 TAction* HashPopXdbKey(Transaction *t,
                        const char *hash_name,
@@ -75,10 +77,16 @@ TAction* HashPopXdbKey(Transaction *t,
 {
   TOperand *key_arg = new TOperandVariable(t, key_result);
 
+  TRANSACTION_MAKE_VAR(key_empty);
+
   TActionSequence *sequence = new TActionSequence(t);
   sequence->PushAction(HashChooseKey(t, hash_name, key_result));
-  sequence->PushAction(HashRemove(t, hash_name, key_arg));
-  sequence->PushAction(XdbLookup(t, db_name, key_arg, value_result));
+  sequence->PushAction(StringIsEmpty(t, key_arg, key_empty_var));
+
+  TActionTest *non_empty_test = new TActionTest(t, key_empty, false);
+  non_empty_test->PushAction(HashRemove(t, hash_name, key_arg));
+  non_empty_test->PushAction(XdbLookup(t, db_name, key_arg, value_result));
+  sequence->PushAction(non_empty_test);
 
   return sequence;
 }

@@ -108,9 +108,10 @@ class HashTable
   // or if it is associated with more than one object.
   U& LookupSingle(const T &o);
 
-  // add an association between o and v in this table.
-  // equivalent to Lookup(o,true)->PushBack(v)
-  void Insert(const T &o, const U &v);
+  // add an association between o and v in this table, equivalent to
+  // Lookup(o,true)->PushBack(v). returns whether there was an existing
+  // association for o.
+  bool Insert(const T &o, const U &v);
 
   // get whether this table is empty.
   bool IsEmpty() const { return m_entry_count == 0; }

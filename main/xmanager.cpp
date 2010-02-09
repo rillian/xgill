@@ -33,6 +33,10 @@
 #include <util/monitor.h>
 #include <backend/transaction.h>
 
+// for incremental options.
+#include <backend/backend_block.h>
+#include <imlang/storage.h>
+
 NAMESPACE_XGILL_USING
 
 const char *USAGE = "xmanager [options]";
@@ -285,6 +289,9 @@ int main(int argc, const char **argv)
   spawn_command.Enable();
   spawn_count.Enable();
   memory_limit.Enable();
+
+  option_incremental.Enable();
+  option_incremental_files.Enable();
 
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);

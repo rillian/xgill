@@ -84,16 +84,74 @@ ConfigOption print_memory(CK_Flag, "print-memory", NULL,
 // number of callgraph stages.
 static size_t g_stage_count = 0;
 
-// make a transaction to get the next key from the worklist. the body data
+// maximum pass we will analyze.
+static size_t g_pass_limit = 0;
+
+// perform an initialization transaction to setup the callgraph/worklist.
+void DoInitTransaction(Transaction *t, const Vector<const char*> &functions)
+{
+  // there are three cases we need to consider:
+  // 1. running on the entire set of functions. load the callgraph sort
+  //    and process the stages in turn (fixpointing the last stage).
+  // 2. running on a partial set of functions for incremental analysis.
+  //    seed the worklist with this set of functions and fixpoint them.
+  // 3. running on a set of functions specified at the command line.
+  //    do a single pass over these functions.
+  // for cases 2 and 3 the stage count will be zero and we will fill in
+  // the next list with the functions that are being analyzed.
+
+  // handle the command line and incremental cases together,
+  Vector<const char*> new_functions;
+
+  if (!functions.Empty()) {
+    for (size_t ind = 0; ind < functions.Size(); ind++)
+      new_functions.PushBack(functions[ind]);
+
+    // the maximum pass is #1, we won't reanalyze any functions.
+    g_pass_limit = 1;
+  }
+  else if (option_incremental.IsSpecified()) {
+    IncrementalGetFunctions(&new_functions);
+  }
+
+  if (!new_functions.Empty() || option_incremental.IsSpecified()) {
+    size_t existvar = t->MakeVariable();
+    TOperand *existarg = new TOperandVariable(t, existvar);
+
+    TActionTest *nex_test = new TActionTest(t, existarg, false);
+    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_NEXT, existvar));
+    t->PushAction(nex_test);
+
+    for (size_t ind = 0; ind < new_functions.Size(); ind++) {
+      TOperand *key = new TOperandString(t, new_functions[ind]);
+      nex_test->PushAction(
+        Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, key));
+    }
+
+    SubmitTransaction(t);
+    t->Clear();
+  }
+  else {
+    // analysis of all functions, load the callgraph sort.
+    size_t count_result = t->MakeVariable(true);
+    t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, count_result));
+    SubmitTransaction(t);
+
+    g_stage_count = t->LookupInteger(count_result)->GetValue();
+    t->Clear();
+  }
+}
+
+// perform a transaction to get the next key from the worklist. the body data
 // will not be set if there are no nodes remaining in the worklist.
 // have_barrier increments whether we have a reference on the barrier counter;
 // a reference will be added if a key is found and have_barrier is not set.
 // if the worklist is empty, advances to the next stage if the counters are ok.
-void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
-                          size_t stage_result,
-                          size_t body_data_result, size_t modset_data_result,
-                          size_t barrier_process_result,
-                          size_t barrier_write_result)
+void DoFetchTransaction(Transaction *t, bool have_barrier_process,
+                        size_t stage_result,
+                        size_t body_data_result, size_t modset_data_result,
+                        size_t barrier_process_result,
+                        size_t barrier_write_result)
 {
   // $stage = CounterValue(stage)
   // $body_key = HashChooseKey(worklist_name)
@@ -196,6 +254,8 @@ void MakeFetchTransaction(Transaction *t, bool have_barrier_process,
   write_done_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
   write_done_branch->PushAction(
     Backend::CounterValue(t, COUNTER_STAGE, stage_result));
+
+  SubmitTransaction(t);
 }
 
 // information about the generated modsets for a function.
@@ -349,14 +409,14 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
     String *loop = id->Loop();
 
     // make a modset which we will fill in the new modset data from.
-    // this uses a temporary ID as we need to distinguish the modsets
+    // this uses a cloned ID as we need to distinguish the modsets
     // we are generating during this pass from the modsets we generated
     // during a previous pass.
     function->IncRef();
-    BlockKind kind = B_ModsetFunction;
+    BlockKind kind = B_CloneFunction;
     if (loop) {
       loop->IncRef();
-      kind = B_ModsetLoop;
+      kind = B_CloneLoop;
     }
     BlockId *mod_id = BlockId::Make(kind, function, loop);
     BlockModset *mod = BlockModset::Make(mod_id);
@@ -409,13 +469,8 @@ void RunAnalysis(const Vector<const char*> &functions)
   // we will manually manage clearing of entries in the modset cache.
   BlockModsetCache.SetLruEviction(false);
 
-  // load the callgraph sort.
-  size_t stage_count_result = t->MakeVariable(true);
-  t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, stage_count_result));
-  SubmitTransaction(t);
-
-  g_stage_count = t->LookupInteger(stage_count_result)->GetValue();
-  t->Clear();
+  // setup the callgraph sort or worklist seed.
+  DoInitTransaction(t, functions);
 
   // whether we have a reference on either of the barriers. if there is no
   // pending data then these will be false, otherwise exactly one will be true.
@@ -448,10 +503,9 @@ void RunAnalysis(const Vector<const char*> &functions)
     size_t barrier_process_result = t->MakeVariable(true);
     size_t barrier_write_result = t->MakeVariable(true);
 
-    MakeFetchTransaction(t, have_barrier_process, stage_result,
-                         body_data_result, modset_data_result,
-                         barrier_process_result, barrier_write_result);
-    SubmitTransaction(t);
+    DoFetchTransaction(t, have_barrier_process, stage_result,
+                       body_data_result, modset_data_result,
+                       barrier_process_result, barrier_write_result);
 
     size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
     Assert(new_stage != (size_t) -1);
@@ -460,8 +514,8 @@ void RunAnalysis(const Vector<const char*> &functions)
       Assert(!have_barrier_process);
       Assert(!have_barrier_write);
 
-      if (pass_limit.UIntValue() > 0) {
-        if (new_stage >= g_stage_count + pass_limit.UIntValue()) {
+      if (g_pass_limit > 0) {
+        if (new_stage >= g_stage_count + g_pass_limit) {
           cout << "Finished functions [#" << new_stage
                << "]: hit pass limit" << endl;
           break;
@@ -658,7 +712,7 @@ void RunAnalysis(const Vector<const char*> &functions)
         BlockModset *new_mod = data->block_mods.Back();
         BlockModset *old_mod = old_mods.Back();
 
-        Assert(new_mod->GetId()->Kind() == B_ModsetFunction);
+        Assert(new_mod->GetId()->Kind() == B_CloneFunction);
         Assert(old_mod->GetId()->Kind() == B_Function);
         Assert(new_mod->GetId()->BaseVar() == old_mod->GetId()->BaseVar());
 
@@ -758,6 +812,7 @@ int main(int argc, const char **argv)
   timeout.Enable();
   trans_remote.Enable();
   trans_initial.Enable();
+  option_incremental.Enable();
 
   print_cfgs.Enable();
   print_memory.Enable();

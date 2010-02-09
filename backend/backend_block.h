@@ -24,6 +24,9 @@
 
 NAMESPACE_XGILL_BEGIN
 
+// files to mark as changed if we are doing an incremental build.
+extern ConfigOption option_incremental_files;
+
 NAMESPACE_BEGIN(Backend)
 
 // determine which in a list of CSUs and/or blocks needs to be processed.

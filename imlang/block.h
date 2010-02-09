@@ -45,10 +45,13 @@ enum BlockKind {
   B_AnnotationInit = 5,
   B_AnnotationComp = 6,
 
-  // temporary blocks used during modset computation for blocks.
-  // these are converted to B_Function and B_Loop when serialized.
-  B_ModsetFunction = 10,
-  B_ModsetLoop = 11
+  // cloned identifiers for functions and loops. these are not serialized;
+  // B_Function or B_Loop will be written instead when these are created,
+  // and when reading these can be created in lieu of the serialized
+  // B_Function or B_Loop. these allow two IDs to exist for the same function
+  // or loop, so that CFGs/modsets/etc. based on the IDs can exist separately.
+  B_CloneFunction,
+  B_CloneLoop
 };
 
 // unique identifier for a block
@@ -58,7 +61,7 @@ class BlockId : public HashObject
   static int Compare(const BlockId *b0, const BlockId *b1);
   static BlockId* Copy(const BlockId *b);
   static void Write(Buffer *buf, const BlockId *b);
-  static BlockId* Read(Buffer *buf);
+  static BlockId* Read(Buffer *buf, bool clone = false);
 
   static BlockId* Make(BlockKind kind, Variable *var,
                        String *loop = NULL) {
@@ -196,11 +199,12 @@ class BlockCFG : public HashObject
   static int Compare(const BlockCFG *cfg0, const BlockCFG *cfg1);
   static BlockCFG* Copy(const BlockCFG *cfg);
   static void Write(Buffer *buf, const BlockCFG *cfg);
-  static BlockCFG* Read(Buffer *buf);
+  static BlockCFG* Read(Buffer *buf, bool clone = false);
 
   // read/write methods for lists of CFGs.
   static void WriteList(Buffer *buf, const Vector<BlockCFG*> &cfgs);
-  static void ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs);
+  static void ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs,
+                       bool clone = false);
 
   static BlockCFG* Make(BlockId *id)
   {
@@ -296,6 +300,11 @@ class BlockCFG : public HashObject
     Assert(m_edges);
     return m_edges->At(ind);
   }
+
+  // return whether this CFG is isomorphic to cfg. these CFGs should be for
+  // the same function or loop, and either this or cfg will have a clone ID.
+  // two CFGs are isomorphic if they are identical except for location info.
+  bool Isomorphic(BlockCFG *cfg) const;
 
   // annotation CFG methods.
 
