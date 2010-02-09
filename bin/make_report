@@ -45,10 +45,11 @@ die "Could not find <path>\n" if not defined $path;
 my $report_name = get_single_xml_tag($path, 'name');
 print "<!-- '$report_name' -->\n";
 
-print <<EOF;
+my $title = report_printable($report_name);
 
-<html>
-<head>
+print "<html>\n<head>\n<title>Report: $title</title>\n\n";
+
+print <<EOF;
 
 <style type="text/css">
 
@@ -646,6 +647,42 @@ print <<EOF;
 </html>
 
 EOF
+
+# printable name of a report, same as make_index. change these together.
+sub report_printable {
+    my ($report) = @_;
+
+    # remove assertion kind and file information.
+    $report =~ /(.*?)\$(.*?)\$(.*)/ or die;
+    my $name = $3;
+
+    # report names look like 'name$loop?$assert' or 'file:name$loop?$assert'
+    # where the name can look like:
+    # foo(arg_types)       (Elsa frontend)
+    # foo                  (GCC frontend with C linkage)
+    # type foo(arg_types)  (GCC frontend with C++ linkage)
+
+    # eat everything after a '$'.
+    $name =~ s/\$.*$//;
+
+    # eat everything after a '(' - argument types. watch out for '(!'
+    # which shows up in some GCC template instantiations.
+    $name =~ s/\([^\!].*$//;
+
+    # eat a leading 'virtual' before the return type.
+    $name =~ s/^virtual //;
+
+    # eat a leading 'const' before the return type.
+    $name =~ s/^const //;
+
+    # eat everything up to a ' ' - return type.
+    $name =~ s/[^ <]* //;
+
+    # eat a leading 'file:', but preserve 'class::'
+    $name =~ s/^[^:\(]*:([^:])/$1/;
+
+    return $name;
+}
 
 # XML parsing code. this could use a library instead. (portability?)
 

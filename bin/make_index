@@ -312,7 +312,7 @@ while ($report)
 waitpid($pid, 0) if ($pid);
 
 # get the printable version of a report, stripping file and assert
-# identifier info.
+# identifier info. this is duplicated in make_report, change these together.
 sub report_printable {
     my ($report) = @_;
 
@@ -332,6 +332,12 @@ sub report_printable {
     # eat everything after a '(' - argument types. watch out for '(!'
     # which shows up in some GCC template instantiations.
     $name =~ s/\([^\!].*$//;
+
+    # eat a leading 'virtual' before the return type.
+    $name =~ s/^virtual //;
+
+    # eat a leading 'const' before the return type.
+    $name =~ s/^const //;
 
     # eat everything up to a ' ' - return type.
     $name =~ s/[^ <]* //;
