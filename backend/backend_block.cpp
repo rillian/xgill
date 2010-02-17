@@ -38,12 +38,19 @@ BACKEND_IMPL_BEGIN
 // Backend construction data
 /////////////////////////////////////////////////////////////////////
 
-// databases accessed as writes are received.
-static Xdb *g_csu_xdb = NULL;
+// databases for storing program values.
 static Xdb *g_body_xdb = NULL;
 static Xdb *g_init_xdb = NULL;
+static Xdb *g_comp_xdb = NULL;
+
+// databases for storing file contents.
 static Xdb *g_source_xdb = NULL;
 static Xdb *g_preproc_xdb = NULL;
+
+// databases for storing annotations. these databases do not necessarily exist.
+static Xdb *g_annot_body_xdb = NULL;
+static Xdb *g_annot_init_xdb = NULL;
+static Xdb *g_annot_comp_xdb = NULL;
 
 // whether we are doing an incremental build.
 static bool g_incremental = false;
@@ -70,6 +77,9 @@ static StringSet g_body_new;
 // subset of g_write_body. filenames hold references.
 static StringMap g_body_file;
 
+// map from function names to their version. subset of g_write_body.
+static HashTable<String*,VersionId,String> g_body_version;
+
 // list of filenames whose source has changed since a previous run, only used
 // for incremental builds.
 static Vector<String*> g_file_changed;
@@ -95,21 +105,34 @@ static CallEdgeHash g_callees;
 static HashSet<EscapeEdgeSet*,HashObject> g_seen_escape_edges;
 static HashSet<EscapeAccessSet*,HashObject> g_seen_escape_accesses;
 
+// if we're doing an incremental build, fix the version in where to reflect
+// the CFGs we've written out.
+static inline void FixVersion(BlockPPoint *where)
+{
+  if (!g_incremental) return;
+  if (where->id->Kind() == B_Initializer) return;
+
+  where->version = g_body_version.LookupSingle(where->id->Function());
+}
+
 // write out any annotations for key in one of the annotation databases,
 // and consume references for key/cfg_list stored in an annotation hashtable.
-void WriteAnnotations(const char *db_name, String *key,
-                      Vector<BlockCFG*> &cfg_list)
+void WriteAnnotations(Xdb *xdb, String *key, Vector<BlockCFG*> &cfg_list)
 {
   if (cfg_list.Empty()) {
     key->DecRef(&cfg_list);
     return;
   }
 
-  Xdb *xdb = GetDatabase(db_name, true);
+  // make sure the database exists.
+  if (!xdb->Exists())
+    xdb->Create();
+
   static Buffer scratch_buf;
 
   // lookup and write any old entries first. this is only useful when
-  // there isn't a manager running.
+  // there isn't a manager running, i.e. we weren't able to use the g_annot_*
+  // tables to keep track of all annotations in the program.
   XdbFindUncompressed(xdb, key, &scratch_buf);
 
   Vector<BlockCFG*> old_cfg_list;
@@ -151,8 +174,11 @@ EscapeEdgeSet* CombineEscapeEdge(Buffer *buf)
 
   EscapeEdgeSet *eset = EscapeEdgeSet::Make(source, forward);
 
-  for (size_t ind = 0; ind < edges.Size(); ind++)
-    eset->AddEdge(edges[ind]);
+  for (size_t ind = 0; ind < edges.Size(); ind++) {
+    EscapeEdge edge = edges[ind];
+    FixVersion(&edge.where);
+    eset->AddEdge(edge);
+  }
   return eset;
 }
 
@@ -201,8 +227,11 @@ EscapeAccessSet* CombineEscapeAccess(Buffer *buf)
 
   EscapeAccessSet *aset = EscapeAccessSet::Make(value);
 
-  for (size_t ind = 0; ind < accesses.Size(); ind++)
-    aset->AddAccess(accesses[ind]);
+  for (size_t ind = 0; ind < accesses.Size(); ind++) {
+    EscapeAccess access = accesses[ind];
+    FixVersion(&access.where);
+    aset->AddAccess(access);
+  }
   return aset;
 }
 
@@ -250,8 +279,11 @@ CallEdgeSet* CombineCallEdge(Buffer *buf)
 
   CallEdgeSet *cset = CallEdgeSet::Make(function, callers);
 
-  for (size_t ind = 0; ind < edges.Size(); ind++)
-    cset->AddEdge(edges[ind]);
+  for (size_t ind = 0; ind < edges.Size(); ind++) {
+    CallEdge edge = edges[ind];
+    FixVersion(&edge.where);
+    cset->AddEdge(edge);
+  }
   return cset;
 }
 
@@ -480,11 +512,6 @@ void WriteWorklistIncremental()
   HashIterate(g_body_new)
     new_functions.PushBack(g_body_new.ItKey());
 
-  // write out the list of new/changed functions.
-  worklist_out << "#new" << endl;
-  WriteWorklistFunctions(worklist_out, new_functions);
-  worklist_out << endl;
-
   // get the list of old functions. these are all functions in the old worklist
   // file, except for functions in the new/changed list and functions which
   // have been deleted --- the file they were in has changed, but we did
@@ -520,10 +547,54 @@ void WriteWorklistIncremental()
 
     String *file = String::Make(str);
 
-    if (!g_file_changed.Contains(file)) {
+    if (g_file_changed.Contains(file)) {
       // the file changed (so we should have recompiled it and any other
-      // files including it), but we didn't see the function. treat as deleted.
-      function->DecRef();
+      // files including it), but we didn't see the function. treat this
+      // function as deleted. we need to overwrite it with a stub,
+      // assigning a new version and letting us reanalyze and remove its
+      // memory/modset/summary data later.
+
+      static Buffer stub_buf;
+      Try(XdbFindUncompressed(g_body_xdb, function, &stub_buf));
+
+      // clone the old CFGs when reading them in to distinguish them
+      // from the stub CFG we're writing out.
+      Vector<BlockCFG*> old_cfgs;
+      BlockCFG::ReadList(&stub_buf, &old_cfgs, true);
+
+      String *stub_file = String::Make("<deleted>");
+      Location *stub_loc = Location::Make(stub_file, 0);
+
+      stub_file->IncRef();
+      g_body_file.Insert(function, stub_file);
+
+      Variable *func_var = old_cfgs.Back()->GetId()->BaseVar();
+      func_var->IncRef();
+
+      BlockId *id = BlockId::Make(B_Function, func_var);
+      BlockCFG *stub_cfg = BlockCFG::Make(id);
+
+      // increment the version number for the stub CFG.
+      stub_cfg->SetVersion(old_cfgs.Back()->GetVersion() + 1);
+
+      stub_loc->IncRef();
+      stub_loc->IncRef();
+
+      stub_cfg->SetBeginLocation(stub_loc);
+      stub_cfg->SetEndLocation(stub_loc);
+
+      PPoint point = stub_cfg->AddPoint(stub_loc);
+      stub_cfg->SetEntryPoint(point);
+
+      DecRefVector<BlockCFG>(old_cfgs);
+      stub_buf.Reset();
+
+      BlockCFG::Write(&stub_buf, stub_cfg);
+      XdbReplaceCompress(g_body_xdb, function, &stub_buf);
+
+      stub_buf.Reset();
+
+      new_functions.PushBack(function);
       file->DecRef();
       continue;
     }
@@ -550,6 +621,11 @@ void WriteWorklistIncremental()
 
     old_functions.PushBack(function);
   }
+
+  // write out the list of new/changed functions.
+  worklist_out << "#new" << endl;
+  WriteWorklistFunctions(worklist_out, new_functions);
+  worklist_out << endl;
 
   // write out the list of old functions.
   worklist_out << "#old" << endl;
@@ -588,15 +664,15 @@ void FinishBlockBackend()
   // write out any annotations we found.
 
   HashIterate(g_annot_func)
-    WriteAnnotations(BODY_ANNOT_DATABASE,
+    WriteAnnotations(g_annot_body_xdb,
                      g_annot_func.ItKey(), g_annot_func.ItValues());
 
   HashIterate(g_annot_init)
-    WriteAnnotations(INIT_ANNOT_DATABASE,
+    WriteAnnotations(g_annot_init_xdb,
                      g_annot_init.ItKey(), g_annot_init.ItValues());
 
   HashIterate(g_annot_comp)
-    WriteAnnotations(COMP_ANNOT_DATABASE,
+    WriteAnnotations(g_annot_comp_xdb,
                      g_annot_comp.ItKey(), g_annot_comp.ItValues());
 
   // flush any escape/callgraph changes.
@@ -717,14 +793,18 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
   if (!have_query) {
     have_query = true;
 
-    g_csu_xdb = GetDatabase(COMP_DATABASE, true);
     g_body_xdb = GetDatabase(BODY_DATABASE, true);
     g_init_xdb = GetDatabase(INIT_DATABASE, true);
+    g_comp_xdb = GetDatabase(COMP_DATABASE, true);
+
     g_source_xdb = GetDatabase(SOURCE_DATABASE, true);
     g_preproc_xdb = GetDatabase(PREPROC_DATABASE, true);
 
-    // figure out if we are doing an incremental analysis:
-    // there is an existing worklist file.
+    g_annot_body_xdb = GetDatabase(BODY_ANNOT_DATABASE, false);
+    g_annot_init_xdb = GetDatabase(INIT_ANNOT_DATABASE, false);
+    g_annot_comp_xdb = GetDatabase(COMP_ANNOT_DATABASE, false);
+
+    // we are doing an incremental analysis if there is an existing worklist.
     if (access(WORKLIST_FILE, F_OK) == 0)
       g_incremental = true;
   }
@@ -821,8 +901,13 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
       String *name = csu->GetName();
       Assert(g_write_csu.Lookup(name));
 
-      Assert(g_csu_xdb);
-      XdbReplaceCompress(g_csu_xdb, name, &write_buf);
+      Assert(g_comp_xdb);
+      XdbReplaceCompress(g_comp_xdb, name, &write_buf);
+
+      // remove any old annotations for the csu, for incremental builds.
+      // this keeps us from leaving behind ghosts of deleted annotations.
+      if (g_incremental)
+        XdbReplaceEmpty(g_annot_comp_xdb, name);
 
       csu->DecRef();
       write_buf.Reset();
@@ -841,71 +926,102 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
 
       for (size_t ind = 0; ind < count; ind++) {
         BlockCFG *cfg = BlockCFG::Read(&read_buf);
-        BlockCFG::Write(&write_buf, cfg);
         function_cfgs.PushBack(cfg);
       }
 
-      BlockId *id = function_cfgs[0]->GetId();
+      BlockId *id = function_cfgs.Back()->GetId();
       String *name = id->Function();
 
-      Xdb *xdb = NULL;
-      if (id->Kind() == B_Function || id->Kind() == B_Loop) {
-        xdb = g_body_xdb;
+      // CFGs we read in should be unversioned.
+      Assert(function_cfgs.Back()->GetVersion() == 0);
 
-        Assert(g_write_body.Lookup(name));
+      // if we're doing an incremental build, we need to compute the
+      // versions for the CFGs, and see if they represent a change from any
+      // CFGs for the same function from the previous build.
+      if (g_incremental && id->Kind() == B_Function) {
+        // look for an old function and check if the new one is isomorphic.
+        bool incremental_new = false;
 
-        // remember the file this function was defined in.
-        String *filename = function_cfgs[0]->GetBeginLocation()->FileName();
-        filename->IncRef();
-        g_body_file.Insert(name, filename);
+        static Buffer compare_buf;
+        if (XdbFindUncompressed(g_body_xdb, name, &compare_buf)) {
+          // clone the old CFGs when reading them in to distinguish them
+          // from the new CFGs we're writing out.
+          Vector<BlockCFG*> old_cfgs;
+          BlockCFG::ReadList(&compare_buf, &old_cfgs, true);
 
-        if (g_incremental) {
-          // look for an old function and check if the new one is isomorphic.
-          bool incremental_new = false;
-
-          static Buffer compare_buf;
-          if (XdbFindUncompressed(xdb, name, &compare_buf)) {
-            // clone the old CFGs when reading them in to distinguish them
-            // from the new CFGs we're writing out.
-            Vector<BlockCFG*> old_cfgs;
-            BlockCFG::ReadList(&compare_buf, &old_cfgs, true);
-
-            if (old_cfgs.Size() == function_cfgs.Size()) {
-              for (size_t ind = 0; ind < old_cfgs.Size(); ind++) {
-                if (!old_cfgs[ind]->IsEquivalent(function_cfgs[ind])) {
-                  // change in the contents of this function/loop.
-                  incremental_new = true;
-                }
+          if (old_cfgs.Size() == function_cfgs.Size()) {
+            for (size_t ind = 0; ind < old_cfgs.Size(); ind++) {
+              if (!old_cfgs[ind]->IsEquivalent(function_cfgs[ind])) {
+                // change in the contents of this function/loop.
+                incremental_new = true;
               }
             }
-            else {
-              // change in the number of loops.
-              incremental_new = true;
-            }
-
-            DecRefVector<BlockCFG>(old_cfgs, NULL);
-            compare_buf.Reset();
           }
           else {
-            // this is a new function, there is no old one to compare with.
+            // change in the number of loops.
             incremental_new = true;
           }
 
-          if (incremental_new)
-            g_body_new.Insert(name);
+          // compute the version to use for the new CFGs. this is the old
+          // version if the new CFGs are equivalent to the old CFGs,
+          // otherwise the old version plus one.
+          VersionId new_version = old_cfgs.Back()->GetVersion();
+          if (incremental_new) new_version++;
+
+          g_body_version.Insert(name, new_version);
+
+          // update the versions for the CFGs before writing them out.
+          for (size_t ind = 0; ind < count; ind++)
+            function_cfgs[ind]->SetVersion(new_version);
+
+          DecRefVector<BlockCFG>(old_cfgs);
+          compare_buf.Reset();
         }
+        else {
+          // this is a new function, there is no old one to compare with.
+          // the version number is zero.
+          incremental_new = true;
+
+          g_body_version.Insert(name, 0);
+        }
+
+        if (incremental_new)
+          g_body_new.Insert(name);
+      }
+
+      // now that the CFGs have the correct version, write them out to disk.
+
+      for (size_t ind = 0; ind < count; ind++)
+        BlockCFG::Write(&write_buf, function_cfgs[ind]);
+
+      if (id->Kind() == B_Function) {
+        Assert(g_write_body.Lookup(name));
+
+        Assert(g_body_xdb);
+        XdbReplaceCompress(g_body_xdb, name, &write_buf);
+
+        if (g_incremental)
+          XdbReplaceEmpty(g_annot_body_xdb, name);
+
+        // remember the file this function was defined in.
+        String *file = function_cfgs.Back()->GetBeginLocation()->FileName();
+        file->IncRef();
+        g_body_file.Insert(name, file);
       }
       else if (id->Kind() == B_Initializer) {
-        xdb = g_init_xdb;
-
         Assert(g_write_init.Lookup(name));
+
+        Assert(g_init_xdb);
+        XdbReplaceCompress(g_init_xdb, name, &write_buf);
+
+        if (g_incremental)
+          XdbReplaceEmpty(g_annot_init_xdb, name);
       }
-      Assert(xdb);
+      else {
+        Assert(false);
+      }
 
-      XdbReplaceCompress(xdb, name, &write_buf);
-
-      for (size_t ind = 0; ind < function_cfgs.Size(); ind++)
-        function_cfgs[ind]->DecRef();
+      DecRefVector<BlockCFG>(function_cfgs);
       write_buf.Reset();
       break;
     }

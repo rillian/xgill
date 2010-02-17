@@ -408,7 +408,7 @@ inline bool IsSortedObjectsRmDups(const Vector<T*> &data)
 
 // add references on each object in a vector.
 template <class T>
-inline void IncRefVector(const Vector<T*> &data, ORef v)
+inline void IncRefVector(const Vector<T*> &data, ORef v = NULL)
 {
   for (size_t ind = 0; ind < data.Size(); ind++)
     data[ind]->IncRef(v);
@@ -416,7 +416,7 @@ inline void IncRefVector(const Vector<T*> &data, ORef v)
 
 // drop references on each object in a vector.
 template <class T>
-inline void DecRefVector(const Vector<T*> &data, ORef v)
+inline void DecRefVector(const Vector<T*> &data, ORef v = NULL)
 {
   for (size_t ind = 0; ind < data.Size(); ind++)
     data[ind]->DecRef(v);

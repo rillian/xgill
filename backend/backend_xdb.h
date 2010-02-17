@@ -37,6 +37,10 @@ bool XdbFindUncompressed(Xdb *xdb, String *key, Buffer *data);
 // compress the in-use portion of data and store it in xdb at key.
 void XdbReplaceCompress(Xdb *xdb, String *key, Buffer *data);
 
+// if key is present in the specified database, replaces key with
+// a compressed empty buffer.
+void XdbReplaceEmpty(Xdb *xdb, String *key);
+
 NAMESPACE_BEGIN(Backend)
 
 // clear out all entries from a database.
