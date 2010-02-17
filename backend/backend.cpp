@@ -47,13 +47,6 @@ ITERATE_BACKENDS(REGISTER_BACKEND)
 typedef HashTable<String*,TFunction,HashObject> FunctionTable;
 static FunctionTable g_functions;
 
-class FunctionDecRef : public HashTableVisitor<String*,TFunction>
-{
-  void Visit(String *&str, Vector<TFunction> &fn_list) {
-    str->DecRef();
-  }
-};
-
 static bool started_backends = false;
 
 void TransactionBackend::StartBackend()
@@ -77,8 +70,8 @@ void TransactionBackend::FinishBackend()
   ITERATE_BACKENDS(FINISH_BACKEND)
 #undef FINISH_BACKEND
 
-  FunctionDecRef decref_Function;
-  g_functions.VisitEach(&decref_Function);
+  HashIterate(g_functions)
+    g_functions.ItKey()->DecRef();
   g_functions.Clear();
 }
 

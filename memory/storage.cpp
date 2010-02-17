@@ -657,96 +657,70 @@ void BlockSummaryUncompress(Transaction *t, TOperandString *op_data,
 
 static Buffer pending_buf;
 
-class WriteEscapeEdgeVisitor
-  : public HashTableVisitor<Trace*,EscapeEdgeSet*>
+static void WritePendingEscapeEdge(Transaction *t, EscapeEdgeSet *eset)
 {
-public:
-  Transaction *t;
+  EscapeEdgeSet::Write(&pending_buf, eset);
+  eset->DecRef();
 
-  void Visit(Trace *&, Vector<EscapeEdgeSet*> &list) {
-    Assert(list.Size() == 1);
-    EscapeEdgeSet::Write(&pending_buf, list[0]);
-    list[0]->DecRef();
-
-    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-      t->PushAction(Backend::BlockWriteList(t, list_op));
-      SubmitTransaction(t);
-      t->Clear();
-      pending_buf.Reset();
-    }
+  if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+    TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+    t->PushAction(Backend::BlockWriteList(t, list_op));
+    SubmitTransaction(t);
+    t->Clear();
+    pending_buf.Reset();
   }
-};
+}
 
-class WriteEscapeAccessVisitor
-  : public HashTableVisitor<Trace*,EscapeAccessSet*>
+static void WritePendingEscapeAccess(Transaction *t, EscapeAccessSet *aset)
 {
-public:
-  Transaction *t;
+  EscapeAccessSet::Write(&pending_buf, aset);
+  aset->DecRef();
 
-  void Visit(Trace *&, Vector<EscapeAccessSet*> &list) {
-    Assert(list.Size() == 1);
-    EscapeAccessSet::Write(&pending_buf, list[0]);
-    list[0]->DecRef();
-
-    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-      t->PushAction(Backend::BlockWriteList(t, list_op));
-      SubmitTransaction(t);
-      t->Clear();
-      pending_buf.Reset();
-    }
+  if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+    TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+    t->PushAction(Backend::BlockWriteList(t, list_op));
+    SubmitTransaction(t);
+    t->Clear();
+    pending_buf.Reset();
   }
-};
+}
 
-class WriteCallEdgeVisitor
-  : public HashTableVisitor<Variable*,CallEdgeSet*>
+static void WritePendingCallEdge(Transaction *t, CallEdgeSet *cset)
 {
-public:
-  Transaction *t;
+  CallEdgeSet::Write(&pending_buf, cset);
+  cset->DecRef();
 
-  void Visit(Variable *&, Vector<CallEdgeSet*> &list) {
-    Assert(list.Size() == 1);
-
-    CallEdgeSet::Write(&pending_buf, list[0]);
-    list[0]->DecRef();
-
-    if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
-      TOperand *list_op = TOperandString::Compress(t, &pending_buf);
-      t->PushAction(Backend::BlockWriteList(t, list_op));
-      SubmitTransaction(t);
-      t->Clear();
-      pending_buf.Reset();
-    }
+  if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
+    TOperand *list_op = TOperandString::Compress(t, &pending_buf);
+    t->PushAction(Backend::BlockWriteList(t, list_op));
+    SubmitTransaction(t);
+    t->Clear();
+    pending_buf.Reset();
   }
-};
+}
 
 void WritePendingEscape()
 {
   Transaction *t = new Transaction();
 
-  WriteEscapeEdgeVisitor escape_edge_visitor;
-  escape_edge_visitor.t = t;
-
-  WriteEscapeAccessVisitor escape_access_visitor;
-  escape_access_visitor.t = t;
-
-  WriteCallEdgeVisitor call_edge_visitor;
-  call_edge_visitor.t = t;
-
-  g_pending_escape_forward.VisitEach(&escape_edge_visitor);
+  HashIterate(g_pending_escape_forward)
+    WritePendingEscapeEdge(t, g_pending_escape_forward.ItValueSingle());
   g_pending_escape_forward.Clear();
 
-  g_pending_escape_backward.VisitEach(&escape_edge_visitor);
+  HashIterate(g_pending_escape_backward)
+    WritePendingEscapeEdge(t, g_pending_escape_backward.ItValueSingle());
   g_pending_escape_backward.Clear();
 
-  g_pending_escape_accesses.VisitEach(&escape_access_visitor);
+  HashIterate(g_pending_escape_accesses)
+    WritePendingEscapeAccess(t, g_pending_escape_accesses.ItValueSingle());
   g_pending_escape_accesses.Clear();
 
-  g_pending_callees.VisitEach(&call_edge_visitor);
+  HashIterate(g_pending_callees)
+    WritePendingCallEdge(t, g_pending_callees.ItValueSingle());
   g_pending_callees.Clear();
 
-  g_pending_callers.VisitEach(&call_edge_visitor);
+  HashIterate(g_pending_callers)
+    WritePendingCallEdge(t, g_pending_callers.ItValueSingle());
   g_pending_callers.Clear();
 
   if (pending_buf.pos != pending_buf.base) {

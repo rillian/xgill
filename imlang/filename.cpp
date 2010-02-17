@@ -151,107 +151,68 @@ struct FileData
   {}
 };
 
-typedef HashTable<String*,FileData,String> FileDataTable;
-
-class QueryFileData : public HashTableVisitor<String*,FileData>
+static void QueryFileData(Transaction *t, String *file, FileData &data)
 {
-public:
-  Transaction *t;
+  size_t var = t->MakeVariable(true);
+  data.processed_var = var;
 
-  QueryFileData(Transaction *_t)
-    : t(_t)
-  {}
+  t->PushAction(Backend::BlockQueryFile(t, file->Value(), var));
+}
 
-  void Visit(String *&file, Vector<FileData> &data_list)
-  {
-    Assert(data_list.Size() == 1);
-
-    size_t var = t->MakeVariable(true);
-    data_list[0].processed_var = var;
-
-    t->PushAction(Backend::BlockQueryFile(t, file->Value(), var));
+static void DumpFileData(Transaction *query, Transaction *t,
+                         String *file, FileData &data)
+{
+  TOperandBoolean *var_res = query->LookupBoolean(data.processed_var);
+  if (var_res->IsTrue()) {
+    // already handled this file somewhere else.
+    return;
   }
-};
 
-class DumpFileData : public HashTableVisitor<String*,FileData>
-{
-public:
-  Transaction *query;
-  Transaction *t;
- 
-  DumpFileData(Transaction *_query, Transaction *_t)
-    : query(_query), t(_t)
-  {}
+  const char *file_name = file->Value();
 
-  void Visit(String *&file, Vector<FileData> &data_list)
-  {
-    Assert(data_list.Size() == 1);
-    FileData data = data_list[0];
+  // get the preprocessed file contents.
+  TOperandString *preproc_arg =
+    new TOperandString(t, data.contents->base,
+                       data.contents->pos - data.contents->base);
 
-    TOperandBoolean *var_res = query->LookupBoolean(data.processed_var);
-    if (var_res->IsTrue()) {
-      // already handled this file somewhere else.
-      return;
+  // get the source file contents.
+  TOperandString *source_arg = NULL;
+
+  // don't look for the source for special compiler files.
+  if (file_name[0] != '<') {
+    // reconstruct the absolute filename from the normalized name.
+    Buffer abs_name;
+    if (file_name[0] != '/') {
+      abs_name.Append(g_base_directory, strlen(g_base_directory));
+      abs_name.Append("/", 1);
     }
+    abs_name.Append(file_name, strlen(file_name) + 1);
 
-    const char *file_name = file->Value();
+    const char *abs_str = (const char*) abs_name.base;
 
-    // get the preprocessed file contents.
-    TOperandString *preproc_arg =
-      new TOperandString(t, data.contents->base,
-                         data.contents->pos - data.contents->base);
-
-    // get the source file contents.
-    TOperandString *source_arg = NULL;
-
-    // don't look for the source for special compiler files.
-    if (file_name[0] != '<') {
-      // reconstruct the absolute filename from the normalized name.
-      Buffer abs_name;
-      if (file_name[0] != '/') {
-        abs_name.Append(g_base_directory, strlen(g_base_directory));
-        abs_name.Append("/", 1);
-      }
-      abs_name.Append(file_name, strlen(file_name) + 1);
-
-      const char *abs_str = (const char*) abs_name.base;
-
-      // compress and store the source file contents.
-      FileInStream file_in(abs_str);
-      if (file_in.IsError()) {
-        logout << "WARNING: Could not find source file: " << abs_str << endl;
-      }
-      else {
-        Buffer *buf = new Buffer();
-        t->AddBuffer(buf);
-
-        ReadInStream(file_in, buf);
-        source_arg = new TOperandString(t, buf->base, buf->pos - buf->base);
-      }
+    // compress and store the source file contents.
+    FileInStream file_in(abs_str);
+    if (file_in.IsError()) {
+      logout << "WARNING: Could not find source file: " << abs_str << endl;
     }
+    else {
+      Buffer *buf = new Buffer();
+      t->AddBuffer(buf);
 
-    // if we didn't get the source file contents, use the preprocessed
-    // contents instead.
-    if (!source_arg)
-      source_arg = preproc_arg;
-
-    // write out the file contents.
-    t->PushAction(
-      Backend::BlockWriteFile(t, file_name, source_arg, preproc_arg));
+      ReadInStream(file_in, buf);
+      source_arg = new TOperandString(t, buf->base, buf->pos - buf->base);
+    }
   }
-};
 
-class ClearFileData : public HashTableVisitor<String*,FileData>
-{
-  void Visit(String *&file, Vector<FileData> &data_list)
-  {
-    file->DecRef(&data_list);
+  // if we didn't get the source file contents, use the preprocessed
+  // contents instead.
+  if (!source_arg)
+    source_arg = preproc_arg;
 
-    Assert(data_list.Size() == 1);
-    Assert(data_list[0].contents);
-    delete data_list[0].contents;
-  }
-};
+  // write out the file contents.
+  t->PushAction(
+    Backend::BlockWriteFile(t, file_name, source_arg, preproc_arg));
+}
 
 void ProcessPreprocessedFile(istream &in, const char *input_file)
 {
@@ -262,7 +223,7 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
   ReadInStream(in, &file_buf);
 
   // table with contents read so far for 
-  FileDataTable file_table;
+  HashTable<String*,FileData,String> file_table;
 
   // name of the original file which was being parsed, from which we will
   // get whether this is a C or a C++ file.
@@ -304,7 +265,6 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
 
       Vector<FileData> *entries = file_table.Lookup(file, true);
       if (entries->Empty()) {
-        file->MoveRef(NULL, entries);
         entries->PushBack(FileData());
 
         Assert(line == 1);
@@ -375,21 +335,23 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
 
   // figure out which of the files we read need to be added to the dbs.
   Transaction *query = new Transaction();
-  QueryFileData query_visit(query);
-  file_table.VisitEach(&query_visit);
+  HashIterate(file_table)
+    QueryFileData(query, file_table.ItKey(), file_table.ItValueSingle());
   SubmitTransaction(query);
 
   // add those files we found in the query.
   Transaction *dump = new Transaction();
-  DumpFileData dump_visit(query, dump);
-  file_table.VisitEach(&dump_visit);
+  HashIterate(file_table)
+    DumpFileData(query, dump, file_table.ItKey(), file_table.ItValueSingle());
   SubmitTransaction(dump);
 
   delete query;
   delete dump;
 
-  ClearFileData clear_visit;
-  file_table.VisitEach(&clear_visit);
+  HashIterate(file_table) {
+    file_table.ItKey()->DecRef();
+    delete file_table.ItValueSingle().contents;
+  }
 }
 
 NAMESPACE_XGILL_END

@@ -76,13 +76,6 @@ struct UIntHash
   }
 };
 
-template <class T, class U>
-class HashTableVisitor
-{
- public:
-  virtual void Visit(T &o, Vector<U> &v) = 0;
-};
-
 // an association hash table between objects. the HashTable does not maintain
 // references to the objects stored in its entries; clients must ensure that
 // the objects will stay live for as long as the table exists.
@@ -125,10 +118,6 @@ class HashTable
   // clears all entries from this table.
   void Clear();
 
-  // visit each element of this hash table with the specified visitor.
-  // each element will be visited once, though the order is unspecified.
-  void VisitEach(HashTableVisitor<T,U> *visitor);
-
   // choose an arbitrary key from this table.
   T ChooseKey() const;
 
@@ -150,6 +139,9 @@ class HashTable
 
   // get the values associated with the current iteration entry.
   Vector<U>& ItValues();
+
+  // get the single value associated with the current iteration entry.
+  U& ItValueSingle();
 
  private:
   // resize for a new bucket count.
@@ -213,13 +205,6 @@ class HashTable
   ALLOC_OVERRIDE(g_alloc_HashTable);
 };
 
-template <class T>
-class HashSetVisitor
-{
- public:
-  virtual void Visit(T &o) = 0;
-};
-
 template <class T, class HT>
 class HashSet
 {
@@ -260,13 +245,6 @@ class HashSet
     m_table.Clear();
   }
 
-  // visit each element of this set with the specified visitor.
-  void VisitEach(HashSetVisitor<T> *visitor)
-  {
-    VisitorWrapper wrap_visitor(visitor);
-    m_table.VisitEach(&wrap_visitor);
-  }
-
   // iteration methods for the elements of this set, as for a hashtable.
 
   void ItStart() { m_table.ItStart(); }
@@ -276,15 +254,6 @@ class HashSet
 
  private:
   HashTable<T,char,HT> m_table;
-
-  class VisitorWrapper : public HashTableVisitor<T,char> {
-   public:
-    HashSetVisitor<T> *visitor;
-    VisitorWrapper(HashSetVisitor<T> *_visitor) : visitor(_visitor) {}
-    void Visit(T &o, Vector<char>&) {
-      visitor->Visit(o);
-    }
-  };
 };
 
 // macro with the for loop header for iterating through a HashTable or HashSet.

@@ -371,19 +371,6 @@ bool HashRemove(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
-class StringGetKeys : public HashTableVisitor<String*,String*>
-{
-public:
-  Transaction *t;
-  TOperandList *list;
-
-  void Visit(String *&str, Vector<String*> &str_list)
-  {
-    const char *new_str = t->CloneString(str->Value());
-    list->PushOperand(new TOperandString(t, new_str));
-  }
-};
-
 bool HashAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
                  TOperand **result)
 {
@@ -393,10 +380,10 @@ bool HashAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
   TOperandList *list = new TOperandList(t);
 
   if (BackendStringHash *hash = GetNamedHash(hash_name)) {
-    StringGetKeys visitor;
-    visitor.t = t;
-    visitor.list = list;
-    hash->VisitEach(&visitor);
+    HashIteratePtr(hash) {
+      const char *key = t->CloneString(hash->ItKey()->Value());
+      list->PushOperand(new TOperandString(t, key));
+    }
   }
 
   *result = list;

@@ -1124,33 +1124,19 @@ EscapeStatus::EscapeStatus(bool forward, size_t cutoff)
   : m_forward(forward), m_cutoff(cutoff), m_cutoff_reached(false)
 {}
 
-class EscapeStatusDecRef
-  : public HashTableVisitor<Trace*,EscapeStackEdge>
-{
-public:
-  EscapeStatus *status;
-  EscapeStatusDecRef(EscapeStatus *_status) : status(_status) {}
-
-  void Visit(Trace *&trace, Vector<EscapeStackEdge> &edges)
-  {
-    trace->DecRef(status);
-
-    Assert(edges.Size() == 1);
-    const EscapeStackEdge &prev = edges[0];
-
-    if (prev.source)
-      prev.source->DecRef(status);
-    if (prev.edge.target)
-      prev.edge.target->DecRef(status);
-    if (prev.edge.where.id)
-      prev.edge.where.id->DecRef(status);
-  }
-};
-
 EscapeStatus::~EscapeStatus()
 {
-  EscapeStatusDecRef decref_visitor(this);
-  m_visited.VisitEach(&decref_visitor);
+  HashIterate(m_visited) {
+    m_visited.ItKey()->DecRef(this);
+    const EscapeStackEdge &prev = m_visited.ItValueSingle();
+
+    if (prev.source)
+      prev.source->DecRef(this);
+    if (prev.edge.target)
+      prev.edge.target->DecRef(this);
+    if (prev.edge.where.id)
+      prev.edge.where.id->DecRef(this);
+  }
 }
 
 // remove any context from the specified trace location. no escape edges

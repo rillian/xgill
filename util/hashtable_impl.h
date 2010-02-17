@@ -164,20 +164,6 @@ void HashTable<T,U,HT>::Clear()
 }
 
 template <class T, class U, class HT>
-void HashTable<T,U,HT>::VisitEach(HashTableVisitor<T,U> *visitor)
-{
-  for (size_t ind = 0; ind < m_bucket_count; ind++) {
-    HashBucket *bucket = &m_buckets[ind];
-
-    HashEntry *e = bucket->e_begin;
-    while (e != NULL) {
-      visitor->Visit(e->source, e->target);
-      e = e->next;
-    }
-  }
-}
-
-template <class T, class U, class HT>
 T HashTable<T,U,HT>::ChooseKey() const
 {
   Assert(!IsEmpty());
@@ -259,6 +245,14 @@ Vector<U>& HashTable<T,U,HT>::ItValues()
 {
   Assert(m_iter_entry);
   return m_iter_entry->target;
+}
+
+template <class T, class U, class HT>
+U& HashTable<T,U,HT>::ItValueSingle()
+{
+  Assert(m_iter_entry);
+  Assert(m_iter_entry->target.Size() == 1);
+  return m_iter_entry->target[0];
 }
 
 template <class T, class U, class HT>

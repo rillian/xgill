@@ -48,46 +48,22 @@ void Buffer::Reset(size_t initial_size)
   Reset();
 }
 
-class BufferCleanupSeen : public HashTableVisitor<void*,Buffer::WTI>
-{
- public:
-  Buffer *buf;
-  BufferCleanupSeen(Buffer *_buf) : buf(_buf) {}
-
-  void Visit(void *&v, Vector<Buffer::WTI> &vals) {
-    Assert(vals.Size() == 1);
-    vals[0].cleanup(buf, v);
-  }
-};
-
-class BufferCleanupSeenRev : public HashTableVisitor<uint32_t,Buffer::RTI>
-{
- public:
-  Buffer *buf;
-  BufferCleanupSeenRev(Buffer *_buf) : buf(_buf) {}
-
-  void Visit(uint32_t&, Vector<Buffer::RTI> &vals) {
-    Assert(vals.Size() == 1);
-    vals[0].cleanup(buf, vals[0].v);
-  }
-};
-
 void Buffer::Reset()
 {
   pos = base;
 
   if (seen != NULL) {
-    BufferCleanupSeen visitor(this);
-
-    seen->VisitEach(&visitor);
+    HashIteratePtr(seen)
+      seen->ItValueSingle().cleanup(this, seen->ItKey());
     delete seen;
     seen = NULL;
   }
 
   if (seen_rev != NULL) {
-    BufferCleanupSeenRev visitor(this);
-
-    seen_rev->VisitEach(&visitor);
+    HashIteratePtr(seen_rev) {
+      const RTI &rti = seen_rev->ItValueSingle();
+      rti.cleanup(this, rti.v);
+    }
     delete seen_rev;
     seen_rev = NULL;
   }

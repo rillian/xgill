@@ -60,99 +60,70 @@ BlockMemory* BlockMemory::Copy(const BlockMemory *mcfg)
   return new BlockMemory(*mcfg);
 }
 
-class GuardWrite : public HashTableVisitor<PPoint,Bit*>
+static void WriteGuard(Buffer *buf, PPoint point, Bit *guard)
 {
- public:
-  Buffer *buf;
-  GuardWrite(Buffer *_buf) : buf(_buf) {}
+  WriteOpenTag(buf, TAG_MemoryGuardEntry);
+  WriteTagUInt32(buf, TAG_Index, point);
+  Bit::Write(buf, guard);
+  WriteCloseTag(buf, TAG_MemoryGuardEntry);
+}
 
-  void Visit(PPoint &point, Vector<Bit*> &bits) {
-    Assert(bits.Size() == 1);
+static void WriteAssume(Buffer *buf, PPoint point, const GuardTrueFalse &v)
+{
+  WriteOpenTag(buf, TAG_MemoryAssumeEntry);
+  WriteTagUInt32(buf, TAG_Index, point);
 
-    WriteOpenTag(buf, TAG_MemoryGuardEntry);
+  if (v.true_guard) {
+    Bit::Write(buf, v.true_guard);
+  }
+  else {
+    Bit *false_bit = Bit::MakeConstant(false);
+    Bit::Write(buf, false_bit);
+    false_bit->DecRef();
+  }
+
+  if (v.false_guard) {
+    Bit::Write(buf, v.false_guard);
+  }
+  else {
+    Bit *false_bit = Bit::MakeConstant(false);
+    Bit::Write(buf, false_bit);
+    false_bit->DecRef();
+  }
+
+  WriteCloseTag(buf, TAG_MemoryAssumeEntry);
+}
+
+static void WriteGuardExp(Buffer *buf, tag_t tag, PPoint point,
+                          const Vector<GuardExp> &vals)
+{
+  for (size_t vind = 0; vind < vals.Size(); vind++) {
+    const GuardExp &v = vals[vind];
+
+    WriteOpenTag(buf, tag);
     WriteTagUInt32(buf, TAG_Index, point);
-    Bit::Write(buf, bits[0]);
-    WriteCloseTag(buf, TAG_MemoryGuardEntry);
+    Exp::Write(buf, v.exp);
+    Bit::Write(buf, v.guard);
+    WriteCloseTag(buf, tag);
   }
-};
+}
 
-class AssumeWrite : public HashTableVisitor<PPoint,GuardTrueFalse>
+static void WriteGuardAssign(Buffer *buf, tag_t tag, PPoint point,
+                             const Vector<GuardAssign> &vals)
 {
- public:
-  Buffer *buf;
-  AssumeWrite(Buffer *_buf) : buf(_buf) {}
+  for (size_t vind = 0; vind < vals.Size(); vind++) {
+    const GuardAssign &v = vals[vind];
 
-  void Visit(PPoint &point, Vector<GuardTrueFalse> &vals) {
-    Assert(vals.Size() == 1);
-    const GuardTrueFalse &v = vals[0];
-
-    WriteOpenTag(buf, TAG_MemoryAssumeEntry);
+    WriteOpenTag(buf, tag);
     WriteTagUInt32(buf, TAG_Index, point);
-
-    if (v.true_guard) {
-      Bit::Write(buf, v.true_guard);
-    }
-    else {
-      Bit *false_bit = Bit::MakeConstant(false);
-      Bit::Write(buf, false_bit);
-      false_bit->DecRef();
-    }
-
-    if (v.false_guard) {
-      Bit::Write(buf, v.false_guard);
-    }
-    else {
-      Bit *false_bit = Bit::MakeConstant(false);
-      Bit::Write(buf, false_bit);
-      false_bit->DecRef();
-    }
-
-    WriteCloseTag(buf, TAG_MemoryAssumeEntry);
+    Exp::Write(buf, v.left);
+    Exp::Write(buf, v.right);
+    if (v.kind)
+      Exp::Write(buf, v.kind);
+    Bit::Write(buf, v.guard);
+    WriteCloseTag(buf, tag);
   }
-};
-
-class GuardExpWrite : public HashTableVisitor<PPoint,GuardExp>
-{
- public:
-  Buffer *buf;
-  tag_t tag;
-  GuardExpWrite(Buffer *_buf, tag_t _tag) : buf(_buf), tag(_tag) {}
-
-  void Visit(PPoint &point, Vector<GuardExp> &vals) {
-    for (size_t vind = 0; vind < vals.Size(); vind++) {
-      const GuardExp &v = vals[vind];
-
-      WriteOpenTag(buf, tag);
-      WriteTagUInt32(buf, TAG_Index, point);
-      Exp::Write(buf, v.exp);
-      Bit::Write(buf, v.guard);
-      WriteCloseTag(buf, tag);
-    }
-  }
-};
-
-class GuardAssignWrite : public HashTableVisitor<PPoint,GuardAssign>
-{
- public:
-  Buffer *buf;
-  tag_t tag;
-  GuardAssignWrite(Buffer *_buf, tag_t _tag) : buf(_buf), tag(_tag) {}
-
-  void Visit(PPoint &point, Vector<GuardAssign> &vals) {
-    for (size_t vind = 0; vind < vals.Size(); vind++) {
-      const GuardAssign &v = vals[vind];
-
-      WriteOpenTag(buf, tag);
-      WriteTagUInt32(buf, TAG_Index, point);
-      Exp::Write(buf, v.left);
-      Exp::Write(buf, v.right);
-      if (v.kind)
-        Exp::Write(buf, v.kind);
-      Bit::Write(buf, v.guard);
-      WriteCloseTag(buf, tag);
-    }
-  }
-};
+}
 
 void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
 {
@@ -165,21 +136,38 @@ void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
   WriteTagUInt32(buf, TAG_MemoryKindAlias, mcfg->m_alias->Kind());
   WriteTagUInt32(buf, TAG_MemoryKindClobber, mcfg->m_clobber->Kind());
 
-  GuardWrite        write_Guard(buf);
-  AssumeWrite       write_Assume(buf);
-  GuardExpWrite     write_Return(buf, TAG_MemoryReturnEntry);
-  GuardExpWrite     write_Target(buf, TAG_MemoryTargetEntry);
-  GuardAssignWrite  write_Assign(buf, TAG_MemoryAssignEntry);
-  GuardAssignWrite  write_Argument(buf, TAG_MemoryArgumentEntry);
-  GuardAssignWrite  write_Clobber(buf, TAG_MemoryClobberEntry);
+  HashIteratePtr(mcfg->m_guard_table)
+    WriteGuard(buf, mcfg->m_guard_table->ItKey(),
+               mcfg->m_guard_table->ItValueSingle());
 
-  mcfg->m_guard_table->VisitEach(&write_Guard);
-  mcfg->m_assume_table->VisitEach(&write_Assume);
-  mcfg->m_return_table->VisitEach(&write_Return);
-  mcfg->m_target_table->VisitEach(&write_Target);
-  mcfg->m_assign_table->VisitEach(&write_Assign);
-  mcfg->m_argument_table->VisitEach(&write_Argument);
-  mcfg->m_clobber_table->VisitEach(&write_Clobber);
+  HashIteratePtr(mcfg->m_assume_table)
+    WriteAssume(buf, mcfg->m_assume_table->ItKey(),
+                mcfg->m_assume_table->ItValueSingle());
+
+  HashIteratePtr(mcfg->m_return_table)
+    WriteGuardExp(buf, TAG_MemoryReturnEntry,
+                  mcfg->m_return_table->ItKey(),
+                  mcfg->m_return_table->ItValues());
+
+  HashIteratePtr(mcfg->m_target_table)
+    WriteGuardExp(buf, TAG_MemoryTargetEntry,
+                  mcfg->m_target_table->ItKey(),
+                  mcfg->m_target_table->ItValues());
+
+  HashIteratePtr(mcfg->m_assign_table)
+    WriteGuardAssign(buf, TAG_MemoryAssignEntry,
+                     mcfg->m_assign_table->ItKey(),
+                     mcfg->m_assign_table->ItValues());
+
+  HashIteratePtr(mcfg->m_argument_table)
+    WriteGuardAssign(buf, TAG_MemoryArgumentEntry,
+                     mcfg->m_argument_table->ItKey(),
+                     mcfg->m_argument_table->ItValues());
+
+  HashIteratePtr(mcfg->m_clobber_table)
+    WriteGuardAssign(buf, TAG_MemoryClobberEntry,
+                     mcfg->m_clobber_table->ItKey(),
+                     mcfg->m_clobber_table->ItValues());
 
   WriteCloseTag(buf, TAG_BlockMemory);
 }
@@ -2100,82 +2088,48 @@ void BlockMemory::Print(OutStream &out) const
   }
 }
 
-// as with TryMoveRef, drop a reference on bit unless 
+// as with TryMoveRef, drop a reference on bit unless it is true.
 static inline void TryDecRef(Bit *bit, ORef ov)
 {
   if (!bit->IsTrue())
     bit->DecRef(ov);
 }
 
-class GuardDecRef : public HashTableVisitor<PPoint,Bit*>
+static void DecRefGuard(const Vector<Bit*> &bits)
 {
-  void Visit(PPoint&, Vector<Bit*> &bits) {
-    Assert(bits.Size() == 1);
-    TryDecRef(bits[0], &bits);
-  }
-};
+  Assert(bits.Size() == 1);
+  TryDecRef(bits[0], &bits);
+}
 
-class AssumeDecRef : public HashTableVisitor<PPoint,GuardTrueFalse>
+static void DecRefAssume(const Vector<GuardTrueFalse> &vals)
 {
-  void Visit(PPoint&, Vector<GuardTrueFalse> &vals) {
-    Assert(vals.Size() == 1);
-    if (vals[0].true_guard)
-      TryDecRef(vals[0].true_guard, &vals);
-    if (vals[0].false_guard)
-      TryDecRef(vals[0].false_guard, &vals);
-  }
-};
+  Assert(vals.Size() == 1);
+  if (vals[0].true_guard)
+    TryDecRef(vals[0].true_guard, &vals);
+  if (vals[0].false_guard)
+    TryDecRef(vals[0].false_guard, &vals);
+}
 
-class GuardExpDecRef : public HashTableVisitor<PPoint,GuardExp>
+static void DecRefGuardExp(const Vector<GuardExp> &vals)
 {
-  void Visit(PPoint&, Vector<GuardExp> &vals) {
-    for (size_t ind = 0; ind < vals.Size(); ind++) {
-      GuardExp &v = vals[ind];
-      v.exp->DecRef(&vals);
-      TryDecRef(v.guard, &vals);
-    }
+  for (size_t ind = 0; ind < vals.Size(); ind++) {
+    const GuardExp &v = vals[ind];
+    v.exp->DecRef(&vals);
+    TryDecRef(v.guard, &vals);
   }
-};
+}
 
-class GuardAssignDecRef : public HashTableVisitor<PPoint,GuardAssign>
+static void DecRefGuardAssign(const Vector<GuardAssign> &vals)
 {
-  void Visit(PPoint&, Vector<GuardAssign> &vals) {
-    for (size_t ind = 0; ind < vals.Size(); ind++) {
-      GuardAssign &v = vals[ind];
-      v.left->DecRef(&vals);
-      v.right->DecRef(&vals);
-      if (v.kind)
-        v.kind->DecRef(&vals);
-      TryDecRef(v.guard, &vals);
-    }
+  for (size_t ind = 0; ind < vals.Size(); ind++) {
+    const GuardAssign &v = vals[ind];
+    v.left->DecRef(&vals);
+    v.right->DecRef(&vals);
+    if (v.kind)
+      v.kind->DecRef(&vals);
+    TryDecRef(v.guard, &vals);
   }
-};
-
-class ValDecRef : public HashTableVisitor<PointValue,GuardExp>
-{
-  void Visit(PointValue &o, Vector<GuardExp> &vals) {
-    o.lval->DecRef(&vals);
-    if (o.kind)
-      o.kind->DecRef(&vals);
-    for (size_t ind = 0; ind < vals.Size(); ind++) {
-      GuardExp &v = vals[ind];
-      v.exp->DecRef(&vals);
-      TryDecRef(v.guard, &vals);
-    }
-  }
-};
-
-class TranslateDecRef : public HashTableVisitor<PointTranslate,GuardExp>
-{
-  void Visit(PointTranslate &o, Vector<GuardExp> &res) {
-    o.exp->DecRef(&res);
-    for (size_t ind = 0; ind < res.Size(); ind++) {
-      GuardExp &v = res[ind];
-      v.exp->DecRef(&res);
-      TryDecRef(v.guard, &res);
-    }
-  }
-};
+}
 
 void BlockMemory::DecMoveChildRefs(ORef ov, ORef nv)
 {
@@ -2206,22 +2160,44 @@ void BlockMemory::UnPersist()
   if (!m_computed)
     return;
 
-  GuardDecRef        decref_Guard;
-  AssumeDecRef       decref_Assume;
-  GuardExpDecRef     decref_GuardExp;
-  GuardAssignDecRef  decref_GuardAssign;
-  ValDecRef          decref_Val;
-  TranslateDecRef    decref_Translate;
+  HashIteratePtr(m_guard_table)
+    DecRefGuard(m_guard_table->ItValues());
 
-  m_guard_table->VisitEach(&decref_Guard);
-  m_assume_table->VisitEach(&decref_Assume);
-  m_return_table->VisitEach(&decref_GuardExp);
-  m_target_table->VisitEach(&decref_GuardExp);
-  m_assign_table->VisitEach(&decref_GuardAssign);
-  m_argument_table->VisitEach(&decref_GuardAssign);
-  m_clobber_table->VisitEach(&decref_GuardAssign);
-  m_val_table->VisitEach(&decref_Val);
-  m_translate_table->VisitEach(&decref_Translate);
+  HashIteratePtr(m_assume_table)
+    DecRefAssume(m_assume_table->ItValues());
+
+  HashIteratePtr(m_return_table)
+    DecRefGuardExp(m_return_table->ItValues());
+
+  HashIteratePtr(m_target_table)
+    DecRefGuardExp(m_target_table->ItValues());
+
+  HashIteratePtr(m_assign_table)
+    DecRefGuardAssign(m_assign_table->ItValues());
+
+  HashIteratePtr(m_argument_table)
+    DecRefGuardAssign(m_argument_table->ItValues());
+
+  HashIteratePtr(m_clobber_table)
+    DecRefGuardAssign(m_clobber_table->ItValues());
+
+  HashIteratePtr(m_val_table) {
+    const Vector<GuardExp> &vals = m_val_table->ItValues();
+    DecRefGuardExp(vals);
+
+    const PointValue &o = m_val_table->ItKey();
+    o.lval->DecRef(&vals);
+    if (o.kind)
+      o.kind->DecRef(&vals);
+  }
+
+  HashIteratePtr(m_translate_table) {
+    const Vector<GuardExp> &vals = m_translate_table->ItValues();
+    DecRefGuardExp(vals);
+
+    const PointTranslate &o = m_translate_table->ItKey();
+    o.exp->DecRef(&vals);
+  }
 
   delete m_guard_table;
   delete m_assume_table;

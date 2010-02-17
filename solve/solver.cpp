@@ -1175,32 +1175,22 @@ void Solver::TryFixUninterpreted()
   */
 }
 
-class PrintAssignVisitor : public HashTableVisitor<FrameExp,mpz_value>
-{
-public:
-  void Visit(FrameExp &info, Vector<mpz_value> &values)
-  {
-    Assert(values.Size() == 1);
-    logout << "#" << info.frame << " " << info.exp << ": ";
-
-    // there is probably an mpz library function that does this.
-
-    static Buffer scratch_buf;
-    scratch_buf.Reset();
-
-    IntToString(&scratch_buf, values[0].n);
-    logout << (const char*) scratch_buf.base << endl;
-  }
-};
-
 void Solver::PrintRawAssignment()
 {
   Assert(m_assign_pinned);
 
   logout << "Assignment:" << endl;
 
-  PrintAssignVisitor visitor;
-  m_assign.VisitEach(&visitor);
+  HashIterate(m_assign) {
+    const FrameExp &info = m_assign.ItKey();
+    logout << "#" << info.frame << " " << info.exp << ": ";
+
+    static Buffer scratch_buf;
+    scratch_buf.Reset();
+
+    IntToString(&scratch_buf, m_assign.ItValueSingle().n);
+    logout << (const char*) scratch_buf.base << endl;
+  }
 }
 
 void Solver::Clear()
@@ -1317,23 +1307,13 @@ void Solver::PinAssign()
   }
 }
 
-class ClearAssignVisitor : public HashTableVisitor<FrameExp,mpz_value>
-{
-public:
-  void Visit(FrameExp&, Vector<mpz_value> &values)
-  {
-    Assert(values.Size() == 1);
-    mpz_clear(values[0].n);
-  }
-};
-
 void Solver::UnpinAssign()
 {
   Assert(m_assign_pinned);
   m_assign_pinned = false;
 
-  ClearAssignVisitor visitor;
-  m_assign.VisitEach(&visitor);
+  HashIterate(m_assign)
+    mpz_clear(m_assign.ItValueSingle().n);
 }
 
 void Solver::AsnCheckPointReached(FrameId frame, PPoint point)
