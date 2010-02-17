@@ -250,52 +250,6 @@ void SolverMUX::BaseAssert(SlvExpr exp)
   }
 }
 
-class PrintDeclVisitor : public SolverHashTableVisitor<Exp,SlvDecl>
-{
-public:
-  const Vector<SlvDecl> &decl_list;
-  BaseSolver *base;
-  SolverAssignment *assign;
-
-  PrintDeclVisitor(const Vector<SlvDecl> &_decl_list, BaseSolver *_base)
-    : decl_list(_decl_list), base(_base), assign(NULL)
-  {}
-
-  void Visit(FrameId frame, Exp *exp, SlvDecl decl)
-  {
-    SlvDecl new_decl = decl_list[(size_t) decl];
-
-    if (assign) {
-      FrameExp key(frame, exp);
-      Vector<mpz_value> *values = assign->Lookup(key, false);
-      if (values) {
-        Assert(values->Size() == 1);
-        base->DebugPrintAssign(new_decl, values->At(0).n);
-      }
-    }
-    else {
-      base->DebugPrintDecl(new_decl, Solver::IsBoolean(exp));
-    }
-  }
-};
-
-class PrintAssertVisitor : public SolverHashTableVisitor<Bit,SlvExpr>
-{
-public:
-  const Vector<SlvExpr> &expr_list;
-  BaseSolver *base;
-
-  PrintAssertVisitor(const Vector<SlvExpr> &_expr_list, BaseSolver *_base)
-    : expr_list(_expr_list), base(_base)
-  {}
-
-  void Visit(FrameId frame, Bit *bit, SlvExpr expr)
-  {
-    SlvExpr new_expr = expr_list[(size_t) expr];
-    base->DebugPrintAssert(new_expr);
-  }
-};
-
 bool SolverMUX::BaseCheck()
 {
   int true_solver = -1;
@@ -329,51 +283,13 @@ bool SolverMUX::BaseCheck()
     m_parent->CheckAssignmentBits();
 
     logout << "Failed Solver: " << m_solvers[false_solver]->Name() << endl;
-
-    PrintDeclVisitor visitor(m_decl_list[false_solver],
-                             m_solvers[false_solver]);
-    // m_parent->m_decl_table.VisitEach(&visitor);
-
-    visitor.assign = &m_parent->m_assign;
-    m_parent->m_decl_table.VisitEach(&visitor);
-
     abort();
-
-    /*
-    PrintAssertVisitor assert_visitor(m_expr_list[false_solver],
-                                      m_solvers[false_solver]);
-    m_parent->m_asserted_bit_table.VisitEach(&assert_visitor);
-
-    // abort further analysis.
-    abort();
-    */
   }
 
   return (true_solver >= 0);
 }
 
-class ReplaceDeclVisitor : public SolverHashTableVisitor<Exp,SlvDecl>
-{
-public:
-  const Vector<SlvDecl> &decl_list;
-  SolverDeclTable &new_decl_table;
-
-  ReplaceDeclVisitor(const Vector<SlvDecl> &_decl_list,
-                     SolverDeclTable &_new_decl_table)
-    : decl_list(_decl_list), new_decl_table(_new_decl_table)
-  {}
-
-  void Visit(FrameId frame, Exp *exp, SlvDecl decl)
-  {
-    SlvDecl new_decl = decl_list[(size_t) decl];
-    SlvDecl *pdecl = new_decl_table.Lookup(frame, exp, true);
-
-    Assert(*pdecl == NULL);
-    *pdecl = new_decl;
-  }
-};
-
-void SolverMUX::GetAssignment(const SolverDeclTable &decl_table,
+void SolverMUX::GetAssignment(SolverDeclTable &decl_table,
                               SolverAssignment &assign)
 {
   // we can only generate one assignment, so use m_assign_solver
@@ -382,8 +298,19 @@ void SolverMUX::GetAssignment(const SolverDeclTable &decl_table,
   // *this* BaseSolver, not the backend we need, so make a new table.
   SolverDeclTable new_decl_table;
 
-  ReplaceDeclVisitor visitor(m_decl_list[m_assign_solver], new_decl_table);
-  ((SolverDeclTable&)decl_table).VisitEach(&visitor);
+  const Vector<SlvDecl> &decl_list = m_decl_list[m_assign_solver];
+
+  HashIterate(decl_table) {
+    FrameId frame = decl_table.ItFrame();
+    Exp *exp = decl_table.ItKey();
+    SlvDecl decl = decl_table.ItValue();
+
+    SlvDecl new_decl = decl_list[(size_t) decl];
+    SlvDecl *pdecl = new_decl_table.Lookup(frame, exp, true);
+
+    Assert(*pdecl == NULL);
+    *pdecl = new_decl;
+  }
 
   m_solvers[m_assign_solver]->GetAssignment(new_decl_table, assign);
 }

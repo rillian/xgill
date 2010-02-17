@@ -164,7 +164,7 @@ class BaseSolver
   // fills in assign with data from the current satisfying assignment.
   // decl_table indicates the declarations for every uninterpreted variable,
   // as returned by MakeDeclaration.
-  virtual void GetAssignment(const SolverDeclTable &decl_table,
+  virtual void GetAssignment(SolverDeclTable &decl_table,
                              SolverAssignment &assign) = 0;
 
   // analogous to Solver method.

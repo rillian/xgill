@@ -831,32 +831,18 @@ void Solver::AddEquality(FrameId frame_one, FrameId frame_two,
   }
 }
 
-// visitor for accumulating all the pending exps for the specified frame.
-class GetPendingVisitor : public SolverHashTableVisitor<Exp,SlvExpr>
+void Solver::GetPendingExps(FrameId frame, Vector<Exp*> *exp_list)
 {
- public:
-  Solver *solver;
-  FrameId test_frame;
-  Vector<Exp*> *exp_list;
+  HashIterate(m_expr_pending_table) {
+    Assert(m_expr_pending_table.ItFrame() == frame);
 
-  void Visit(FrameId frame, Exp *exp, SlvExpr)
-  {
-    Assert(test_frame == frame);
-    solver->AddHandledExp(frame, exp);
+    Exp *exp = m_expr_pending_table.ItKey();
+    AddHandledExp(frame, exp);
 
     exp->IncRef(exp_list);
     exp_list->PushBack(exp);
   }
-};
 
-void Solver::GetPendingExps(FrameId frame, Vector<Exp*> *exp_list)
-{
-  GetPendingVisitor visitor;
-  visitor.solver = this;
-  visitor.test_frame = frame;
-  visitor.exp_list = exp_list;
-
-  m_expr_pending_table.VisitEach(&visitor);
   m_expr_pending_table.Clear();
 }
 
@@ -884,35 +870,27 @@ void Solver::ExpandPendingVal(FrameId frame)
   }
 }
 
-// visitor for checking that all asserted bits do indeed hold under
-// a satisfying assignment. failures here can indicate problems with
-// expression conversion, expression assignments or the solver itself.
-class CheckSatisfiableVisitor : public SolverHashTableVisitor<Bit,SlvExpr>
-{
- public:
-  Solver *solver;
-
-  void Visit(FrameId frame, Bit *bit, SlvExpr)
-  {
-    bool res;
-    solver->AsnBitValue(frame, bit, &res);
-
-    if (!res) {
-      logout << "ERROR: Asserted bit does not hold under assignment: #"
-             << frame << " " << bit << endl;
-      solver->PrintRawAssignment();
-      abort();
-    }
-  }
-};
-
 void Solver::CheckAssignmentBits()
 {
   Assert(m_assign_pinned);
 
-  CheckSatisfiableVisitor visitor;
-  visitor.solver = this;
-  m_asserted_bit_table.VisitEach(&visitor);
+  // failures here can indicate problems with expression conversion,
+  // expression assignments or the solver itself.
+
+  HashIterate(m_asserted_bit_table) {
+    FrameId frame = m_asserted_bit_table.ItFrame();
+    Bit *bit = m_asserted_bit_table.ItKey();
+
+    bool res;
+    AsnBitValue(frame, bit, &res);
+
+    if (!res) {
+      logout << "ERROR: Asserted bit does not hold under assignment: #"
+             << frame << " " << bit << endl;
+      PrintRawAssignment();
+      abort();
+    }
+  }
 }
 
 bool Solver::IsSatisfiable(bool force_alarm)

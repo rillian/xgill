@@ -141,43 +141,6 @@ bool g_simple_hash_cons_counts = false;
 bool g_skip_hash_cons_counts = false;
 bool g_printed_hash_cons = false;
 
-class DropRefsHashCons : public HashConsVisitor<HashObject>
-{
- public:
-  bool found_object;
-  DropRefsHashCons() : found_object(false) {}
-
-  virtual void Visit(HashObject *v) {
-    v->DecMoveChildRefs(v, NULL);
-    found_object = true;
-  }
-};
-
-class PrintLiveHashCons : public HashConsVisitor<HashObject>
-{
- public:
-  uint64_t min_stamp;
-  PrintLiveHashCons() : min_stamp((uint64_t) -1) {}
-
-  virtual void Visit(HashObject *v) {
-    if (v->Refs() != 0) {
-      logout << "  " << v->Refs() << ": [" << v->Hash() << "]" << endl;
-
-#ifdef DEBUG
-      v->PrintRefStamps();
-
-      // remember the earliest leaked reference.
-      uint64_t v_min_stamp = v->MinRefStamp();
-      if (v_min_stamp < min_stamp)
-        min_stamp = v_min_stamp;
-#else
-      logout << "  " << v << endl;
-#endif
-
-    }
-  }
-};
-
 void PrintHashConsRoots()
 {
   Assert(!g_printed_hash_cons);
@@ -188,29 +151,32 @@ void PrintHashConsRoots()
   // the contents of the hash itself changing.
   HashObject::g_delete_unused = false;
 
+  bool found_object = false;
   HashCons<HashObject> *hash;
-  DropRefsHashCons drop_visitor;
-  PrintLiveHashCons print_visitor;
 
   // drop references on every object still in a HashCons
   hash = g_hashcons_list;
   while (hash != NULL) {
-    hash->VisitEach(&drop_visitor);
+    if (hash->Size() != 0) {
+      found_object = true;
+      hash->DropAllChildRefs();
+    }
     hash = hash->m_hash_next;
   }
 
-  if (drop_visitor.found_object) {
+  if (found_object) {
     logout << "HashCons leaked objects:" << endl;
+    uint64_t min_stamp = (uint64_t) -1;
 
     // print out all objects that still have at least one reference
     hash = g_hashcons_list;
     while (hash != NULL) {
-      hash->VisitEach(&print_visitor);
+      hash->PrintLiveObjects(min_stamp);
       hash = hash->m_hash_next;
     }
 
 #ifdef DEBUG
-    logout << "Minimum leaked stamp: " << print_visitor.min_stamp << endl;
+    logout << "Minimum leaked stamp: " << min_stamp << endl;
 #endif
 
     logout << endl;
@@ -222,8 +188,6 @@ void PrintHashConsCounts()
   Assert(!g_printed_hash_cons);
 
   HashCons<HashObject> *hash;
-  DropRefsHashCons drop_visitor;
-  PrintLiveHashCons print_visitor;
 
   // accumulate the count of leaked objects from every HashCons.
   size_t count = 0;

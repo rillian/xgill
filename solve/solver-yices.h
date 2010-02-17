@@ -56,7 +56,7 @@ class SolverYices : public BaseSolver
 
   void BaseAssert(SlvExpr exp);
   bool BaseCheck();
-  void GetAssignment(const SolverDeclTable &decl_table,
+  void GetAssignment(SolverDeclTable &decl_table,
                      SolverAssignment &assign);
 
   void PrintUnsatCore();

@@ -31,14 +31,6 @@
 
 NAMESPACE_XGILL_BEGIN
 
-// visitor class for solver hash tables.
-template <class T, class U>
-class SolverHashTableVisitor
-{
- public:
-  virtual void Visit(FrameId frame, T *o, U v) = 0;
-};
-
 template <class T, class U>
 class SolverHashTable
 {
@@ -50,9 +42,6 @@ class SolverHashTable
   // is none and force is specified then a new entry will be created with 0
   // as the initial value of the result.
   U* Lookup(size_t frame, T *o, bool force);
-
-  // visit every entry in this hash table with the specified visitor.
-  void VisitEach(SolverHashTableVisitor<T,U> *visitor);
 
   // push a new context onto the hashtable's stack. any new lookups will go
   // onto this topmost context. lookups are allowed when there is no pushed
@@ -68,6 +57,22 @@ class SolverHashTable
 
   // whether this hash is empty.
   bool IsEmpty() const { return m_entry_count == 0; }
+
+  // iteration methods, analogous to those in HashTable.
+
+  // start a new iteration on this table.
+  void ItStart();
+
+  // return whether the iteration is finished, having traversed all entries.
+  bool ItDone();
+
+  // advance to the next entry in the iteration.
+  void ItNext();
+
+  // get the frame, key, or value associated with the current iteration entry.
+  FrameId ItFrame();
+  T* ItKey();
+  U& ItValue();
 
  private:
   // copy constructor and assignment not allowed.
@@ -134,6 +139,10 @@ class SolverHashTable
   // linked list for all the entries defined for the context.
   Vector<HashEntry*> m_contexts;
 
+  // entry and bucket for any active iteration.
+  HashEntry *m_iter_entry;
+  size_t m_iter_bucket;
+
   struct __HashEntry_List
   {
     static HashEntry**  GetNext(HashEntry *o) { return &o->next; }
@@ -151,7 +160,8 @@ template <class T, class U>
 SolverHashTable<T,U>::SolverHashTable(size_t min_bucket_count)
   : m_alloc(g_alloc_SolverHashTable),
     m_buckets(NULL), m_bucket_count(0), m_entry_count(0),
-    m_min_bucket_count(min_bucket_count)
+    m_min_bucket_count(min_bucket_count),
+    m_iter_entry(NULL), m_iter_bucket(0)
 {
   // we're not allocating until the first lookup occurs.
   Assert(min_bucket_count != 0);
@@ -160,6 +170,8 @@ SolverHashTable<T,U>::SolverHashTable(size_t min_bucket_count)
 template <class T, class U>
 U* SolverHashTable<T,U>::Lookup(size_t frame, T *o, bool force)
 {
+  Assert(!m_iter_entry);
+
   if (m_bucket_count == 0) {
     Assert(m_buckets == NULL);
     Resize(m_min_bucket_count);
@@ -203,26 +215,18 @@ U* SolverHashTable<T,U>::Lookup(size_t frame, T *o, bool force)
 }
 
 template <class T, class U>
-void SolverHashTable<T,U>::VisitEach(SolverHashTableVisitor<T,U> *visitor)
-{
-  for (size_t ind = 0; ind < m_bucket_count; ind++) {
-    HashEntry *entry = m_buckets[ind].e_begin;
-    while (entry != NULL) {
-      visitor->Visit(entry->frame, entry->source, entry->value);
-      entry = entry->next;
-    }
-  }
-}
-
-template <class T, class U>
 void SolverHashTable<T,U>::PushContext()
 {
+  Assert(!m_iter_entry);
+
   m_contexts.PushBack(NULL);
 }
 
 template <class T, class U>
 void SolverHashTable<T,U>::PopContext()
 {
+  Assert(!m_iter_entry);
+
   HashEntry *context = m_contexts.Back();
   m_contexts.PopBack();
 
@@ -248,6 +252,8 @@ void SolverHashTable<T,U>::PopContext()
 template <class T, class U>
 void SolverHashTable<T,U>::Clear()
 {
+  Assert(!m_iter_entry);
+
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
     HashBucket *bucket = &m_buckets[ind];
 
@@ -270,6 +276,71 @@ void SolverHashTable<T,U>::Clear()
   Assert(m_entry_count == 0);
   m_bucket_count = 0;
   m_contexts.Clear();
+}
+
+template <class T, class U>
+void SolverHashTable<T,U>::ItStart()
+{
+  Assert(!m_iter_entry);
+
+  for (size_t ind = 0; ind < m_bucket_count; ind++) {
+    HashEntry *entry = m_buckets[ind].e_begin;
+    if (entry) {
+      m_iter_entry = entry;
+      m_iter_bucket = ind;
+      return;
+    }
+  }
+}
+
+template <class T, class U>
+bool SolverHashTable<T,U>::ItDone()
+{
+  return (m_iter_entry == NULL);
+}
+
+template <class T, class U>
+void SolverHashTable<T,U>::ItNext()
+{
+  Assert(m_iter_entry);
+
+  if (m_iter_entry->next) {
+    // there are more entries for the active bucket.
+    m_iter_entry = m_iter_entry->next;
+    return;
+  }
+
+  for (size_t ind = m_iter_bucket + 1; ind < m_bucket_count; ind++) {
+    HashEntry *entry = m_buckets[ind].e_begin;
+    if (entry) {
+      m_iter_entry = entry;
+      m_iter_bucket = ind;
+    }
+  }
+
+  m_iter_entry = NULL;
+  m_iter_bucket = 0;
+}
+
+template <class T, class U>
+FrameId SolverHashTable<T,U>::ItFrame()
+{
+  Assert(m_iter_entry);
+  return m_iter_entry->frame;
+}
+
+template <class T, class U>
+T* SolverHashTable<T,U>::ItKey()
+{
+  Assert(m_iter_entry);
+  return m_iter_entry->source;
+}
+
+template <class T, class U>
+U& SolverHashTable<T,U>::ItValue()
+{
+  Assert(m_iter_entry);
+  return m_iter_entry->value;
 }
 
 template <class T, class U>

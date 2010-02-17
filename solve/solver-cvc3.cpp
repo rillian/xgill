@@ -247,7 +247,7 @@ bool SolverCVC3::BaseCheck()
   }
 }
 
-void SolverCVC3::GetAssignment(const SolverDeclTable &decl_table,
+void SolverCVC3::GetAssignment(SolverDeclTable &decl_table,
                                SolverAssignment &assign)
 {
   Assert(m_vc);

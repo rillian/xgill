@@ -446,13 +446,6 @@ inline void DecRefVector(const Vector<T*> &data, ORef v)
     return (const TYPEPFX ## NAME *) this;              \
   }
 
-template <class T>
-class HashConsVisitor
-{
- public:
-  virtual void Visit(T *v) = 0;
-};
-
 // normally at program exit if there are non-empty hashcons caches
 // then analysis will be performed to find a root set (those with incoming
 // references besides those from other leaked objects), and print their
@@ -498,11 +491,13 @@ class HashCons
   // for debugging.
   bool IsMember(const T *o);
 
-  // visit each element currently in the hash with the specified visitor.
-  void VisitEach(HashConsVisitor<T> *visitor);
-
   // get the number of objects in this table.
   size_t Size() { return m_object_count; }
+
+  // for finding reference leaks, drop the child refs of the objects in the
+  // hash, and print out the objects with at least one reference.
+  void DropAllChildRefs();
+  void PrintLiveObjects(uint64_t &min_stamp);
 
  private:
   // resize for a new bucket count
@@ -531,22 +526,20 @@ class HashCons
     ALLOC_OVERRIDE(g_alloc_HashCons);
   };
 
-  // buckets in this table
+  // buckets in this table.
   HashBucket *m_buckets;
 
-  // number of buckets in this table
+  // number of buckets in this table.
   size_t m_bucket_count;
 
-  // number of objects in this table
+  // number of objects in this table.
   size_t m_object_count;
 
-  // minimum bucket count the table will resize to
+  // minimum bucket count the table will resize to.
   size_t m_min_bucket_count;
 
- private:
-
  public:
-  // linked entry in a global list of all hashcons structures
+  // linked entry in a global list of all hashcons structures.
   HashCons<HashObject> *m_hash_next;
 
   ALLOC_OVERRIDE(g_alloc_HashCons);

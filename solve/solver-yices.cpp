@@ -296,60 +296,7 @@ bool SolverYices::BaseCheck()
   return (res == l_true);
 }
 
-class FillAssignVisitor : public SolverHashTableVisitor<Exp,SlvDecl>
-{
-public:
-  yices_context context;
-  yices_model model;
-  SolverAssignment &assign;
-
-  FillAssignVisitor(yices_context _context, yices_model _model,
-                    SolverAssignment &_assign)
-    : context(_context), model(_model), assign(_assign)
-  {}
-
-  void Visit(FrameId frame, Exp *exp, SlvDecl decl)
-  {
-    FrameExp key(frame, exp);
-
-    if (Solver::IsBoolean(exp)) {
-      lbool val = wrap_yices_get_value(model, decl);
-
-      if (val == l_undef)
-        return;
-
-      Vector<mpz_value> *values = assign.Lookup(key, true);
-      Assert(values->Empty());
-
-      values->PushBack(mpz_value());
-      mpz_init(values->At(0).n);
-
-      mpz_set_si(values->At(0).n, (val == l_true) ? 1 : 0);
-    }
-    else {
-      mpz_t res;
-      mpz_init(res);
-
-      int ret = wrap_yices_get_mpz_value(model, (yices_var_decl) decl, res);
-
-      if (ret == 0) {
-        mpz_clear(res);
-        return;
-      }
-
-      Vector<mpz_value> *values = assign.Lookup(key, true);
-      Assert(values->Empty());
-
-      values->PushBack(mpz_value());
-      mpz_init(values->At(0).n);
-
-      mpz_set(values->At(0).n, res);
-      mpz_clear(res);
-    }
-  }
-};
-
-void SolverYices::GetAssignment(const SolverDeclTable &decl_table,
+void SolverYices::GetAssignment(SolverDeclTable &decl_table,
                                 SolverAssignment &assign)
 {
   Assert(m_context);
@@ -361,10 +308,45 @@ void SolverYices::GetAssignment(const SolverDeclTable &decl_table,
   yices_model model = wrap_yices_get_model(m_context);
   Assert(model);
 
-  FillAssignVisitor visitor(m_context, model, assign);
+  HashIterate(decl_table) {
+    FrameId frame = decl_table.ItFrame();
+    Exp *exp = decl_table.ItKey();
+    SlvDecl decl = decl_table.ItValue();
 
-  // discard qualifier on decl_table, we won't be modifying it.
-  ((SolverDeclTable&)decl_table).VisitEach(&visitor);
+    if (Solver::IsBoolean(exp)) {
+      lbool val = wrap_yices_get_value(model, decl);
+
+      if (val != l_undef) {
+        Vector<mpz_value> *values = assign.Lookup(FrameExp(frame, exp), true);
+        Assert(values->Empty());
+
+        values->PushBack(mpz_value());
+        mpz_init(values->At(0).n);
+
+        mpz_set_si(values->At(0).n, (val == l_true) ? 1 : 0);
+      }
+    }
+    else {
+      mpz_t res;
+      mpz_init(res);
+
+      int ret = wrap_yices_get_mpz_value(model, (yices_var_decl) decl, res);
+
+      if (ret == 0) {
+        mpz_clear(res);
+      }
+      else {
+        Vector<mpz_value> *values = assign.Lookup(FrameExp(frame, exp), true);
+        Assert(values->Empty());
+
+        values->PushBack(mpz_value());
+        mpz_init(values->At(0).n);
+
+        mpz_set(values->At(0).n, res);
+        mpz_clear(res);
+      }
+    }
+  }
 }
 
 void SolverYices::PrintUnsatCore()

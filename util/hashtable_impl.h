@@ -56,18 +56,16 @@ HashTable<T,U,HT>::HashTable(const char *alloc_name, size_t min_bucket_count)
 template <class T, class U, class HT>
 Vector<U>* HashTable<T,U,HT>::Lookup(const T &o, bool force)
 {
+  Assert(!m_iter_entry);
+
   if (m_bucket_count == 0) {
     Assert(m_buckets == NULL);
-    if (force) Resize(m_min_bucket_count);
-    else return NULL;
+    Resize(m_min_bucket_count);
   }
-  else if (force) {
+  else {
     // need to do any resizing first to avoid invalidating bucket pointers.
     CheckBucketCount();
   }
-
-  // there should not be an active iteration.
-  Assert(!m_iter_entry);
 
   size_t ind = HT::Hash(0, o) % m_bucket_count;
   HashBucket *bucket = &m_buckets[ind];
@@ -116,7 +114,6 @@ bool HashTable<T,U,HT>::Insert(const T &o, const U &v)
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::Remove(const T &o)
 {
-  // there should not be an active iteration.
   Assert(!m_iter_entry);
 
   size_t ind = HT::Hash(0, o) % m_bucket_count;
@@ -141,7 +138,6 @@ void HashTable<T,U,HT>::Remove(const T &o)
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::Clear()
 {
-  // there should not be an active iteration.
   Assert(!m_iter_entry);
 
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
@@ -191,7 +187,6 @@ T HashTable<T,U,HT>::ChooseKey() const
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::ItStart()
 {
-  // there should not be an active iteration.
   Assert(!m_iter_entry);
 
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
@@ -258,8 +253,6 @@ U& HashTable<T,U,HT>::ItValueSingle()
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::Resize(size_t bucket_count)
 {
-  Assert(!m_iter_entry);
-
   Assert(bucket_count >= m_min_bucket_count);
   HashBucket *buckets = track_new<HashBucket>(m_alloc, bucket_count);
 

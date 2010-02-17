@@ -92,17 +92,46 @@ bool HashCons<T>::IsMember(const T *o)
 }
 
 template <class T>
-void HashCons<T>::VisitEach(HashConsVisitor<T> *visitor)
+void HashCons<T>::DropAllChildRefs()
 {
-  if (m_object_count == 0)
-    return;
+  // can only drop child references if it will not end up deleting objects,
+  // i.e. we are finding reference leaks at program teardown.
+  Assert(!HashObject::g_delete_unused);
 
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
     HashBucket *bucket = &m_buckets[ind];
 
     HashObject *o = bucket->e_begin;
     while (o != NULL) {
-      visitor->Visit((T*)o);
+      o->DecMoveChildRefs(o, NULL);
+      o = o->m_next;
+    }
+  }
+}
+
+template <class T>
+void HashCons<T>::PrintLiveObjects(uint64_t &min_stamp)
+{
+  for (size_t ind = 0; ind < m_bucket_count; ind++) {
+    HashBucket *bucket = &m_buckets[ind];
+
+    HashObject *o = bucket->e_begin;
+    while (o != NULL) {
+      if (o->Refs() != 0) {
+        logout << "  " << o->Refs() << ": [" << o->Hash() << "]" << endl;
+
+#ifdef DEBUG
+        o->PrintRefStamps();
+
+        // remember the earliest leaked reference.
+        uint64_t o_min_stamp = o->MinRefStamp();
+        if (o_min_stamp < min_stamp)
+          min_stamp = o_min_stamp;
+#else
+        logout << "  " << o << endl;
+#endif
+      }
+
       o = o->m_next;
     }
   }
