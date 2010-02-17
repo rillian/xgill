@@ -717,7 +717,7 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
   Vector<HeapWriteInfo> writes;
 
   Vector<Trace*> heap_traces;
-  invariant->GetUpdateTraces(&heap_traces);
+  GetUpdateTraces(invariant->GetBit(), &heap_traces);
 
   for (size_t ind = 0; ind < heap_traces.Size(); ind++) {
     Trace *heap_trace = heap_traces[ind];

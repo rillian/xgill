@@ -291,12 +291,8 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
     // we are generating during this pass from the modsets we generated
     // during a previous pass.
     function->IncRef();
-    BlockKind kind = B_CloneFunction;
-    if (loop) {
-      loop->IncRef();
-      kind = B_CloneLoop;
-    }
-    BlockId *mod_id = BlockId::Make(kind, function, loop);
+    if (loop) loop->IncRef();
+    BlockId *mod_id = BlockId::Make(id->Kind(), function, loop, true);
     BlockModset *mod = BlockModset::Make(mod_id);
 
     if (!TimerAlarm::ActiveExpired())
@@ -587,7 +583,8 @@ void RunAnalysis(const Vector<const char*> &functions)
         BlockModset *new_mod = data->block_mods.Back();
         BlockModset *old_mod = old_mods.Back();
 
-        Assert(new_mod->GetId()->Kind() == B_CloneFunction);
+        Assert(new_mod->GetId()->IsClone());
+        Assert(new_mod->GetId()->Kind() == B_Function);
         Assert(old_mod->GetId()->Kind() == B_Function);
         Assert(new_mod->GetId()->BaseVar() == old_mod->GetId()->BaseVar());
 

@@ -43,15 +43,7 @@ enum BlockKind {
   // block computing the value of an annotation.
   B_AnnotationFunc = 4,
   B_AnnotationInit = 5,
-  B_AnnotationComp = 6,
-
-  // cloned identifiers for functions and loops. these are not serialized;
-  // B_Function or B_Loop will be written instead when these are created,
-  // and when reading these can be created in lieu of the serialized
-  // B_Function or B_Loop. these allow two IDs to exist for the same function
-  // or loop, so that CFGs/modsets/etc. based on the IDs can exist separately.
-  B_CloneFunction,
-  B_CloneLoop
+  B_AnnotationComp = 6
 };
 
 // unique identifier for a block
@@ -64,8 +56,8 @@ class BlockId : public HashObject
   static BlockId* Read(Buffer *buf, bool clone = false);
 
   static BlockId* Make(BlockKind kind, Variable *var,
-                       String *loop = NULL) {
-    BlockId xb(kind, var, loop);
+                       String *loop = NULL, bool clone = false) {
+    BlockId xb(kind, var, loop, clone);
     return g_table.Lookup(xb);
   }
 
@@ -77,6 +69,11 @@ class BlockId : public HashObject
   // for NULL for B_Loop blocks.
   Variable* BaseVar() const { return m_var; }
   String* Loop() const { return m_loop; }
+
+  // return whether this is a cloned identifier. this flag is not serialized,
+  // but when reading a clone can be created instead of the regulard id.
+  // clones allow two IDs to exist for the same base identifier.
+  bool IsClone() const { return m_clone; }
 
   // shorthand for getting the name of the base variable, which for functions
   // is the fully decorated name.
@@ -90,7 +87,7 @@ class BlockId : public HashObject
   // query/set whether this has a write name specified. write names are used
   // to set the real name of a loop ID after it has been initially constructed
   // (loops can't get their full name until after loop splitting has finished).
-  // this write name replaces the Loop() value, but *only* when serializing.
+  // this write name is used instead of the loop name when serializing.
   bool HasWriteLoop() const;
   void SetWriteLoop(String *name);
 
@@ -100,13 +97,14 @@ class BlockId : public HashObject
 
  private:
   BlockKind m_kind;
-  Variable *m_var;  // VK_Func or VK_Glob (for initializers)
-  String *m_loop;   // NULL for main function body
+  Variable *m_var;
+  String *m_loop;
+  bool m_clone;
 
   // alternate write name for loop IDs.
   String *m_write_loop;
 
-  BlockId(BlockKind kind, Variable *var, String *loop);
+  BlockId(BlockKind kind, Variable *var, String *loop, bool clone);
 
  public:
   static HashCons<BlockId> g_table;

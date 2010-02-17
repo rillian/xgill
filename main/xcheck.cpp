@@ -37,9 +37,6 @@ ConfigOption check_file(CK_String, "check-file", "",
 ConfigOption xml_file(CK_String, "xml-out", "",
                       "file to receive XML report for single check");
 
-ConfigOption append_reports(CK_Flag, "append", NULL,
-                            "append reports to any existing database");
-
 // database receiving display XML for unverified assertions.
 const char *report_database = NULL;
 
@@ -49,13 +46,6 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
   // XML file. we'll just run on the single check directly.
   if (xml_file.IsSpecified())
     return;
-
-  // clear the output database unless we're appending to it.
-  if (!append_reports.IsSpecified()) {
-    t->PushAction(
-      Backend::Compound::XdbClearIfNotHash(
-          t, report_database, WORKLIST_FUNC_HASH));
-  }
 
   if (!checks.Empty()) {
     // doing a seed analysis, parse the functions from the check names.
@@ -404,7 +394,6 @@ int main(int argc, const char **argv)
   check_kind.Enable();
   check_file.Enable();
   xml_file.Enable();
-  append_reports.Enable();
 
   Vector<const char*> checks;
   bool parsed = Config::Parse(argc, argv, &checks);

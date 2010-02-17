@@ -61,17 +61,22 @@ static bool g_have_body = false;
 typedef HashSet<String*,String> StringSet;
 typedef HashTable<String*,String*,String> StringMap;
 
-// all CSUs, function bodies and globals we've written out.
-static StringSet g_write_csu;
+// names of all program values we've written out.
 static StringSet g_write_body;
 static StringSet g_write_init;
+static StringSet g_write_comp;
 
 // all files whose contents we've written out.
 static StringSet g_write_files;
 
-// function names which are new or changed from a previous run, only used
-// for incremental builds. subset of g_write_body.
+// for incremental builds, function names which are new or changed from
+// a previous run. subset of g_write_body.
 static StringSet g_body_new;
+
+// for incremental builds, function names which are not necessarily new
+// or changed, but may be affected by a new or changed annotation.
+// hold references.
+static StringSet g_body_reanalyze;
 
 // map from function names to the files containing them.
 // subset of g_write_body. filenames hold references.
@@ -89,6 +94,13 @@ typedef HashTable<String*,BlockCFG*,String> AnnotationHash;
 static AnnotationHash g_annot_func;
 static AnnotationHash g_annot_init;
 static AnnotationHash g_annot_comp;
+
+// for incremental analysis, any old annotations from a previous run.
+// these are erased from the databases (if they're still in the source,
+// they'll show up again in the annotations we write back out).
+static AnnotationHash g_old_annot_func;
+static AnnotationHash g_old_annot_init;
+static AnnotationHash g_old_annot_comp;
 
 // sets of escape/callgraph information which the block backend has received.
 typedef HashTable<String*,EscapeEdgeSet*,String> EscapeEdgeHash;
@@ -115,9 +127,106 @@ static inline void FixVersion(BlockPPoint *where)
   where->version = g_body_version.LookupSingle(where->id->Function());
 }
 
+// if there are any annotations in the database for key, remove those
+// annotations but store them in the specified hash.
+void RemoveAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
+{
+  if (!g_incremental) {
+    // only remove annotations when doing an incremental build.
+    // otherwise we can spuriously remove annotations if there is no manager.
+    return;
+  }
+
+  if (!xdb->Exists()) {
+    // there are no keys at all in the database.
+    return;
+  }
+
+  static Buffer scratch_buf;
+
+  if (!XdbFindUncompressed(xdb, key, &scratch_buf)) {
+    // this key is not in the database.
+    return;
+  }
+
+  // store the annotation CFGs we read in the supplied hash.
+  Vector<BlockCFG*> *entries = hash.Lookup(key, true);
+  Assert(entries->Empty());
+
+  key->IncRef(entries);
+
+  Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
+  BlockCFG::ReadList(&read_buf, entries, true);
+  scratch_buf.Reset();
+
+  // replace the annotation CFGs in the database with an empty list.
+  static Buffer empty_buf;
+  XdbReplaceCompress(xdb, key, &empty_buf);
+
+  for (size_t ind = 0; ind < entries->Size(); ind++)
+    entries->At(ind)->MoveRef(NULL, entries);
+}
+
+// for incremental builds, cfg is a newly added annotation; mark any functions
+// affected by this annotation for reanalysis.
+void MarkReanalyzedBlocks(BlockCFG *cfg)
+{
+  if (cfg->GetAnnotationKind() == AK_Precondition) {
+    // all callers of the annotated function should be reanalyzed.
+    Variable *func_var = cfg->GetId()->BaseVar();
+    CallEdgeSet *callers = CallerCache.Lookup(func_var);
+
+    if (callers) {
+      for (size_t ind = 0; ind < callers->GetEdgeCount(); ind++) {
+        const CallEdge &edge = callers->GetEdge(ind);
+        if (edge.callee == func_var &&
+            edge.where.id->Kind() != B_Initializer) {
+          String *function = edge.where.id->Function();
+          if (!g_body_reanalyze.Insert(function))
+            function->IncRef();
+        }
+      }
+    }
+
+    CallerCache.Release(func_var);
+  }
+
+  if (cfg->GetAnnotationKind() == AK_Invariant) {
+    // all functions writing to a trace which might affect this invariant
+    // need to be reanalyzed.
+    if (Bit *bit = BlockMemory::GetAnnotationBit(cfg)) {
+      Vector<Trace*> heap_traces;
+      GetUpdateTraces(bit, &heap_traces);
+
+      for (size_t ind = 0; ind < heap_traces.Size(); ind++) {
+        Trace *heap_trace = heap_traces[ind];
+        EscapeAccessSet *access_set = EscapeAccessCache.Lookup(heap_trace);
+
+        if (access_set) {
+          for (size_t aind = 0; aind < access_set->GetAccessCount(); aind++) {
+            const EscapeAccess &access = access_set->GetAccess(aind);
+            if (access.kind == EAK_Write &&
+                access.where.id->Kind() != B_Initializer) {
+              String *function = access.where.id->Function();
+              if (!g_body_reanalyze.Insert(function))
+                function->IncRef();
+            }
+          }
+        }
+
+        EscapeAccessCache.Release(heap_trace);
+        heap_trace->DecRef(&heap_traces);
+      }
+    }
+  }
+}
+
 // write out any annotations for key in one of the annotation databases,
 // and consume references for key/cfg_list stored in an annotation hashtable.
-void WriteAnnotations(Xdb *xdb, String *key, Vector<BlockCFG*> &cfg_list)
+// old_cfg_list indicates any old annotations for key; if there are new
+// annotations, mark any affected functions for reanalysis.
+void WriteAnnotations(Xdb *xdb, String *key, Vector<BlockCFG*> &cfg_list,
+                      Vector<BlockCFG*> *old_cfg_list)
 {
   if (cfg_list.Empty()) {
     key->DecRef(&cfg_list);
@@ -130,18 +239,21 @@ void WriteAnnotations(Xdb *xdb, String *key, Vector<BlockCFG*> &cfg_list)
 
   static Buffer scratch_buf;
 
-  // lookup and write any old entries first. this is only useful when
-  // there isn't a manager running, i.e. we weren't able to use the g_annot_*
+  // lookup and write any entries in the database first. this is only for when
+  // there isn't a manager running, i.e. we can't able to use the g_annot_*
   // tables to keep track of all annotations in the program.
   XdbFindUncompressed(xdb, key, &scratch_buf);
 
-  Vector<BlockCFG*> old_cfg_list;
+  Vector<BlockCFG*> read_list;
   Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
-  BlockCFG::ReadList(&read_buf, &old_cfg_list);
+  BlockCFG::ReadList(&read_buf, &read_list);
   scratch_buf.Reset();
 
-  for (size_t ind = 0; ind < old_cfg_list.Size(); ind++) {
-    BlockCFG *cfg = old_cfg_list[ind];
+  if (!read_list.Empty())
+    Assert(!g_incremental);
+
+  for (size_t ind = 0; ind < read_list.Size(); ind++) {
+    BlockCFG *cfg = read_list[ind];
 
     // watch for duplicate CFGs.
     if (cfg_list.Contains(cfg)) {
@@ -153,15 +265,41 @@ void WriteAnnotations(Xdb *xdb, String *key, Vector<BlockCFG*> &cfg_list)
     }
   }
 
-  // write the old and new entries out.
+  // write out the annotation CFGs.
   BlockCFG::WriteList(&scratch_buf, cfg_list);
-
   XdbReplaceCompress(xdb, key, &scratch_buf);
   scratch_buf.Reset();
 
+  // if we're doing an incremental build, look for functions to reanalyze
+  // due to newly added annotations.
+  if (g_incremental) {
+    for (size_t ind = 0; ind < cfg_list.Size(); ind++) {
+      BlockCFG *cfg = cfg_list[ind];
+
+      // skip annotations which were included in the old build.
+      bool existing = false;
+      if (old_cfg_list) {
+        for (size_t oind = 0; oind < old_cfg_list->Size(); oind++) {
+          if (old_cfg_list->At(oind)->GetId()->Loop() == cfg->GetId()->Loop())
+            existing = true;
+        }
+      }
+      if (existing)
+        continue;
+
+      MarkReanalyzedBlocks(cfg);
+    }
+  }
+
   key->DecRef(&cfg_list);
-  for (size_t ind = 0; ind < cfg_list.Size(); ind++)
-    cfg_list[ind]->DecRef(&cfg_list);
+  DecRefVector<BlockCFG>(cfg_list, &cfg_list);
+}
+
+// consume references for a list of old annotations which will not be written.
+void ClearAnnotations(String *key, Vector<BlockCFG*> &cfg_list)
+{
+  key->DecRef(&cfg_list);
+  DecRefVector<BlockCFG>(cfg_list, &cfg_list);
 }
 
 // read an escape edge set from buf and combine it with any in memory data.
@@ -541,7 +679,13 @@ void WriteWorklistIncremental()
 
     if (g_write_body.Lookup(function)) {
       // we saw the (unchanged) body so this function definitely exists.
-      old_functions.PushBack(function);
+
+      // if the function needs to be reanalyzed then mark it as new.
+      if (g_body_reanalyze.Lookup(function))
+        new_functions.PushBack(function);
+      else
+        old_functions.PushBack(function);
+
       continue;
     }
 
@@ -619,7 +763,11 @@ void WriteWorklistIncremental()
     // keep the file for the function around, for WriteWorklistFunctions.
     g_body_file.Insert(function, file);
 
-    old_functions.PushBack(function);
+    // if the function needs to be reanalyzed then mark it as new.
+    if (g_body_reanalyze.Lookup(function))
+      new_functions.PushBack(function);
+    else
+      old_functions.PushBack(function);
   }
 
   // write out the list of new/changed functions.
@@ -661,22 +809,37 @@ static size_t g_barrier_write = 0;
 // write out all block backend data to disk.
 void FinishBlockBackend()
 {
-  // write out any annotations we found.
+  // flush any escape/callgraph changes. this needs to be done before writing
+  // out the annotations so that g_body_reanalyze uses complete information.
+
+  FlushEscapeBackend();
+
+  // write out any annotations we found. these may update g_body_reanalyze
+  // so need to be done before the worklist is generated.
 
   HashIterate(g_annot_func)
     WriteAnnotations(g_annot_body_xdb,
-                     g_annot_func.ItKey(), g_annot_func.ItValues());
+                     g_annot_func.ItKey(), g_annot_func.ItValues(),
+                     g_old_annot_func.Lookup(g_annot_func.ItKey()));
 
   HashIterate(g_annot_init)
     WriteAnnotations(g_annot_init_xdb,
-                     g_annot_init.ItKey(), g_annot_init.ItValues());
+                     g_annot_init.ItKey(), g_annot_init.ItValues(),
+                     g_old_annot_init.Lookup(g_annot_init.ItKey()));
 
   HashIterate(g_annot_comp)
     WriteAnnotations(g_annot_comp_xdb,
-                     g_annot_comp.ItKey(), g_annot_comp.ItValues());
+                     g_annot_comp.ItKey(), g_annot_comp.ItValues(),
+                     g_old_annot_comp.Lookup(g_annot_comp.ItKey()));
 
-  // flush any escape/callgraph changes.
-  FlushEscapeBackend();
+  HashIterate(g_old_annot_func)
+    ClearAnnotations(g_old_annot_func.ItKey(), g_old_annot_func.ItValues());
+
+  HashIterate(g_old_annot_init)
+    ClearAnnotations(g_old_annot_init.ItKey(), g_old_annot_init.ItValues());
+
+  HashIterate(g_old_annot_comp)
+    ClearAnnotations(g_old_annot_comp.ItKey(), g_old_annot_comp.ItValues());
 
   // flush any worklist information.
   if (g_have_body) {
@@ -688,11 +851,13 @@ void FinishBlockBackend()
 
   // drop references on written names.
 
-  HashIterate(g_write_csu)   g_write_csu.ItKey()->DecRef();
+  HashIterate(g_write_comp)   g_write_comp.ItKey()->DecRef();
   HashIterate(g_write_body)  g_write_body.ItKey()->DecRef();
   HashIterate(g_write_init)  g_write_init.ItKey()->DecRef();
   HashIterate(g_write_files) g_write_files.ItKey()->DecRef();
   HashIterate(g_body_file)   g_body_file.ItValues()[0]->DecRef();
+
+  HashIterate(g_body_reanalyze) g_body_reanalyze.ItKey()->DecRef();
 
   // drop references on worklist data.
 
@@ -821,7 +986,7 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
     case TAG_Name: {
       String *name = String::ReadWithTag(&read_buf, TAG_Name);
 
-      if (!g_write_csu.Insert(name)) {
+      if (!g_write_comp.Insert(name)) {
         name->IncRef();
         String::WriteWithTag(&result_buf, name, TAG_Name);
       }
@@ -899,15 +1064,11 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
       CompositeCSU::Write(&write_buf, csu);
 
       String *name = csu->GetName();
-      Assert(g_write_csu.Lookup(name));
+      Assert(g_write_comp.Lookup(name));
 
       Assert(g_comp_xdb);
       XdbReplaceCompress(g_comp_xdb, name, &write_buf);
-
-      // remove any old annotations for the csu, for incremental builds.
-      // this keeps us from leaving behind ghosts of deleted annotations.
-      if (g_incremental)
-        XdbReplaceEmpty(g_annot_comp_xdb, name);
+      RemoveAnnotations(g_annot_comp_xdb, g_old_annot_comp, name);
 
       csu->DecRef();
       write_buf.Reset();
@@ -999,9 +1160,7 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
 
         Assert(g_body_xdb);
         XdbReplaceCompress(g_body_xdb, name, &write_buf);
-
-        if (g_incremental)
-          XdbReplaceEmpty(g_annot_body_xdb, name);
+        RemoveAnnotations(g_annot_body_xdb, g_old_annot_func, name);
 
         // remember the file this function was defined in.
         String *file = function_cfgs.Back()->GetBeginLocation()->FileName();
@@ -1013,9 +1172,7 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
 
         Assert(g_init_xdb);
         XdbReplaceCompress(g_init_xdb, name, &write_buf);
-
-        if (g_incremental)
-          XdbReplaceEmpty(g_annot_init_xdb, name);
+        RemoveAnnotations(g_annot_init_xdb, g_old_annot_init, name);
       }
       else {
         Assert(false);

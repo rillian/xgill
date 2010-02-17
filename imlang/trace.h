@@ -114,4 +114,8 @@ class Trace : public HashObject
   static HashCons<Trace> g_table;
 };
 
+// fill in traces with the set of traces which may affect the value of bit
+// when updated. for handling type and global invariants.
+void GetUpdateTraces(Bit *bit, Vector<Trace*> *traces);
+
 NAMESPACE_XGILL_END

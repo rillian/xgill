@@ -256,10 +256,6 @@ class WhereInvariant : public Where
   // expression for the base CSU itself, NULL if the base cannot be determined.
   Exp* GetWriteCSU(Exp *lval);
 
-  // fill in traces with any traces which will affect this invariant
-  // when updated somewhere.
-  void GetUpdateTraces(Vector<Trace*> *traces);
-
  private:
   // type being quantified over. NULL for purely global invariants.
   // if NULL, the bit refers only to global variables. otherwise, the bit

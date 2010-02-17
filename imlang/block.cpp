@@ -32,6 +32,7 @@ int BlockId::Compare(const BlockId *b0, const BlockId *b1)
   TryCompareValues(b0->Kind(), b1->Kind());
   TryCompareObjects(b0->BaseVar(), b1->BaseVar(), Variable);
   TryCompareObjects(b0->Loop(), b1->Loop(), String);
+  TryCompareValues(b0->IsClone(), b1->IsClone());
   return 0;
 }
 
@@ -42,17 +43,8 @@ BlockId* BlockId::Copy(const BlockId *b)
 
 void BlockId::Write(Buffer *buf, const BlockId *b)
 {
-  BlockKind kind = b->Kind();
-
-  // convert cloned IDs to regular IDs for writing.
-  switch (kind) {
-  case B_CloneFunction: kind = B_Function; break;
-  case B_CloneLoop:     kind = B_Loop;     break;
-  default: break;
-  }
-
   WriteOpenTag(buf, TAG_BlockId);
-  WriteTagUInt32(buf, TAG_Kind, kind);
+  WriteTagUInt32(buf, TAG_Kind, b->Kind());
   Variable::Write(buf, b->BaseVar());
   if (b->Loop() != NULL) {
     if (b->m_write_loop)
@@ -77,40 +69,27 @@ BlockId* BlockId::Read(Buffer *buf, bool clone)
     Try(ReadCloseTag(buf, TAG_BlockId));
   }
 
-  BlockKind nkind = (BlockKind) kind;
-
-  // convert regular IDs to cloned IDs if desired.
-  if (clone) {
-    switch (nkind) {
-    case B_Function: nkind = B_CloneFunction; break;
-    case B_Loop:     nkind = B_CloneLoop; break;
-    default: Assert(false);
-    }
-  }
-
-  return Make(nkind, var, loop);
+  return Make((BlockKind) kind, var, loop, clone);
 }
 
 /////////////////////////////////////////////////////////////////////
 // BlockId
 /////////////////////////////////////////////////////////////////////
 
-BlockId::BlockId(BlockKind kind, Variable *var, String *loop)
-  : m_kind(kind), m_var(var), m_loop(loop), m_write_loop(NULL)
+BlockId::BlockId(BlockKind kind, Variable *var, String *loop, bool clone)
+  : m_kind(kind), m_var(var), m_loop(loop), m_clone(clone), m_write_loop(NULL)
 {
   Assert(m_var);
   switch (m_kind) {
   case B_FunctionWhole:
   case B_Function:
   case B_Initializer:
-  case B_CloneFunction:
     Assert(!m_loop);
     break;
   case B_Loop:
   case B_AnnotationFunc:
   case B_AnnotationInit:
   case B_AnnotationComp:
-  case B_CloneLoop:
     Assert(m_loop);
     break;
   default:
@@ -120,6 +99,8 @@ BlockId::BlockId(BlockKind kind, Variable *var, String *loop)
   m_hash = Hash32(m_kind, m_var->Hash());
   if (m_loop)
     m_hash = Hash32(m_hash, m_loop->Hash());
+  if (m_clone)
+    m_hash++;
 }
 
 const char* BlockId::LoopName() const
@@ -157,6 +138,8 @@ void BlockId::SetWriteLoop(String *name)
 void BlockId::Print(OutStream &out) const
 {
   out << m_var->GetName()->Value();
+  if (m_clone) out << ":clone";
+
   switch (m_kind) {
   case B_FunctionWhole:
     out << ":whole"; break;
@@ -171,10 +154,6 @@ void BlockId::Print(OutStream &out) const
     out << ":annot_init:" << m_loop->Value(); break;
   case B_AnnotationComp:
     out << ":annot_comp:" << m_loop->Value(); break;
-  case B_CloneFunction:
-    out << ":clonefunc"; break;
-  case B_CloneLoop:
-    out << ":cloneloop:" << m_loop->Value(); break;
   default:
     Assert(false);
     break;

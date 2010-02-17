@@ -122,30 +122,6 @@ void XdbReplaceCompress(Xdb *xdb, String *key, Buffer *data)
   compress_buf.Reset();
 }
 
-void XdbReplaceEmpty(Xdb *xdb, String *key)
-{
-  if (!xdb->Exists()) {
-    // there are no keys at all in the database.
-    return;
-  }
-
-  Buffer key_buf((const uint8_t*) key->Value(), strlen(key->Value()) + 1);
-
-  if (!xdb->HasKey(&key_buf)) {
-    // this key is not in the database.
-    return;
-  }
-
-  static Buffer empty_buf;
-  static Buffer compress_buf;
-  CompressBufferInUse(&empty_buf, &compress_buf);
-
-  Buffer final_buf(compress_buf.base, compress_buf.pos - compress_buf.base);
-  xdb->Replace(&key_buf, &final_buf);
-
-  compress_buf.Reset();
-}
-
 /////////////////////////////////////////////////////////////////////
 // backend implementations
 /////////////////////////////////////////////////////////////////////

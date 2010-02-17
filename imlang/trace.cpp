@@ -432,4 +432,55 @@ void Trace::UnPersist()
   }
 }
 
+/////////////////////////////////////////////////////////////////////
+// Trace utility
+/////////////////////////////////////////////////////////////////////
+
+class UpdateTraceVisitor : public ExpVisitor
+{
+public:
+  Vector<Trace*> *traces;
+
+  UpdateTraceVisitor(Vector<Trace*> *_traces)
+    : ExpVisitor(VISK_Lval), traces(_traces)
+  {}
+
+  void Visit(Exp *exp)
+  {
+    Trace *trace = NULL;
+
+    if (ExpFld *nexp = exp->IfFld()) {
+      Field *field = nexp->GetField();
+      field->IncRef();
+      Exp *empty = Exp::MakeEmpty();
+      Exp *new_fld = Exp::MakeFld(empty, field);
+      String *csu_name = field->GetCSUType()->GetCSUName();
+      csu_name->IncRef();
+      trace = Trace::MakeComp(new_fld, csu_name);
+    }
+    else if (Variable *root = exp->Root()) {
+      if (root->IsGlobal()) {
+        exp->IncRef();
+        trace = Trace::MakeFromExp(NULL, exp);
+      }
+    }
+
+    if (trace) {
+      trace->MoveRef(NULL, traces);
+      traces->PushBack(trace);
+    }
+    else {
+      // this had better be the 'this' variable, which isn't
+      // an lvalue we need to look for updates on.
+      Assert(exp->IsVar() && exp->AsVar()->GetVariable()->Kind() == VK_This);
+    }
+  }
+};
+
+void GetUpdateTraces(Bit *bit, Vector<Trace*> *traces)
+{
+  UpdateTraceVisitor visitor(traces);
+  bit->DoVisit(&visitor);
+}
+
 NAMESPACE_XGILL_END
