@@ -170,9 +170,7 @@ void CallEdgeSet::Print(OutStream &out) const
   if (m_edges != NULL) {
     for (size_t eind = 0; eind < m_edges->Size(); eind++) {
       const CallEdge &edge = m_edges->At(eind);
-
-      out << "  " << edge.where.id << ":" << edge.where.point
-          << " -> " << edge.callee << endl;
+      out << "  " << edge.where << " -> " << edge.callee << endl;
     }
   }
 }
@@ -214,7 +212,7 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 {
   Assert(callee->IsGlobal());
 
-  BlockPPoint where(cfg->GetId(), edge->GetSource());
+  BlockPPoint where(cfg->GetId(), edge->GetSource(), cfg->GetVersion());
   Variable *caller = where.id->BaseVar();
 
   // add the caller edge to the cache.

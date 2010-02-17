@@ -183,7 +183,7 @@ bool GetLoopBackedges(BlockCFG *cfg, PPoint loophead)
   // in the reach table we just computed.
   for (PPoint point = 1; point <= cfg->GetPointCount(); point++) {
     if (!reachable.Lookup(point) && entry_reach_table->Lookup(point))
-      dominate_table->Insert(loophead, point);
+      dominate_table->Insert(PPointPair(loophead, point));
   }
 
   // backedges on the loophead are incoming edges whose source is
@@ -192,7 +192,7 @@ bool GetLoopBackedges(BlockCFG *cfg, PPoint loophead)
   const Vector<PEdge*> &incoming = cfg->GetIncomingEdges(loophead);
   for (size_t eind = 0; eind < incoming.Size(); eind++) {
     PEdge *edge = incoming[eind];
-    if (dominate_table->Lookup(loophead, edge->GetSource())) {
+    if (dominate_table->Lookup(PPointPair(loophead, edge->GetSource()))) {
       backedge_table->Insert(edge);
       found_backedge = true;
     }
@@ -214,7 +214,7 @@ bool GetLoopReachable(BlockCFG *cfg, PPoint loophead)
   if (!entry_reach_table->Lookup(loophead))
     return false;
 
-  reach_table->Insert(loophead, loophead);
+  reach_table->Insert(PPointPair(loophead, loophead));
   worklist.PushBack(loophead);
 
   bool found_irreducible = false;
@@ -232,18 +232,14 @@ bool GetLoopReachable(BlockCFG *cfg, PPoint loophead)
         continue;
 
       if (next == loophead) {
-        // we're in an irreducible loop. add the new edge to backedge_table
+        // we're in an irreducible loop. add the new edge to backedge_table.
         backedge_table->Insert(edge);
         found_irreducible = true;
         continue;
       }
 
-      // already did this target
-      if (reach_table->Lookup(loophead, next))
-        continue;
-
-      reach_table->Insert(loophead, next);
-      worklist.PushBack(next);
+      if (!reach_table->Insert(PPointPair(loophead, next)))
+        worklist.PushBack(next);
     }
   }
 
@@ -273,10 +269,9 @@ void GetLoopBody(BlockCFG *cfg, PPoint loophead,
     PPoint source = edge->GetSource();
 
     if (backedge_table->Lookup(edge)) {
-      Assert(reach_table->Lookup(loophead, source));
+      Assert(reach_table->Lookup(PPointPair(loophead, source)));
 
-      if (!body_table->Lookup(loophead, source)) {
-        body_table->Insert(loophead, source);
+      if (!body_table->Insert(PPointPair(loophead, source))) {
         body_list->PushBack(source);
         worklist.PushBack(source);
       }
@@ -298,9 +293,8 @@ void GetLoopBody(BlockCFG *cfg, PPoint loophead,
       PEdge *edge = incoming[iind];
       PPoint source = edge->GetSource();
 
-      if (reach_table->Lookup(loophead, source)) {
-        if (!body_table->Lookup(loophead, source)) {
-          body_table->Insert(loophead, source);
+      if (reach_table->Lookup(PPointPair(loophead, source))) {
+        if (!body_table->Insert(PPointPair(loophead, source))) {
           body_list->PushBack(source);
           worklist.PushBack(source);
         }
@@ -360,11 +354,11 @@ void CloneLoopBody(BlockCFG *base_cfg, PPoint loophead,
       continue;
 
     PPoint new_source = 0;
-    if (body_table->Lookup(loophead, source))
+    if (body_table->Lookup(PPointPair(loophead, source)))
       new_source = remapping->LookupSingle(source);
 
     PPoint new_target = 0;
-    if (body_table->Lookup(loophead, target))
+    if (body_table->Lookup(PPointPair(loophead, target)))
       new_target = remapping->LookupSingle(target);
 
     if (!new_source && !new_target) {
@@ -939,8 +933,8 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
   // add the new summary point to the body of any other loop which
   // already contains the head of this loop in its body.
   for (size_t lind = 0; lind < all_loops.Size(); lind++) {
-    if (body_table->Lookup(all_loops[lind], loophead)) {
-      body_table->Insert(all_loops[lind], summary_point);
+    if (body_table->Lookup(PPointPair(all_loops[lind], loophead))) {
+      body_table->Insert(PPointPair(all_loops[lind], summary_point));
       body_list_table->Insert(all_loops[lind], summary_point);
     }
   }
@@ -1228,7 +1222,7 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
           continue;
         Assert(loops[lind] != loops[xlind]);
 
-        if (body_table->Lookup(loops[lind], loops[xlind])) {
+        if (body_table->Lookup(PPointPair(loops[lind], loops[xlind]))) {
           is_viable = false;
           break;
         }

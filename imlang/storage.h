@@ -26,9 +26,6 @@
 
 NAMESPACE_XGILL_BEGIN
 
-// whether we are doing an incremental analysis for some patch.
-extern ConfigOption option_incremental;
-
 // database name containing function/initializer CFGs.
 #define BODY_DATABASE "src_body.xdb"
 #define INIT_DATABASE "src_init.xdb"
@@ -41,33 +38,25 @@ extern ConfigOption option_incremental;
 #define INIT_ANNOT_DATABASE "annot_init.xdb"
 #define COMP_ANNOT_DATABASE "annot_comp.xdb"
 
-// file to read/write information for an incremental analysis we're doing.
-#define INCREMENTAL_FILE "incremental.list"
-
-// hash name and sort for the callgraph we will topo sort from.
-#define CALLGRAPH_NAME "callgraph"
-
-// hash name for nodes in the callgraph containing indirect calls.
-#define CALLGRAPH_INDIRECT "callgraph_indirect"
-
 // database to receive contents of files.
 #define SOURCE_DATABASE "file_source.xdb"
 
 // database to receive contents of preprocessed files.
 #define PREPROC_DATABASE "file_preprocess.xdb"
 
-// hash storing files which have already been processed.
-#define PROCESSED_FILES_HASH  "processed_files_hash"
+// hash name for the callgraph edges to sort from. for the frontend.
+#define CALLGRAPH_EDGES "callgraph_edges"
 
-// commonly used transaction hash and sort names.
+// hash name for callgraph nodes containing indirect calls. for frontend.
+#define CALLGRAPH_INDIRECT "callgraph_indirect"
 
-// hash name for worklists.
+// hash names for worklists.
 #define WORKLIST_FUNC_HASH "worklist_func_hash"
 #define WORKLIST_GLOB_HASH "worklist_glob_hash"
 #define WORKLIST_COMP_HASH "worklist_comp_hash"
 
-// secondary worklist hash for function iteration.
-#define WORKLIST_FUNC_NEXT "worklist_func_hash_next"
+// hash name used by the block backend for storing the next stage's worklist.
+#define WORKLIST_FUNC_NEXT "worklist_func_next"
 
 // cache lookup structures.
 
@@ -101,13 +90,5 @@ void ClearBlockCaches();
 // read lists of compressed CFGs in transaction operations.
 void BlockCFGUncompress(Transaction *t, size_t var_result,
                         Vector<BlockCFG*> *cfgs);
-
-// if we are doing incremental analysis, get the list of functions that are
-// either new or have changed.
-void IncrementalGetFunctions(Vector<const char*> *functions);
-
-// if we are doing incremental analysis, return whether cfg no longer exists
-// and should not be analyzed.
-bool IncrementalExclude(BlockCFG *cfg);
 
 NAMESPACE_XGILL_END

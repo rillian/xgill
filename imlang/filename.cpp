@@ -18,7 +18,7 @@
 
 #include "filename.h"
 #include "storage.h"
-#include <backend/backend_xdb.h>
+#include <backend/backend_block.h>
 
 NAMESPACE_XGILL_BEGIN
 
@@ -169,17 +169,9 @@ public:
     size_t var = t->MakeVariable(true);
     data_list[0].processed_var = var;
 
-    TOperand *key_arg = new TOperandString(t, file->Value());
-
-    t->PushAction(
-      Backend::HashIsMember(t, PROCESSED_FILES_HASH, key_arg, var));
-    t->PushAction(
-      Backend::HashInsertKey(t, PROCESSED_FILES_HASH, key_arg));
+    t->PushAction(Backend::BlockQueryFile(t, file->Value(), var));
   }
 };
-
-// scratch buffer for reading file contents.
-static Buffer scratch_buf;
 
 class DumpFileData : public HashTableVisitor<String*,FileData>
 {
@@ -197,19 +189,23 @@ public:
     FileData data = data_list[0];
 
     TOperandBoolean *var_res = query->LookupBoolean(data.processed_var);
-    if (!var_res->IsTrue()) {
-      const char *file_name = file->Value();
-      TOperand *key_arg = new TOperandString(t, file_name);
+    if (var_res->IsTrue()) {
+      // already handled this file somewhere else.
+      return;
+    }
 
-      // compress and store the preprocessed file contents.
-      TOperandString *preproc_arg = TOperandString::Compress(t, data.contents);
-      t->PushAction(
-        Backend::XdbReplace(t, PREPROC_DATABASE, key_arg, preproc_arg));
+    const char *file_name = file->Value();
 
-      // don't look for the source for special compiler files.
-      if (file_name[0] == '<')
-        return;
+    // get the preprocessed file contents.
+    TOperandString *preproc_arg =
+      new TOperandString(t, data.contents->base,
+                         data.contents->pos - data.contents->base);
 
+    // get the source file contents.
+    TOperandString *source_arg = NULL;
+
+    // don't look for the source for special compiler files.
+    if (file_name[0] != '<') {
       // reconstruct the absolute filename from the normalized name.
       Buffer abs_name;
       if (file_name[0] != '/') {
@@ -218,23 +214,30 @@ public:
       }
       abs_name.Append(file_name, strlen(file_name) + 1);
 
-      const char *abs_cstr = (const char*) abs_name.base;
+      const char *abs_str = (const char*) abs_name.base;
 
       // compress and store the source file contents.
-      FileInStream file_in(abs_cstr);
+      FileInStream file_in(abs_str);
       if (file_in.IsError()) {
-        logout << "WARNING: Could not find source file: " << abs_cstr << endl;
+        logout << "WARNING: Could not find source file: " << abs_str << endl;
       }
       else {
-        ReadInStream(file_in, &scratch_buf);
+        Buffer *buf = new Buffer();
+        t->AddBuffer(buf);
 
-        TOperandString *source_arg = TOperandString::Compress(t, &scratch_buf);
-        t->PushAction(
-          Backend::XdbReplace(t, SOURCE_DATABASE, key_arg, source_arg));
-
-        scratch_buf.Reset();
+        ReadInStream(file_in, buf);
+        source_arg = new TOperandString(t, buf->base, buf->pos - buf->base);
       }
     }
+
+    // if we didn't get the source file contents, use the preprocessed
+    // contents instead.
+    if (!source_arg)
+      source_arg = preproc_arg;
+
+    // write out the file contents.
+    t->PushAction(
+      Backend::BlockWriteFile(t, file_name, source_arg, preproc_arg));
   }
 };
 

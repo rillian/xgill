@@ -31,7 +31,7 @@ extern ConfigOption print_indirect_calls;
 // can have many callees).
 struct CallEdge
 {
-  // call site of this edge.
+  // call site of this edge. this is versioned.
   BlockPPoint where;
 
   // function being called.

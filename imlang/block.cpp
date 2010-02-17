@@ -199,32 +199,21 @@ void BlockPPoint::Write(Buffer *buf, BlockPPoint bp)
   WriteOpenTag(buf, TAG_BlockPPoint);
   BlockId::Write(buf, bp.id);
   WriteTagUInt32(buf, TAG_Index, bp.point);
+  WriteTagUInt32(buf, TAG_Version, bp.version);
   WriteCloseTag(buf, TAG_BlockPPoint);
 }
 
 BlockPPoint BlockPPoint::Read(Buffer *buf)
 {
-  BlockId *id = NULL;
-  uint32_t point = 0;
+  uint32_t point, version;
 
   Try(ReadOpenTag(buf, TAG_BlockPPoint));
-  while (!ReadCloseTag(buf, TAG_BlockPPoint)) {
-    switch (PeekOpenTag(buf)) {
-    case TAG_BlockId:
-      Try(!id);
-      id = BlockId::Read(buf);
-      break;
-    case TAG_Index:
-      Try(!point);
-      Try(ReadTagUInt32(buf, TAG_Index, &point));
-      break;
-    default:
-      BadTag(PeekOpenTag(buf));
-    }
-  }
+  BlockId *id = BlockId::Read(buf);
+  Try(ReadTagUInt32(buf, TAG_Index, &point));
+  Try(ReadTagUInt32(buf, TAG_Version, &version));
+  Try(ReadCloseTag(buf, TAG_BlockPPoint));
 
-  Try(id);
-  return BlockPPoint(id, point);
+  return BlockPPoint(id, point, version);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -251,6 +240,8 @@ void BlockCFG::Write(Buffer *buf, const BlockCFG *cfg)
 
   WriteOpenTag(buf, TAG_BlockCFG);
   BlockId::Write(buf, cfg->m_id);
+  WriteTagUInt32(buf, TAG_Version, cfg->m_version);
+
   Location::Write(buf, cfg->m_begin_location);
   Location::Write(buf, cfg->m_end_location);
 
@@ -312,7 +303,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
   while (!ReadCloseTag(buf, TAG_BlockCFG)) {
     switch (PeekOpenTag(buf)) {
     case TAG_BlockId: {
-      Assert(!res);
+      Try(!res);
 
       BlockId *id = BlockId::Read(buf, clone);
       res = Make(id);
@@ -320,6 +311,14 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       // throw away all the data we read if the CFG is already filled in.
       if (res->m_points)
         drop_info = true;
+      break;
+    }
+    case TAG_Version: {
+      Try(res);
+      size_t version;
+      Try(ReadTagUInt32(buf, TAG_Version, &version));
+
+      res->SetVersion(version);
       break;
     }
     case TAG_Location: {
@@ -465,7 +464,7 @@ void BlockCFG::ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs, bool clone)
 /////////////////////////////////////////////////////////////////////
 
 BlockCFG::BlockCFG(BlockId *id)
-  : m_id(id), m_begin_location(NULL), m_end_location(NULL),
+  : m_id(id), m_version(0), m_begin_location(NULL), m_end_location(NULL),
     m_vars(NULL), m_loop_parents(NULL),
     m_loop_heads(NULL), m_loop_isomorphic(NULL),
     m_points(NULL), m_entry_point(0), m_exit_point(0), m_edges(NULL),
@@ -493,9 +492,9 @@ Variable* BlockCFG::FindMatchingVariable(Variable *var) const
   return NULL;
 }
 
-bool BlockCFG::Isomorphic(BlockCFG *cfg) const
+bool BlockCFG::IsEquivalent(BlockCFG *cfg) const
 {
-  // two CFGs are isomorphic if their edges are identical. the edges do not
+  // two CFGs are equivalent if their edges are identical. the edges do not
   // contain location information (which we are not comparing), and any other
   // difference between the CFGs will be reflected in a difference in the edges
   // (though the difference may be in a loop parent of this CFG).
@@ -514,6 +513,28 @@ bool BlockCFG::Isomorphic(BlockCFG *cfg) const
   }
 
   return true;
+}
+
+void BlockCFG::SetVersion(VersionId version)
+{
+  Assert(!m_version);
+  m_version = version;
+}
+
+void BlockCFG::SetBeginLocation(Location *loc)
+{
+  if (m_begin_location != NULL)
+    m_begin_location->DecRef(this);
+  loc->MoveRef(NULL, this);
+  m_begin_location = loc;
+}
+
+void BlockCFG::SetEndLocation(Location *loc)
+{
+  if (m_end_location != NULL)
+    m_end_location->DecRef(this);
+  loc->MoveRef(NULL, this);
+  m_end_location = loc;
 }
 
 void BlockCFG::AddVariable(Variable *var, Type *type)
@@ -619,22 +640,6 @@ void BlockCFG::SetAnnotationBit(Bit *bit)
     bit->MoveRef(NULL, this);
     m_annotation_bit = bit;
   }
-}
-
-void BlockCFG::SetBeginLocation(Location *loc)
-{
-  if (m_begin_location != NULL)
-    m_begin_location->DecRef(this);
-  loc->MoveRef(NULL, this);
-  m_begin_location = loc;
-}
-
-void BlockCFG::SetEndLocation(Location *loc)
-{
-  if (m_end_location != NULL)
-    m_end_location->DecRef(this);
-  loc->MoveRef(NULL, this);
-  m_end_location = loc;
 }
 
 PPoint BlockCFG::AddPoint(Location *loc)
@@ -826,7 +831,10 @@ void BlockCFG::ClearEdgeInfo()
 
 void BlockCFG::Print(OutStream &out) const
 {
-  out << "block: " << m_id << endl;
+  out << "block: " << m_id;
+  if (m_version) out << " [#" << m_version << "]";
+  out << endl;
+
   out << "begin: " << m_begin_location << endl;
   out << "end:   " << m_end_location << endl;
 

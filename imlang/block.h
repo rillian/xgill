@@ -112,25 +112,34 @@ class BlockId : public HashObject
   static HashCons<BlockId> g_table;
 };
 
-// pair of a block identifier and a point, forming a unique identifier
-// for each point in the program. each point of a program's execution
-// is uniquely represented by a chain of these.
-struct BlockPPoint {
+// version identifier for a block. versions start at zero for the original
+// clean build, and increase as incremental builds are performed which change
+// the block (changes preserving equivalence do not affect the version).
+typedef size_t VersionId;
+
+// a block identifier and program point, identifying a point in the program.
+// these may be versioned, indicating the version of the CFG containing
+// the point. versioned BlockPPoints are used when storing information that
+// may otherwise go out of sync after an incremental analysis.
+struct BlockPPoint
+{
   static void Write(Buffer *buf, BlockPPoint bp);
   static BlockPPoint Read(Buffer *buf);
 
   BlockId *id;
   PPoint point;
+  VersionId version;
 
-  BlockPPoint() : id(NULL), point(0) {}
-  BlockPPoint(BlockId *_id, PPoint _point) : id(_id), point(_point) {}
+  BlockPPoint() : id(NULL), point(0), version(0) {}
+  BlockPPoint(BlockId *_id, PPoint _point, VersionId _version = 0)
+    : id(_id), point(_point), version(_version) {}
 
   bool operator == (const BlockPPoint &o) const {
-    return id == o.id && point == o.point;
+    return id == o.id && point == o.point && version == o.version;
   }
 
   bool operator != (const BlockPPoint &o) const {
-    return id != o.id || point != o.point;
+    return id != o.id || point != o.point || version != o.version;
   }
 
   static int Compare(const BlockPPoint &v0, const BlockPPoint &v1)
@@ -140,6 +149,8 @@ struct BlockPPoint {
 
     if (v0.point < v1.point) return -1;
     if (v0.point > v1.point) return 1;
+    if (v0.version < v1.version) return -1;
+    if (v0.version > v1.version) return 1;
     return 0;
   }
 };
@@ -147,7 +158,9 @@ struct BlockPPoint {
 // print block/point identifiers directly to a stream.
 inline OutStream& operator << (OutStream &out, const BlockPPoint &bp)
 {
-  out << bp.id << ":" << bp.point;
+  out << bp.id;
+  if (bp.version) out << "#" << bp.version;
+  out << ":" << bp.point;
   return out;
 }
 
@@ -164,8 +177,8 @@ enum AnnotationKind {
 class PEdge;
 
 // information about a variable defined by a CFG.
-struct DefineVariable {
-
+struct DefineVariable
+{
   // variable being defined.
   Variable *var;
 
@@ -177,7 +190,8 @@ struct DefineVariable {
 };
 
 // information about a potential loop head in a CFG.
-struct LoopHead {
+struct LoopHead
+{
   // point in the CFG where back edges might target.
   PPoint point;
 
@@ -215,6 +229,9 @@ class BlockCFG : public HashObject
  public:
   // get the unique identifier for this block.
   BlockId* GetId() const { return m_id; }
+
+  // get the version of this block.
+  size_t GetVersion() const { return m_version; }
 
   // get the begin and end source locations of this block.
   Location* GetBeginLocation() const {
@@ -301,10 +318,10 @@ class BlockCFG : public HashObject
     return m_edges->At(ind);
   }
 
-  // return whether this CFG is isomorphic to cfg. these CFGs should be for
+  // return whether this CFG is equivalent to cfg. these CFGs should be for
   // the same function or loop, and either this or cfg will have a clone ID.
-  // two CFGs are isomorphic if they are identical except for location info.
-  bool Isomorphic(BlockCFG *cfg) const;
+  // two CFGs are equivalent if they are identical except for location info.
+  bool IsEquivalent(BlockCFG *cfg) const;
 
   // annotation CFG methods.
 
@@ -321,6 +338,9 @@ class BlockCFG : public HashObject
   bool IsAnnotationBitComputed() const { return m_annotation_computed; }
 
   // modification methods.
+
+  // set the version of this block.
+  void SetVersion(VersionId version);
 
   // set the begin and end locations of this function in the source.
   void SetBeginLocation(Location *loc);
@@ -387,6 +407,8 @@ class BlockCFG : public HashObject
 
  private:
   BlockId *m_id;
+
+  VersionId m_version;
 
   Location *m_begin_location;
   Location *m_end_location;
@@ -717,10 +739,28 @@ class PEdgeAnnotation : public PEdge
 
 // various hashing structures.
 
+struct PPointPair
+{
+  PPoint first;
+  PPoint second;
+
+  PPointPair() : first(0), second(0) {}
+  PPointPair(PPoint _first, PPoint _second) : first(_first), second(_second) {}
+
+  bool operator ==(const PPointPair &p) const {
+    return first == p.first && second == p.second;
+  }
+
+  static uint32_t Hash(uint32_t hash, const PPointPair &v) {
+    hash = Hash32(hash, v.first);
+    return Hash32(hash, v.second);
+  }
+};
+
 typedef DataHash<PPoint> hash_PPoint;
 
 typedef HashSet<PPoint,hash_PPoint> PPointHash;
-typedef HashSetPair<PPoint,PPoint,hash_PPoint,hash_PPoint> PPointPairHash;
+typedef HashSet<PPointPair,PPointPair> PPointPairHash;
 typedef HashTable<PPoint,PPoint,hash_PPoint> PPointListHash;
 typedef HashSet<PEdge*,HashObject> PEdgeHash;
 

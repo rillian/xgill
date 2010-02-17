@@ -93,56 +93,58 @@ class TransactionBackend
 
 // helpers for writing backend implementation functions.
 
+// macro for bailing out of an implementation function.
+#define BACKEND_FAIL(VALUE)                                             \
+  do {                                                                  \
+    logout << "Backend: Failed at " << __FILE__ << ":" << __LINE__;     \
+    TOperand *op = (VALUE);                                             \
+    if (op) {                                                           \
+      logout << ": ";                                                   \
+      op->Print(logout);                                                \
+    }                                                                   \
+    logout << endl;                                                     \
+    return false;                                                       \
+  } while (0)
+
 // check that the number of arguments is exactly NUM.
 #define BACKEND_ARG_COUNT(NUM)                                  \
-  if (arguments.Size() != NUM) {                                \
-    logout << "ERROR: Expected " #NUM " arguments." << endl;    \
-    return false;                                               \
-  }
+  if (arguments.Size() != NUM) BACKEND_FAIL(NULL);
 
 // get a NULL-terminated string from argument POS and store it in NAME/LEN.
 // LEN includes the NULL-terminator, i.e. it is strlen(NAME) + 1.
 #define BACKEND_ARG_STRING(POS, NAME, LEN)                              \
-  if (arguments[POS]->Kind() != TO_String) {                            \
-    logout << "ERROR: Argument " #POS " must be a string." << endl;     \
-    return false;                                                       \
-  }                                                                     \
+  if (arguments[POS]->Kind() != TO_String)                              \
+    BACKEND_FAIL(arguments[POS]);                                       \
   const uint8_t *NAME = arguments[POS]->AsString()->GetData();          \
   size_t LEN = arguments[POS]->AsString()->GetDataLength();             \
-  if (!ValidString(NAME, LEN)) {                                        \
-    logout << "ERROR: Argument " #POS " must be NULL-terminated: ";     \
-    PrintString(logout, NAME, LEN);                                     \
-    logout << endl;                                                     \
-    return false;                                                       \
-  }
+  if (!ValidString(NAME, LEN))                                          \
+    BACKEND_FAIL(arguments[POS]);
 
 // get an unformatted string from argument POS and store in DATA/LEN.
 #define BACKEND_ARG_DATA(POS, DATA, LEN)                                \
-  if (arguments[POS]->Kind() != TO_String) {                            \
-    logout << "ERROR: Argument " #POS " must be a string." << endl;     \
-    return false;                                                       \
-  }                                                                     \
+  if (arguments[POS]->Kind() != TO_String)                              \
+    BACKEND_FAIL(arguments[POS]);                                       \
   const uint8_t *DATA = arguments[POS]->AsString()->GetData();          \
   size_t LEN = arguments[POS]->AsString()->GetDataLength();             \
-  if (LEN == 0) {                                                       \
-    logout << "ERROR: Argument " #POS " must not be empty." << endl;    \
-    return false;                                                       \
-  }
+  if (LEN == 0)                                                         \
+    BACKEND_FAIL(arguments[POS]);
 
 // get a list from argument POS and store in LIST.
 #define BACKEND_ARG_LIST(POS, LIST)                                     \
-  if (arguments[POS]->Kind() != TO_List) {                              \
-    logout << "ERROR: Argument " #POS " must be a list." << endl;       \
-    return false;                                                       \
-  }                                                                     \
+  if (arguments[POS]->Kind() != TO_List)                                \
+    BACKEND_FAIL(arguments[POS]);                                       \
   TOperandList *LIST = arguments[POS]->AsList();
 
-// get an integer from argument POS and store in in VALUE.
+// get a boolean from argument POS and store it in VALUE.
+#define BACKEND_ARG_BOOLEAN(POS, VALUE)                                 \
+  if (arguments[POS]->Kind() != TO_Boolean)                             \
+    BACKEND_FAIL(arguments[POS]);                                       \
+  bool VALUE = arguments[POS]->AsBoolean()->IsTrue();
+
+// get an integer from argument POS and store it in VALUE.
 #define BACKEND_ARG_INTEGER(POS, VALUE)                                 \
-  if (arguments[POS]->Kind() != TO_Integer) {                           \
-    logout << "ERROR: Argument " #POS " must be an integer." << endl;   \
-    return false;                                                       \
-  }                                                                     \
+  if (arguments[POS]->Kind() != TO_Integer)                             \
+    BACKEND_FAIL(arguments[POS]);                                       \
   uint32_t VALUE = arguments[POS]->AsInteger()->GetValue();
 
 // helpers for constructing transactions.

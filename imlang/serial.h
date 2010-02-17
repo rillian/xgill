@@ -151,8 +151,11 @@
 //   TAG_String (loop)
 #define TAG_BlockId  1610
 
-// children: TAG_BlockId, TAG_Index
+// children: TAG_BlockId, TAG_Index, TAG_Version
 #define TAG_BlockPPoint  1612
+
+// children: TAG_UInt32
+#define TAG_Version  1614
 
 // children: TAG_Variable, TAG_Type
 #define TAG_DefineVariable  1618
@@ -188,6 +191,7 @@
 
 // children:
 //   TAG_BlockId
+//   TAG_Version
 //   TAG_Location x2
 //   TAG_Type (instance function only)
 //   TAG_Field (instance function only)

@@ -41,7 +41,6 @@ BACKEND_INC = \
 	backend/backend.h \
 	backend/backend_block.h \
 	backend/backend_compound.h \
-	backend/backend_graph.h \
 	backend/backend_hash.h \
 	backend/backend_util.h \
 	backend/backend_xdb.h \
@@ -139,7 +138,6 @@ BACKEND_OBJS = \
 	backend/backend.o \
 	backend/backend_block.o \
 	backend/backend_compound.o \
-	backend/backend_graph.o \
 	backend/backend_hash.o \
 	backend/backend_util.o \
 	backend/backend_xdb.o \

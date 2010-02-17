@@ -290,9 +290,6 @@ int main(int argc, const char **argv)
   spawn_count.Enable();
   memory_limit.Enable();
 
-  option_incremental.Enable();
-  option_incremental_files.Enable();
-
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);
   if (!parsed || !unspecified.Empty()) {

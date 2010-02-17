@@ -270,6 +270,15 @@ void Transaction::AddBuffer(Buffer *b)
   m_owned_buffers.PushBack(b);
 }
 
+const char* Transaction::CloneString(const char *str)
+{
+  size_t len = strlen(str) + 1;
+  Buffer *b = new Buffer(len);
+  memcpy(b->base, str, len);
+  m_owned_buffers.PushBack(b);
+  return (const char*) b->base;
+}
+
 void Transaction::Clear()
 {
   m_initial = false;

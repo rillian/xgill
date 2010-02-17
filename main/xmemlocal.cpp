@@ -67,193 +67,71 @@ ConfigOption print_cfgs(CK_Flag, "print-cfgs", NULL,
 ConfigOption print_memory(CK_Flag, "print-memory", NULL,
                           "print generated memory information");
 
-// counter indicating the index of the *next* pass we'll be processing.
-#define COUNTER_STAGE "counter"
-
-// counters used to make sure pending memory/modset data is written at the
-// right point. BARRIER_PROCESS indicates the number of workers that have
-// processed at least one function for the current stage and have not finished
-// with the stage yet. BARRIER_WRITE indicates the number of workers that
-// have finished processing functions for the stage but have not written
-// out their results yet. results cannot be written out until BARRIER_PROCESS
-// becomes zero, and the next stage cannot be started until both counters
-// become zero.
-#define BARRIER_PROCESS "barrier_process"
-#define BARRIER_WRITE "barrier_write"
-
 // number of callgraph stages.
 static size_t g_stage_count = 0;
 
-// maximum pass we will analyze.
-static size_t g_pass_limit = 0;
+// number of stages we will actually analyze, zero for no limit (fixpointing).
+static size_t g_stage_limit = 0;
 
 // perform an initialization transaction to setup the callgraph/worklist.
 void DoInitTransaction(Transaction *t, const Vector<const char*> &functions)
 {
-  // there are three cases we need to consider:
-  // 1. running on the entire set of functions. load the callgraph sort
-  //    and process the stages in turn (fixpointing the last stage).
-  // 2. running on a partial set of functions for incremental analysis.
-  //    seed the worklist with this set of functions and fixpoint them.
-  // 3. running on a set of functions specified at the command line.
-  //    do a single pass over these functions.
-  // for cases 2 and 3 the stage count will be zero and we will fill in
-  // the next list with the functions that are being analyzed.
+  // either load the worklist from file or seed it with the functions
+  // we got from the command line.
 
-  // handle the command line and incremental cases together,
-  Vector<const char*> new_functions;
+  size_t count_var = t->MakeVariable(true);
 
   if (!functions.Empty()) {
+    TOperandList *new_functions = new TOperandList(t);
     for (size_t ind = 0; ind < functions.Size(); ind++)
-      new_functions.PushBack(functions[ind]);
+      new_functions->PushOperand(new TOperandString(t, functions[ind]));
 
-    // the maximum pass is #1, we won't reanalyze any functions.
-    g_pass_limit = 1;
-  }
-  else if (option_incremental.IsSpecified()) {
-    IncrementalGetFunctions(&new_functions);
-  }
+    t->PushAction(Backend::BlockSeedWorklist(t, new_functions));
 
-  if (!new_functions.Empty() || option_incremental.IsSpecified()) {
-    size_t existvar = t->MakeVariable();
-    TOperand *existarg = new TOperandVariable(t, existvar);
-
-    TActionTest *nex_test = new TActionTest(t, existarg, false);
-    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_NEXT, existvar));
-    t->PushAction(nex_test);
-
-    for (size_t ind = 0; ind < new_functions.Size(); ind++) {
-      TOperand *key = new TOperandString(t, new_functions[ind]);
-      nex_test->PushAction(
-        Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, key));
-    }
-
-    SubmitTransaction(t);
-    t->Clear();
+    // don't fixpoint analysis if we are running on command line functions.
+    g_stage_limit = 1;
   }
   else {
-    // analysis of all functions, load the callgraph sort.
-    size_t count_result = t->MakeVariable(true);
-    t->PushAction(Backend::GraphLoadSort(t, CALLGRAPH_NAME, count_result));
-    SubmitTransaction(t);
+    t->PushAction(Backend::BlockLoadWorklist(t, count_var));
+  }
 
-    g_stage_count = t->LookupInteger(count_result)->GetValue();
-    t->Clear();
+  SubmitTransaction(t);
+
+  if (functions.Empty()) {
+    // get the stage count and set the pass limit.
+    g_stage_count = t->LookupInteger(count_var)->GetValue();
+
+    if (pass_limit.UIntValue() != 0)
+      g_stage_limit = g_stage_count + pass_limit.UIntValue();
   }
 }
 
 // perform a transaction to get the next key from the worklist. the body data
 // will not be set if there are no nodes remaining in the worklist.
-// have_barrier increments whether we have a reference on the barrier counter;
-// a reference will be added if a key is found and have_barrier is not set.
-// if the worklist is empty, advances to the next stage if the counters are ok.
-void DoFetchTransaction(Transaction *t, bool have_barrier_process,
+// have_process indicates whether we have a count on the process barrier,
+// process_result and write_result receives whether any worker has a count
+// on those barriers.
+void DoFetchTransaction(Transaction *t, bool have_process,
                         size_t stage_result,
                         size_t body_data_result, size_t modset_data_result,
-                        size_t barrier_process_result,
-                        size_t barrier_write_result)
+                        size_t process_result, size_t write_result)
 {
-  // $stage = CounterValue(stage)
-  // $body_key = HashChooseKey(worklist_name)
-  // $key_empty = StringIsEmpty($body_key)
-  // if !$key_empty
-  //   HashRemove(worklist_name, $body_key)
-  //   $body_data = XdbLookup(src_body, $body_key)
-  //   $modset_data = XdbLookup(src_modset, $body_key)
-  //   CounterInc(barrier_process) // if !have_barrier_process
-  // if $key_empty
-  //   $barrier_process = CounterValue(barrier_process)
-  //   $barrier_write = CounterValue(barrier_write)
-  //   $process_done = ValueEqual($barrier_process, 0)
-  //   $write_done = ValueEqual($barrier_write, 0)
-  //   if $process_done
-  //     if $write_done
-  //       $use_sort = ValueLessEqual($stage, stage_count)
-  //       if $use_sort
-  //         $next_list = GraphSortKeys(callgraph, $stage)
-  //       if !$use_sort
-  //         $next_list = HashAllKeys(worklist_next)
-  //         HashClear(worklist_next)
-  //         BlockFlush()
-  //       foreach $next_key in $next_list
-  //         HashInsertKey(worklist_name, $next_key)
-  //       CounterInc($stage)
-  //       $stage = CounterValue(stage)
-
-  TOperand *stage = new TOperandVariable(t, stage_result);
-
   TRANSACTION_MAKE_VAR(body_key);
   TRANSACTION_MAKE_VAR(key_empty);
 
-  t->PushAction(Backend::CounterValue(t, COUNTER_STAGE, stage_result));
-  t->PushAction(Backend::HashChooseKey(t, WORKLIST_FUNC_HASH, body_key_var));
+  t->PushAction(Backend::BlockCurrentStage(t, stage_result));
+  t->PushAction(Backend::BlockPopWorklist(t, !have_process, body_key_var));
+  t->PushAction(Backend::BlockHaveBarrierProcess(t, process_result));
+  t->PushAction(Backend::BlockHaveBarrierWrite(t, write_result));
   t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));
 
   TActionTest *non_empty_branch = new TActionTest(t, key_empty, false);
   t->PushAction(non_empty_branch);
 
   non_empty_branch->PushAction(
-    Backend::HashRemove(t, WORKLIST_FUNC_HASH, body_key));
-  non_empty_branch->PushAction(
     Backend::XdbLookup(t, BODY_DATABASE, body_key, body_data_result));
   non_empty_branch->PushAction(
     Backend::XdbLookup(t, MODSET_DATABASE, body_key, modset_data_result));
-
-  if (!have_barrier_process)
-    non_empty_branch->PushAction(Backend::CounterInc(t, BARRIER_PROCESS));
-
-  TActionTest *empty_branch = new TActionTest(t, key_empty, true);
-  t->PushAction(empty_branch);
-
-  TOperand *barrier_process = new TOperandVariable(t, barrier_process_result);
-  TOperand *barrier_write = new TOperandVariable(t, barrier_write_result);
-  TRANSACTION_MAKE_VAR(process_done);
-  TRANSACTION_MAKE_VAR(write_done);
-  TRANSACTION_MAKE_VAR(use_sort);
-  TRANSACTION_MAKE_VAR(next_list);
-
-  TOperand *zero_val = new TOperandInteger(t, 0);
-  TOperand *max_val = new TOperandInteger(t, g_stage_count);
-
-  empty_branch->PushAction(
-    Backend::CounterValue(t, BARRIER_PROCESS, barrier_process_result));
-  empty_branch->PushAction(
-    Backend::CounterValue(t, BARRIER_WRITE, barrier_write_result));
-  empty_branch->PushAction(
-    Backend::ValueEqual(t, barrier_process, zero_val, process_done_var));
-  empty_branch->PushAction(
-    Backend::ValueEqual(t, barrier_write, zero_val, write_done_var));
-
-  TActionTest *process_done_branch = new TActionTest(t, process_done, true);
-  empty_branch->PushAction(process_done_branch);
-  TActionTest *write_done_branch = new TActionTest(t, write_done, true);
-  process_done_branch->PushAction(write_done_branch);
-
-  write_done_branch->PushAction(
-    Backend::ValueLessEqual(t, stage, max_val, use_sort_var));
-
-  TActionTest *use_sort_branch = new TActionTest(t, use_sort, true);
-  use_sort_branch->PushAction(
-    Backend::GraphSortKeys(t, CALLGRAPH_NAME, stage, next_list_var));
-  write_done_branch->PushAction(use_sort_branch);
-
-  TActionTest *not_sort_branch = new TActionTest(t, use_sort, false);
-  not_sort_branch->PushAction(
-    Backend::HashAllKeys(t, WORKLIST_FUNC_NEXT, next_list_var));
-  not_sort_branch->PushAction(Backend::HashClear(t, WORKLIST_FUNC_NEXT));
-  not_sort_branch->PushAction(Backend::BlockFlush(t));
-  write_done_branch->PushAction(not_sort_branch);
-
-  TRANSACTION_MAKE_VAR(next_key);
-
-  TActionIterate *next_iterate =
-    new TActionIterate(t, next_key_var, next_list);
-  next_iterate->PushAction(
-    Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, next_key));
-  write_done_branch->PushAction(next_iterate);
-  write_done_branch->PushAction(Backend::CounterInc(t, COUNTER_STAGE));
-  write_done_branch->PushAction(
-    Backend::CounterValue(t, COUNTER_STAGE, stage_result));
 
   SubmitTransaction(t);
 }
@@ -471,11 +349,12 @@ void RunAnalysis(const Vector<const char*> &functions)
 
   // setup the callgraph sort or worklist seed.
   DoInitTransaction(t, functions);
+  t->Clear();
 
   // whether we have a reference on either of the barriers. if there is no
   // pending data then these will be false, otherwise exactly one will be true.
-  bool have_barrier_process = false;
-  bool have_barrier_write = false;
+  bool have_process = false;
+  bool have_write = false;
 
   // memory/modset data we have generated for the current stage but have
   // not written out yet.
@@ -500,22 +379,21 @@ void RunAnalysis(const Vector<const char*> &functions)
     size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
-    size_t barrier_process_result = t->MakeVariable(true);
-    size_t barrier_write_result = t->MakeVariable(true);
+    size_t process_result = t->MakeVariable(true);
+    size_t write_result = t->MakeVariable(true);
 
-    DoFetchTransaction(t, have_barrier_process, stage_result,
+    DoFetchTransaction(t, have_process, stage_result,
                        body_data_result, modset_data_result,
-                       barrier_process_result, barrier_write_result);
+                       process_result, write_result);
 
-    size_t new_stage = t->LookupInteger(stage_result)->GetValue() - 1;
-    Assert(new_stage != (size_t) -1);
+    size_t new_stage = t->LookupInteger(stage_result)->GetValue();
 
     if (new_stage > current_stage) {
-      Assert(!have_barrier_process);
-      Assert(!have_barrier_write);
+      Assert(!have_process);
+      Assert(!have_write);
 
-      if (g_pass_limit > 0) {
-        if (new_stage >= g_stage_count + g_pass_limit) {
+      if (g_stage_limit > 0) {
+        if (new_stage >= g_stage_limit) {
           cout << "Finished functions [#" << new_stage
                << "]: hit pass limit" << endl;
           break;
@@ -540,23 +418,21 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     if (!t->Lookup(body_data_result, false)) {
       // there are no more functions in this stage.
-      size_t barrier_process =
-        t->LookupInteger(barrier_process_result)->GetValue();
-      size_t barrier_write =
-        t->LookupInteger(barrier_write_result)->GetValue();
+      bool set_barrier_process = t->LookupBoolean(process_result)->IsTrue();
+      bool set_barrier_write = t->LookupBoolean(write_result)->IsTrue();
       t->Clear();
 
-      if (have_barrier_process) {
+      if (have_process) {
         // we're done with processing functions from this stage.
-        Assert(barrier_process > 0);
+        // shift our process count to a write count.
+        Assert(set_barrier_process);
 
-        t->PushAction(Backend::CounterDec(t, BARRIER_PROCESS));
-        t->PushAction(Backend::CounterInc(t, BARRIER_WRITE));
+        t->PushAction(Backend::BlockShiftBarrierProcess(t));
         SubmitTransaction(t);
         t->Clear();
 
-        have_barrier_process = false;
-        have_barrier_write = true;
+        have_process = false;
+        have_write = true;
 
         // drop any modsets we have cached, these may change after
         // we start the next stage.
@@ -566,10 +442,9 @@ void RunAnalysis(const Vector<const char*> &functions)
         continue;
       }
 
-      if (have_barrier_write && barrier_process == 0) {
+      if (have_write && !set_barrier_process) {
         // everyone is done processing functions from this stage,
         // write out our results.
-        Assert(barrier_write > 0);
 
         // amount of data we've added to the transaction.
         size_t data_written = 0;
@@ -644,12 +519,12 @@ void RunAnalysis(const Vector<const char*> &functions)
         // write out any indirect callgraph edges we generated.
         WritePendingEscape();
 
-        t->PushAction(Backend::CounterDec(t, BARRIER_WRITE));
+        t->PushAction(Backend::BlockDropBarrierWrite(t));
         SubmitTransaction(t);
         t->Clear();
 
         pending_data.Clear();
-        have_barrier_write = false;
+        have_write = false;
 
         cout << "Finished writing stage #" << current_stage << endl;
         continue;
@@ -659,14 +534,14 @@ void RunAnalysis(const Vector<const char*> &functions)
       // we could do, or we're waiting on some other worker to finish
       // processing functions in this stage or finish writing out its results.
       t->Clear();
-      if (barrier_process > 0 || barrier_write > 0)
+      if (set_barrier_process || set_barrier_write)
         sleep(1);
       continue;
     }
 
-    // have a function to process.
+    // we have a function to process.
 
-    have_barrier_process = true;
+    have_process = true;
     current_stage_processed = true;
 
     Vector<BlockCFG*> block_cfgs;
@@ -812,7 +687,6 @@ int main(int argc, const char **argv)
   timeout.Enable();
   trans_remote.Enable();
   trans_initial.Enable();
-  option_incremental.Enable();
 
   print_cfgs.Enable();
   print_memory.Enable();

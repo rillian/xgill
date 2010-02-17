@@ -132,6 +132,25 @@ class HashTable
   // choose an arbitrary key from this table.
   T ChooseKey() const;
 
+  // iteration methods. hashtables support iteration, with the restrictions
+  // that the hashtable cannot be modified during the iteration and a new
+  // iteration cannot be started before the existing iteration finishes.
+
+  // start a new iteration on this table.
+  void ItStart();
+
+  // return whether the iteration is finished, having traversed all entries.
+  bool ItDone();
+
+  // advance to the next entry in the iteration.
+  void ItNext();
+
+  // get the key associated with the current iteration entry.
+  const T& ItKey();
+
+  // get the values associated with the current iteration entry.
+  Vector<U>& ItValues();
+
  private:
   // resize for a new bucket count.
   void Resize(size_t bucket_count);
@@ -150,7 +169,7 @@ class HashTable
   // individual entry associating two objects.
   struct HashEntry {
     T source;
-    Vector<U> target_array;
+    Vector<U> target;
     HashEntry *next, **pprev;
 
     HashEntry();
@@ -179,6 +198,10 @@ class HashTable
 
   // minimum bucket count this table will resize to.
   size_t m_min_bucket_count;
+
+  // entry and bucket for any active iteration.
+  HashEntry *m_iter_entry;
+  size_t m_iter_bucket;
 
   struct __HashEntry_List
   {
@@ -244,6 +267,13 @@ class HashSet
     m_table.VisitEach(&wrap_visitor);
   }
 
+  // iteration methods for the elements of this set, as for a hashtable.
+
+  void ItStart() { m_table.ItStart(); }
+  bool ItDone() { return m_table.ItDone(); }
+  void ItNext() { m_table.ItNext(); }
+  const T& ItKey() { return m_table.ItKey(); }
+
  private:
   HashTable<T,char,HT> m_table;
 
@@ -257,86 +287,13 @@ class HashSet
   };
 };
 
-template <class T, class U>
-class HashSetPairVisitor
-{
- public:
-  virtual void Visit(T &o, U &v) = 0;
-};
+// macro with the for loop header for iterating through a HashTable or HashSet.
+#define HashIterate(TABLE)                                         \
+  for ((TABLE).ItStart(); !(TABLE).ItDone(); (TABLE).ItNext())
 
-template <class T, class U, class HT, class HU>
-class HashSetPair
-{
- public:
-  HashSetPair<T,U,HT,HU>(size_t min_bucket_count = 89)
-    : m_table(min_bucket_count)
-  {}
-
-  HashSetPair<T,U,HT,HU>(const char *alloc_name, size_t min_bucket_count = 89)
-    : m_table(alloc_name, min_bucket_count)
-  {}
-
-  // is the specified pair in the set?
-  bool Lookup(const T &o, const U &v) {
-    PairType p;
-    p.first = o;
-    p.second = v;
-    return m_table.Lookup(p);
-  }
-
-  // insert the specified pair into the set. return value is whether the
-  // pair was previously in the set.
-  bool Insert(const T &o, const U &v) {
-    PairType p;
-    p.first = o;
-    p.second = v;
-    return m_table.Insert(p);
-  }
-
-  // there are no entries in this table
-  bool IsEmpty() const {
-    return m_table.IsEmpty();
-  }
-
-  // clears all entries from this set
-  void Clear() {
-    m_table.Clear();
-  }
-
-  // visit each element of this pair set with the specified visitor.
-  void VisitEach(HashSetPairVisitor<T,U> *visitor)
-  {
-    VisitorWrapper wrap_visitor(visitor);
-    m_table.VisitEach(&wrap_visitor);
-  }
-
- private:
-
-  struct PairType {
-    T first;
-    U second;
-
-    bool operator ==(const PairType &p) const {
-      return first == p.first && second == p.second;
-    }
-
-    static uint32_t Hash(uint32_t hash, const PairType &v) {
-      hash = HT::Hash(hash, v.first);
-      return HU::Hash(hash, v.second);
-    }
-  };
-
-  HashSet<PairType,PairType> m_table;
-
-  class VisitorWrapper : public HashSetVisitor<PairType> {
-   public:
-    HashSetPairVisitor<T,U> *visitor;
-    VisitorWrapper(HashSetPairVisitor<T,U> *_visitor) : visitor(_visitor) {}
-    void Visit(PairType &p) {
-      visitor->Visit(p.first, p.second);
-    }
-  };
-};
+// ditto for a HashTable or HashSet pointer.
+#define HashIteratePtr(TABLE)                                      \
+  for ((TABLE)->ItStart(); !(TABLE)->ItDone(); (TABLE)->ItNext())
 
 #include "hashtable_impl.h"
 

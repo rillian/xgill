@@ -35,7 +35,8 @@ template <class T, class U, class HT>
 HashTable<T,U,HT>::HashTable(size_t min_bucket_count)
   : m_alloc(g_alloc_HashTable), m_buckets(NULL),
     m_bucket_count(0), m_entry_count(0),
-    m_min_bucket_count(min_bucket_count)
+    m_min_bucket_count(min_bucket_count),
+    m_iter_entry(NULL), m_iter_bucket(0)
 {
   // we're not allocating until the first lookup occurs.
   Assert(min_bucket_count != 0);
@@ -45,7 +46,8 @@ template <class T, class U, class HT>
 HashTable<T,U,HT>::HashTable(const char *alloc_name, size_t min_bucket_count)
   : m_alloc(LookupAlloc(alloc_name)), m_buckets(NULL),
     m_bucket_count(0), m_entry_count(0),
-    m_min_bucket_count(min_bucket_count)
+    m_min_bucket_count(min_bucket_count),
+    m_iter_entry(NULL), m_iter_bucket(0)
 {
   // ditto.
   Assert(min_bucket_count != 0);
@@ -56,12 +58,16 @@ Vector<U>* HashTable<T,U,HT>::Lookup(const T &o, bool force)
 {
   if (m_bucket_count == 0) {
     Assert(m_buckets == NULL);
-    Resize(m_min_bucket_count);
+    if (force) Resize(m_min_bucket_count);
+    else return NULL;
   }
   else if (force) {
     // need to do any resizing first to avoid invalidating bucket pointers.
     CheckBucketCount();
   }
+
+  // there should not be an active iteration.
+  Assert(!m_iter_entry);
 
   size_t ind = HT::Hash(0, o) % m_bucket_count;
   HashBucket *bucket = &m_buckets[ind];
@@ -69,7 +75,7 @@ Vector<U>* HashTable<T,U,HT>::Lookup(const T &o, bool force)
   HashEntry *e = bucket->e_begin;
   while (e != NULL) {
     if (e->source == o)
-      return &e->target_array;
+      return &e->target;
     e = e->next;
   }
 
@@ -80,8 +86,7 @@ Vector<U>* HashTable<T,U,HT>::Lookup(const T &o, bool force)
     new_e->source = o;
 
     LinkedListInsert<HashEntry,__HashEntry_List>(&bucket->e_pend, new_e);
-
-    return &new_e->target_array;
+    return &new_e->target;
   }
   else {
     return NULL;
@@ -111,6 +116,9 @@ bool HashTable<T,U,HT>::Insert(const T &o, const U &v)
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::Remove(const T &o)
 {
+  // there should not be an active iteration.
+  Assert(!m_iter_entry);
+
   size_t ind = HT::Hash(0, o) % m_bucket_count;
   HashBucket *bucket = &m_buckets[ind];
 
@@ -133,6 +141,9 @@ void HashTable<T,U,HT>::Remove(const T &o)
 template <class T, class U, class HT>
 void HashTable<T,U,HT>::Clear()
 {
+  // there should not be an active iteration.
+  Assert(!m_iter_entry);
+
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
     HashBucket *bucket = &m_buckets[ind];
 
@@ -160,7 +171,7 @@ void HashTable<T,U,HT>::VisitEach(HashTableVisitor<T,U> *visitor)
 
     HashEntry *e = bucket->e_begin;
     while (e != NULL) {
-      visitor->Visit(e->source, e->target_array);
+      visitor->Visit(e->source, e->target);
       e = e->next;
     }
   }
@@ -192,8 +203,69 @@ T HashTable<T,U,HT>::ChooseKey() const
 }
 
 template <class T, class U, class HT>
+void HashTable<T,U,HT>::ItStart()
+{
+  // there should not be an active iteration.
+  Assert(!m_iter_entry);
+
+  for (size_t ind = 0; ind < m_bucket_count; ind++) {
+    HashEntry *entry = m_buckets[ind].e_begin;
+    if (entry) {
+      m_iter_entry = entry;
+      m_iter_bucket = ind;
+      return;
+    }
+  }
+}
+
+template <class T, class U, class HT>
+bool HashTable<T,U,HT>::ItDone()
+{
+  return (m_iter_entry == NULL);
+}
+
+template <class T, class U, class HT>
+void HashTable<T,U,HT>::ItNext()
+{
+  Assert(m_iter_entry);
+
+  if (m_iter_entry->next) {
+    // there are more entries for the active bucket.
+    m_iter_entry = m_iter_entry->next;
+    return;
+  }
+
+  for (size_t ind = m_iter_bucket + 1; ind < m_bucket_count; ind++) {
+    HashEntry *entry = m_buckets[ind].e_begin;
+    if (entry) {
+      m_iter_entry = entry;
+      m_iter_bucket = ind;
+    }
+  }
+
+  m_iter_entry = NULL;
+  m_iter_bucket = 0;
+}
+
+template <class T, class U, class HT>
+const T& HashTable<T,U,HT>::ItKey()
+{
+  Assert(m_iter_entry);
+  return m_iter_entry->source;
+}
+
+template <class T, class U, class HT>
+Vector<U>& HashTable<T,U,HT>::ItValues()
+{
+  Assert(m_iter_entry);
+  return m_iter_entry->target;
+}
+
+template <class T, class U, class HT>
 void HashTable<T,U,HT>::Resize(size_t bucket_count)
 {
+  Assert(!m_iter_entry);
+
   Assert(bucket_count >= m_min_bucket_count);
   HashBucket *buckets = track_new<HashBucket>(m_alloc, bucket_count);
 

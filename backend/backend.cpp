@@ -33,8 +33,7 @@ NAMESPACE_XGILL_BEGIN
   /* general utility backends */                \
   MACRO(backend_Util)                           \
   MACRO(backend_Xdb)                            \
-  MACRO(backend_Hash)                           \
-  MACRO(backend_Graph)
+  MACRO(backend_Hash)
 
 #define REGISTER_BACKEND(BACKEND)  extern TransactionBackend BACKEND;
 ITERATE_BACKENDS(REGISTER_BACKEND)

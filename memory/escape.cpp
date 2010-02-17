@@ -1001,11 +1001,11 @@ void EscapeProcessCFG(BlockCFG *cfg)
         }
       }
 
+      BlockPPoint where(cfg->GetId(), cfg->GetEntryPoint(), cfg->GetVersion());
+
       Assert(func_var);
       if (this_type) {
         ProcessBaseClasses(this_type);
-
-        BlockPPoint where(cfg->GetId(), cfg->GetEntryPoint());
         ProcessMaybeVirtualFunction(where, this_type, func_var);
       }
     }
@@ -1016,7 +1016,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
     PEdge *edge = cfg->GetEdge(eind);
 
     // get the identifier for the source of this edge.
-    BlockPPoint where(id, edge->GetSource());
+    BlockPPoint where(id, edge->GetSource(), cfg->GetVersion());
 
     switch (edge->Kind()) {
     case EGK_Skip:
@@ -1034,7 +1034,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
 
       // special case assignments to vptr entries. these will only appear
       // in constructors, but there may be assignments to vtables of subfields
-      // of the base type if case of multiple inheritance.
+      // of the base type in case of multiple inheritance.
       if (ExpVPtr *nleft = left_side->IfVPtr()) {
         if (ExpVar *nright = right_side->IfVar()) {
           TypeCSU *object_type = nleft->GetTarget()->GetType()->AsCSU();
@@ -1093,7 +1093,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
 
 void EscapeProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 {
-  BlockPPoint where(cfg->GetId(), edge->GetSource());
+  BlockPPoint where(cfg->GetId(), edge->GetSource(), cfg->GetVersion());
   TypeFunction *type = edge->GetType();
 
   Exp *return_val = edge->GetReturnValue();

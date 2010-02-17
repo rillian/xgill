@@ -23,7 +23,6 @@
 #include "backend_util.h"
 #include "backend_xdb.h"
 #include "backend_hash.h"
-#include "backend_graph.h"
 
 NAMESPACE_XGILL_BEGIN
 

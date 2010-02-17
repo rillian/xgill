@@ -33,7 +33,7 @@ struct EscapeEdge
   // target trace location of the edge.
   Trace *target;
 
-  // point in the program where the escape edge occurs.
+  // point in the program where the escape edge occurs. this is versioned.
   BlockPPoint where;
 
   // whether this edge moves data from a callee to caller, or vice versa.
@@ -152,7 +152,7 @@ struct EscapeAccess
   // the trace location being accessed.
   Trace *target;
 
-  // point in the program where the access occurs.
+  // point in the program where the access occurs. this is versioned.
   BlockPPoint where;
 
   // field for EAK_Fld and EAK_Rfld accesses.

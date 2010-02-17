@@ -24,28 +24,21 @@ NAMESPACE_XGILL_BEGIN
 // backend data
 /////////////////////////////////////////////////////////////////////
 
-BACKEND_IMPL_BEGIN
-
-class DataStringDecRef : public HashTableVisitor<DataString*,DataString*>
+void ClearStringHash(BackendStringHash *table)
 {
-  void Visit(DataString *&str, Vector<DataString*> &str_list) {
-    str->DecRef(&str_list);
-    for (size_t ind = 0; ind < str_list.Size(); ind++)
-      str_list[ind]->DecRef(&str_list);
+  HashIteratePtr(table) {
+    Vector<String*> &str_list = table->ItValues();
+    table->ItKey()->DecRef(&str_list);
+    DecRefVector<String>(str_list, &str_list);
   }
-};
-
-void ClearDataStringHash(DataStringHash *table)
-{
-  DataStringDecRef decref_DataString;
-  table->VisitEach(&decref_DataString);
-  table->Clear();
 }
+
+BACKEND_IMPL_BEGIN
 
 // name and contents for an in-memory hash
 struct HashInfo {
   String *name;       // holds a reference
-  DataStringHash *table;
+  BackendStringHash *table;
 
   HashInfo()
     : name(NULL), table(NULL)
@@ -62,7 +55,7 @@ void ClearHashes()
 
     info.name->DecRef();
     if (info.table)
-      ClearDataStringHash(info.table);
+      ClearStringHash(info.table);
     delete info.table;
   }
   hashes.Clear();
@@ -79,15 +72,15 @@ HashInfo& GetHash(const uint8_t *name, bool do_create = true)
 
       // create the hash if we previously did a non-create access.
       if (do_create && info.table == NULL)
-        info.table = new DataStringHash();
+        info.table = new BackendStringHash();
 
       return info;
     }
   }
 
-  DataStringHash *table = NULL;
+  BackendStringHash *table = NULL;
   if (do_create)
-    table = new DataStringHash();
+    table = new BackendStringHash();
 
   HashInfo info;
   info.name = name_str;
@@ -99,7 +92,7 @@ HashInfo& GetHash(const uint8_t *name, bool do_create = true)
 
 BACKEND_IMPL_END
 
-DataStringHash* GetNamedHash(const uint8_t *name)
+BackendStringHash* GetNamedHash(const uint8_t *name)
 {
   return BACKEND_IMPL::GetHash(name, false).table;
 }
@@ -116,7 +109,7 @@ bool HashExists(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
-  DataStringHash *hash = GetHash(hash_name, false).table;
+  BackendStringHash *hash = GetHash(hash_name, false).table;
 
   *result = new TOperandBoolean(t, hash != NULL);
   return true;
@@ -129,7 +122,7 @@ bool HashClear(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
   HashInfo &info = GetHash(hash_name, true);
-  ClearDataStringHash(info.table);
+  ClearStringHash(info.table);
 
   return true;
 }
@@ -140,7 +133,7 @@ bool HashIsEmpty(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
   *result = new TOperandBoolean(t, hash->IsEmpty());
   return true;
@@ -155,7 +148,7 @@ bool HashInsertKey(Transaction *t, const Vector<TOperand*> &arguments,
 
   HashInfo &info = GetHash(hash_name, true);
 
-  DataString *keystr = DataString::Make(key_data, key_length);
+  String *keystr = String::Make((const char*) key_data);
 
   if (info.table->Lookup(keystr, false) != NULL) {
     keystr->DecRef();
@@ -163,7 +156,7 @@ bool HashInsertKey(Transaction *t, const Vector<TOperand*> &arguments,
   }
 
   // force the insert and consume the reference on keystr.
-  Vector<DataString*> *entries = info.table->Lookup(keystr, true);
+  Vector<String*> *entries = info.table->Lookup(keystr, true);
   keystr->MoveRef(NULL, entries);
 
   return true;
@@ -175,14 +168,14 @@ bool HashInsertValue(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(3);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
-  BACKEND_ARG_DATA(2, value_data, value_length);
+  BACKEND_ARG_STRING(2, value_data, value_length);
 
   HashInfo &info = GetHash(hash_name, true);
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  DataString *valuestr = DataString::Make(value_data, value_length);
+  String *keystr = String::Make((const char*) key_data);
+  String *valuestr = String::Make((const char*) value_data);
 
-  Vector<DataString*> *entries = info.table->Lookup(keystr, false);
+  Vector<String*> *entries = info.table->Lookup(keystr, false);
   if (entries != NULL) {
     keystr->DecRef();
   }
@@ -212,14 +205,14 @@ bool HashInsertCheck(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(3);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
-  BACKEND_ARG_DATA(2, value_data, value_length);
+  BACKEND_ARG_STRING(2, value_data, value_length);
 
   HashInfo &info = GetHash(hash_name, true);
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  DataString *valuestr = DataString::Make(value_data, value_length);
+  String *keystr = String::Make((const char*) key_data);
+  String *valuestr = String::Make((const char*) value_data);
 
-  Vector<DataString*> *entries = info.table->Lookup(keystr, false);
+  Vector<String*> *entries = info.table->Lookup(keystr, false);
   if (entries != NULL) {
     keystr->DecRef();
   }
@@ -252,8 +245,8 @@ bool HashInsertCheck(Transaction *t, const Vector<TOperand*> &arguments,
 
   // add all the entries to the list result.
   for (size_t eind = 0; eind < entries->Size(); eind++) {
-    DataString *ds = entries->At(eind);
-    TOperand *val = new TOperandString(t, ds->Value(), ds->ValueLength());
+    String *ds = entries->At(eind);
+    TOperand *val = new TOperandString(t, ds->Value());
     list_val->PushOperand(val);
   }
 
@@ -267,22 +260,17 @@ bool HashChooseKey(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
   if (hash->IsEmpty()) {
     *result = new TOperandString(t, "");
     return true;
   }
 
-  DataString *key = hash->ChooseKey();
-  size_t key_length = key->ValueLength();
+  String *key = hash->ChooseKey();
 
-  // copy the key's data in case it is deleted later by the transaction.
-  Buffer *buf = new Buffer(key_length);
-  buf->Append(key->Value(), key_length);
-  t->AddBuffer(buf);
-
-  *result = new TOperandString(t, buf->base, key_length);
+  const char *new_key = t->CloneString(key->Value());
+  *result = new TOperandString(t, new_key);
   return true;
 }
 
@@ -293,10 +281,10 @@ bool HashIsMember(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<DataString*> *entries = hash->Lookup(keystr, false);
+  String *keystr = String::Make((const char*) key_data);
+  Vector<String*> *entries = hash->Lookup(keystr, false);
   keystr->DecRef();
 
   *result = new TOperandBoolean(t, entries != NULL);
@@ -310,24 +298,20 @@ bool HashLookup(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<DataString*> *entries = hash->Lookup(keystr, false);
+  String *keystr = String::Make((const char*) key_data);
+  Vector<String*> *entries = hash->Lookup(keystr, false);
   keystr->DecRef();
 
   TOperandList *list = new TOperandList(t);
 
   if (entries != NULL) {
     for (size_t eind = 0; eind < entries->Size(); eind++) {
-      DataString *value = entries->At(eind);
-      size_t value_length = value->ValueLength();
+      String *value = entries->At(eind);
 
-      Buffer *buf = new Buffer(value_length);
-      buf->Append(value->Value(), value_length);
-      t->AddBuffer(buf);
-
-      list->PushOperand(new TOperandString(t, buf->base, value_length));
+      const char *new_value = t->CloneString(value->Value());
+      list->PushOperand(new TOperandString(t, new_value));
     }
   }
 
@@ -342,10 +326,10 @@ bool HashLookupSingle(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<DataString*> *entries = hash->Lookup(keystr, false);
+  String *keystr = String::Make((const char*) key_data);
+  Vector<String*> *entries = hash->Lookup(keystr, false);
   keystr->DecRef();
 
   if (entries == NULL || entries->Size() != 1) {
@@ -353,14 +337,10 @@ bool HashLookupSingle(Transaction *t, const Vector<TOperand*> &arguments,
     return false;
   }
 
-  DataString *value = entries->At(0);
-  size_t value_length = value->ValueLength();
+  String *value = entries->At(0);
 
-  Buffer *buf = new Buffer(value_length);
-  buf->Append(value->Value(), value_length);
-  t->AddBuffer(buf);
-
-  *result = new TOperandString(t, buf->base, value_length);
+  const char *new_value = t->CloneString(value->Value());
+  *result = new TOperandString(t, new_value);
   return true;
 }
 
@@ -371,10 +351,10 @@ bool HashRemove(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
   BACKEND_ARG_STRING(1, key_data, key_length);
 
-  DataStringHash *hash = GetHash(hash_name, true).table;
+  BackendStringHash *hash = GetHash(hash_name, true).table;
 
-  DataString *keystr = DataString::Make(key_data, key_length);
-  Vector<DataString*> *entries = hash->Lookup(keystr, false);
+  String *keystr = String::Make((const char*) key_data);
+  Vector<String*> *entries = hash->Lookup(keystr, false);
 
   if (entries != NULL) {
     // drop the references for the table entry
@@ -391,19 +371,16 @@ bool HashRemove(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
-class DataStringGetKeys : public HashTableVisitor<DataString*,DataString*>
+class StringGetKeys : public HashTableVisitor<String*,String*>
 {
 public:
   Transaction *t;
   TOperandList *list;
 
-  void Visit(DataString *&str, Vector<DataString*> &str_list)
+  void Visit(String *&str, Vector<String*> &str_list)
   {
-    size_t length = str->ValueLength();
-    Buffer *buf = new Buffer(length);
-    t->AddBuffer(buf);
-    buf->Append(str->Value(), length);
-    list->PushOperand(new TOperandString(t, buf->base, length));
+    const char *new_str = t->CloneString(str->Value());
+    list->PushOperand(new TOperandString(t, new_str));
   }
 };
 
@@ -415,8 +392,8 @@ bool HashAllKeys(Transaction *t, const Vector<TOperand*> &arguments,
 
   TOperandList *list = new TOperandList(t);
 
-  if (DataStringHash *hash = GetNamedHash(hash_name)) {
-    DataStringGetKeys visitor;
+  if (BackendStringHash *hash = GetNamedHash(hash_name)) {
+    StringGetKeys visitor;
     visitor.t = t;
     visitor.list = list;
     hash->VisitEach(&visitor);

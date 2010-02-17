@@ -123,10 +123,14 @@ class Transaction
   void AddOperand(TOperand *o);
   void AddAction(TAction *a);
 
-  // add a buffer to this transaction. when the transaction finishes the
+  // add a buffer to this transaction. when the transaction is cleared the
   // buffer will be deleted. buffers must not be added more than once,
   // and buffers which will outlive the transaction do not need to be added.
   void AddBuffer(Buffer *b);
+
+  // clones the specified string using a buffer within this transaction.
+  // this pointer will last until the transaction is cleared.
+  const char* CloneString(const char *str);
 
   // release all data used by this transaction, resetting the transaction
   // to an empty state. this is idempotent and is also called when the

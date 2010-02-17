@@ -17,6 +17,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <stdio.h>
+#include <backend/backend_block.h>
 #include <imlang/storage.h>
 #include <memory/storage.h>
 #include <check/checker.h>
@@ -56,11 +57,10 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
           t, report_database, WORKLIST_FUNC_HASH));
   }
 
-  // get the functions to analyze, either from the command line checks
-  // or from the incremental list.
-  Vector<const char*> functions;
+  if (!checks.Empty()) {
+    // doing a seed analysis, parse the functions from the check names.
+    TOperandList *functions = new TOperandList(t);
 
-  if (checks.Size()) {
     // parse the function names from the assertion format.
     for (size_t uind = 0; uind < checks.Size(); uind++) {
       const char *check = checks[uind];
@@ -73,36 +73,13 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
         continue;
       }
 
-      functions.PushBack((const char*) buf->base);
+      functions->PushOperand(new TOperandString(t, (const char*) buf->base));
     }
-  }
-  else if (option_incremental.IsSpecified()) {
-    IncrementalGetFunctions(&functions);
-  }
 
-  if (!functions.Empty() || option_incremental.IsSpecified()) {
-    // insert the specified functions into the worklist.
-    // test for existence of the worklist hash so that if we crash and
-    // restart we don't reinsert all the entries.
-
-    size_t existvar = t->MakeVariable();
-    TOperand *existarg = new TOperandVariable(t, existvar);
-
-    TActionTest *nex_test = new TActionTest(t, existarg, false);
-    t->PushAction(Backend::HashExists(t, WORKLIST_FUNC_HASH, existvar));
-    t->PushAction(nex_test);
-
-    for (size_t ind = 0; ind < functions.Size(); ind++) {
-      TOperand *key = new TOperandString(t, functions[ind]);
-      nex_test->PushAction(
-        Backend::HashInsertKey(t, WORKLIST_FUNC_HASH, key));
-    }
+    t->PushAction(Backend::BlockSeedWorklist(t, functions));
   }
   else {
-    // fill in the worklist hash from the body database.
-    t->PushAction(
-      Backend::Compound::HashCreateXdbKeys(
-        t, WORKLIST_FUNC_HASH, BODY_DATABASE));
+    t->PushAction(Backend::BlockLoadWorklist(t, 0));
   }
 
   SubmitTransaction(t);
@@ -126,17 +103,15 @@ void DoFetchTransaction(Transaction *t, const Vector<const char*> &checks,
     Try(BlockSummary::GetAssertFunction(checks[0], buf));
     TOperand *key = new TOperandString(t, (const char*) buf->base);
     t->PushAction(new TActionAssign(t, key, body_key_result));
-    t->PushAction(
-      Backend::XdbLookup(t, BODY_DATABASE, body_key_arg, body_data_result));
   }
   else {
     // pull a new function off the worklist.
-    t->PushAction(
-      Backend::Compound::HashPopXdbKey(
-        t, WORKLIST_FUNC_HASH, BODY_DATABASE,
-        body_key_result, body_data_result));
+    t->PushAction(Backend::BlockPopWorklist(t, false, body_key_result));
   }
 
+  t->PushAction(
+    Backend::XdbLookup(
+      t, BODY_DATABASE, body_key_arg, body_data_result));
   t->PushAction(
     Backend::XdbLookup(
       t, MEMORY_DATABASE, body_key_arg, memory_data_result));
@@ -414,7 +389,6 @@ int main(int argc, const char **argv)
   timeout.Enable();
   trans_remote.Enable();
   trans_initial.Enable();
-  option_incremental.Enable();
 
   checker_verbose.Enable();
   checker_sufficient.Enable();

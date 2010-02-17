@@ -26,12 +26,15 @@ NAMESPACE_XGILL_BEGIN
 
 extern TransactionBackend backend_Hash;
 
-// holds a reference for each key/value data string
-typedef HashTable<DataString*,DataString*,HashObject> DataStringHash;
+// holds a reference for each key/value string
+typedef HashTable<String*,String*,HashObject> BackendStringHash;
 
 // for use by other backends, get the hash with the specified name,
 // or NULL if it does not exist.
-DataStringHash* GetNamedHash(const uint8_t *name);
+BackendStringHash* GetNamedHash(const uint8_t *name);
+
+// for use by other backends, clear the specified hash.
+void ClearStringHash(BackendStringHash *table);
 
 NAMESPACE_BEGIN(Backend)
 

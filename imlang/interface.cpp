@@ -1131,7 +1131,7 @@ extern "C" void XIL_WriteGenerated()
         TOperand *callee_arg = new TOperandString(t, name);
 
         t->PushAction(
-          Backend::HashInsertValue(t, CALLGRAPH_NAME, key_arg, callee_arg));
+          Backend::HashInsertValue(t, CALLGRAPH_EDGES, key_arg, callee_arg));
       }
 
       if (indirect_callee) {
