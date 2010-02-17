@@ -99,10 +99,10 @@ TAction* BlockCurrentStage(Transaction *t, size_t var_result);
 
 // pop a function from the worklist and store its name in var_result.
 // the string will be empty if the worklist for the current stage is drained.
-// if have_barrier_process is false and a function was popped then the process
+// if add_barrier_process is true and a function was popped then the process
 // barrier will be incremented. if the worklist is empty and both barriers
 // are clear, advances the stage.
-TAction* BlockPopWorklist(Transaction *t, bool have_barrier_process,
+TAction* BlockPopWorklist(Transaction *t, bool add_barrier_process,
                           size_t var_result);
 
 // returns whether the process/write barriers are non-zero.

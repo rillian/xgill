@@ -450,7 +450,7 @@ void WriteCallEdges(bool callers, CallEdgeSet *cset)
   cset->DecRef();
 }
 
-// flush all escape/callgraph caches to disk.
+// flush all pending escape/callgraph data to disk.
 void FlushEscapeBackend()
 {
   HashIterate(g_escape_forward)
@@ -545,7 +545,8 @@ void WriteWorklistFunctions(OutStream &out, const Vector<String*> &functions)
   SortVector<FunctionFilePair,FunctionFilePair>(&write_list);
 
   for (size_t ind = 0; ind < write_list.Size(); ind++)
-    out << write_list[ind].file << "$" << write_list[ind].function << endl;
+    out << write_list[ind].file->Value() << "$"
+        << write_list[ind].function->Value() << endl;
 }
 
 // write out the worklist file for an initial build.
@@ -1427,7 +1428,7 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
                       TOperand **result)
 {
   BACKEND_ARG_COUNT(1);
-  BACKEND_ARG_BOOLEAN(0, have_barrier_process);
+  BACKEND_ARG_BOOLEAN(0, add_barrier_process);
 
   Vector<String*> *worklist = (g_stage < g_stage_worklist.Size())
     ? g_stage_worklist[g_stage]
@@ -1440,7 +1441,7 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
     worklist->PopBack();
     function->DecRef();
 
-    if (!have_barrier_process)
+    if (add_barrier_process)
       g_barrier_process++;
 
     *result = new TOperandString(t, new_function);
@@ -1455,6 +1456,9 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
 
   if (g_barrier_process != 0 || g_barrier_write != 0)
     return true;
+
+  // flush the escape backend between stages.
+  FlushEscapeBackend();
 
   g_stage++;
 
@@ -1636,11 +1640,11 @@ TAction* BlockCurrentStage(Transaction *t, size_t var_result)
   return call;
 }
 
-TAction* BlockPopWorklist(Transaction *t, bool have_barrier_process,
+TAction* BlockPopWorklist(Transaction *t, bool add_barrier_process,
                           size_t var_result)
 {
   BACKEND_CALL(BlockPopWorklist, var_result);
-  call->PushArgument(new TOperandBoolean(t, have_barrier_process));
+  call->PushArgument(new TOperandBoolean(t, add_barrier_process));
   return call;
 }
 

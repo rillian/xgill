@@ -122,13 +122,14 @@ void HashCons<T>::PrintLiveObjects(uint64_t &min_stamp)
 
 #ifdef DEBUG
         o->PrintRefStamps();
+        logout << endl;
 
         // remember the earliest leaked reference.
         uint64_t o_min_stamp = o->MinRefStamp();
         if (o_min_stamp < min_stamp)
           min_stamp = o_min_stamp;
 #else
-        logout << "  " << o << endl;
+        logout << "  " << o << endl << endl;
 #endif
       }
 

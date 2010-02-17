@@ -71,7 +71,7 @@ void TransactionBackend::FinishBackend()
 #undef FINISH_BACKEND
 
   HashIterate(g_functions)
-    g_functions.ItKey()->DecRef();
+    g_functions.ItKey()->DecRef(&g_functions.ItValues());
   g_functions.Clear();
 }
 
@@ -111,6 +111,7 @@ void TransactionBackend::RegisterFunction(const char *name,
     Assert(false);
   }
 
+  key->MoveRef(NULL, functions);
   functions->PushBack(function);
 }
 

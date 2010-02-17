@@ -406,7 +406,8 @@ void RunAnalysis(const Vector<const char*> &functions)
         break;
       }
 
-      cout << "New stage [#" << new_stage << "]" << endl;
+      if (IsAnalysisRemote())
+        cout << "New stage [#" << new_stage << "]" << endl;
 
       current_stage = new_stage;
       current_stage_processed = false;
@@ -434,7 +435,8 @@ void RunAnalysis(const Vector<const char*> &functions)
         // we start the next stage.
         BlockModsetCache.Clear();
 
-        cout << "Finished processing stage #" << current_stage << endl;
+        if (IsAnalysisRemote())
+          cout << "Finished processing stage #" << current_stage << endl;
         continue;
       }
 
@@ -522,7 +524,8 @@ void RunAnalysis(const Vector<const char*> &functions)
         pending_data.Clear();
         have_write = false;
 
-        cout << "Finished writing stage #" << current_stage << endl;
+        if (IsAnalysisRemote())
+          cout << "Finished writing stage #" << current_stage << endl;
         continue;
       }
 

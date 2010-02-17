@@ -31,6 +31,7 @@ void ClearStringHash(BackendStringHash *table)
     table->ItKey()->DecRef(&str_list);
     DecRefVector<String>(str_list, &str_list);
   }
+  table->Clear();
 }
 
 BACKEND_IMPL_BEGIN

@@ -221,6 +221,7 @@ void HashTable<T,U,HT>::ItNext()
     if (entry) {
       m_iter_entry = entry;
       m_iter_bucket = ind;
+      return;
     }
   }
 
