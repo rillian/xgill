@@ -294,7 +294,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
     }
     case TAG_Version: {
       Try(res);
-      size_t version;
+      uint32_t version;
       Try(ReadTagUInt32(buf, TAG_Version, &version));
 
       res->SetVersion(version);

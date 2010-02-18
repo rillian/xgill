@@ -669,10 +669,9 @@ sub report_printable {
     # which shows up in some GCC template instantiations.
     $name =~ s/\([^\!].*$//;
 
-    # eat a leading 'virtual' before the return type.
+    # eat some keywords that can appear before the return type.
+    $name =~ s/^static //;
     $name =~ s/^virtual //;
-
-    # eat a leading 'const' before the return type.
     $name =~ s/^const //;
 
     # eat everything up to a ' ' - return type.
