@@ -102,8 +102,8 @@ class EscapeEdgeSet : public HashObject
   // on edge.where.id and edge.target.
   void AddEdge(const EscapeEdge &edge);
 
-  // returns whether the set already contains edge.
-  bool HasEdge(const EscapeEdge &edge);
+  // set the version for the location of a particular edge.
+  void SetEdgeVersion(size_t ind, VersionId version);
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -162,6 +162,11 @@ struct EscapeAccess
   EscapeAccess(EscapeAccessKind _kind, Trace *_target,
                BlockPPoint _where, Field *_field)
     : kind(_kind), target(_target), where(_where), field(_field) {}
+
+  bool operator == (const EscapeAccess &o) const {
+    return kind == o.kind && target == o.target &&
+      where == o.where && field == o.field;
+  }
 };
 
 // set of accesses to a particular trace location at different
@@ -206,6 +211,9 @@ class EscapeAccessSet : public HashObject
   // at the specified point. consumes references on access.target,
   // access.where.id and access.field (if non-NULL).
   void AddAccess(const EscapeAccess &access);
+
+  // set the version for the location of a particular access.
+  void SetAccessVersion(size_t ind, VersionId version);
 
   // inherited methods
   void Print(OutStream &out) const;

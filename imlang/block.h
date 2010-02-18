@@ -337,7 +337,7 @@ class BlockCFG : public HashObject
 
   // modification methods.
 
-  // set the version of this block.
+  // set the version of this block, and all loop parents of this block.
   void SetVersion(VersionId version);
 
   // set the begin and end locations of this function in the source.
@@ -418,7 +418,7 @@ class BlockCFG : public HashObject
   // if this is B_Loop, indicates the point(s) in the parent loop or outer
   // function body where this loop is invoked. a loop may have multiple
   // parents if its entry point appears in the body both for another loop
-  // and for the parent of that loop.
+  // and for the parent of that loop. these are versioned.
   Vector<BlockPPoint> *m_loop_parents;
 
   // potential loop heads in this CFG. only used before loop splitting.

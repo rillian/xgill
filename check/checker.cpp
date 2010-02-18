@@ -287,10 +287,26 @@ bool CheckSingleCaller(CheckerState *state, CheckerFrame *frame,
       return false;
     }
 
-    BlockCFG *cfg = caller_frame->Memory()->GetCFG();
+    BlockCFG *cfg = caller_frame->CFG();
+
+    // check for call sites at loop isomorphic points. we will also see the
+    // corresponding call site within the loop body, and handling that site
+    // will also cover this one.
     if (cfg->IsLoopIsomorphic(where.point)) {
       if (checker_verbose.IsSpecified())
         logout << "CHECK: " << frame << ": Caller is loop isomorphic" << endl;
+      state->DeleteFrame(caller_frame);
+      return false;
+    }
+
+    // for incremental analysis, make sure the call edge uses the current
+    // version of the caller CFG. if there is a version mismatch then this
+    // call site is for an older version of the CFG; if the current version
+    // of the CFG still calls the function then there will be a separate
+    // call edge for the updated call site.
+    if (cfg->GetVersion() != where.version) {
+      if (checker_verbose.IsSpecified())
+        logout << "CHECK: " << frame << ": Caller is an older version" << endl;
       state->DeleteFrame(caller_frame);
       return false;
     }
@@ -622,6 +638,19 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
   }
 
   BlockCFG *cfg = mcfg->GetCFG();
+
+  // for incremental analysis, make sure the write CFG uses the right version.
+  // as for checking callers, if the CFG has changed but the new one still
+  // has a matching write, we will see an escape access for the new CFG.
+  if (cfg->GetVersion() != heap_write.where.version) {
+    if (checker_verbose.IsSpecified())
+      logout << "CHECK: Write is an older version: "
+             << heap_write.where.id << ": "
+             << heap_write.where.version << endl;
+    mcfg->DecRef();
+    return;
+  }
+
   PPoint point = heap_write.where.point;
   PPoint exit_point = mcfg->GetCFG()->GetExitPoint();
 

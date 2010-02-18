@@ -498,6 +498,11 @@ void BlockCFG::SetVersion(VersionId version)
 {
   Assert(m_version == version || !m_version);
   m_version = version;
+
+  if (m_loop_parents) {
+    for (size_t ind = 0; ind < m_loop_parents->Size(); ind++)
+      m_loop_parents->At(ind).version = version;
+  }
 }
 
 void BlockCFG::SetBeginLocation(Location *loc)
@@ -543,6 +548,11 @@ void BlockCFG::AddVariable(Variable *var, Type *type)
 
 void BlockCFG::AddLoopParent(BlockPPoint where)
 {
+  // the versions of all loop parents must align with the version of this CFG.
+  // if the version of this CFG changes subsequently then the parent will
+  // be updated.
+  Assert(where.version == m_version);
+
   Assert(m_id->Kind() == B_Loop);
   if (m_loop_parents == NULL)
     m_loop_parents = new Vector<BlockPPoint>();
@@ -829,7 +839,7 @@ void BlockCFG::Print(OutStream &out) const
 
   for (size_t ind = 0; ind < GetLoopParentCount(); ind++) {
     BlockPPoint where = GetLoopParent(ind);
-    out << "parent: " << where.id << ":" << where.point << endl;
+    out << "parent: " << where << endl;
   }
 
   if (m_vars) {

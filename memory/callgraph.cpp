@@ -156,9 +156,21 @@ void CallEdgeSet::AddEdge(const CallEdge &edge)
   if (m_edges == NULL)
     m_edges = new Vector<CallEdge>();
 
-  edge.where.id->MoveRef(NULL, this);
-  edge.callee->MoveRef(NULL, this);
-  m_edges->PushBack(edge);
+  if (!m_edges->Contains(edge)) {
+    edge.where.id->MoveRef(NULL, this);
+    edge.callee->MoveRef(NULL, this);
+    m_edges->PushBack(edge);
+  }
+  else {
+    edge.where.id->DecRef();
+    edge.callee->DecRef();
+  }
+}
+
+void CallEdgeSet::SetEdgeVersion(size_t ind, VersionId version)
+{
+  Assert(m_edges);
+  m_edges->At(ind).where.version = version;
 }
 
 void CallEdgeSet::Print(OutStream &out) const

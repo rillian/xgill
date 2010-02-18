@@ -40,6 +40,10 @@ struct CallEdge
   CallEdge() : callee(NULL) {}
   CallEdge(BlockPPoint _where, Variable *_callee)
     : where(_where), callee(_callee) {}
+
+  bool operator == (const CallEdge &o) const {
+    return where == o.where && callee == o.callee;
+  }
 };
 
 // set of callers or callees of a function and its loops.
@@ -77,6 +81,9 @@ class CallEdgeSet : public HashObject
   // then where is within the outer body or an inner loop of the function.
   // consumes references on edge.where.id and edge.callee.
   void AddEdge(const CallEdge &edge);
+
+  // set the version for the call site at a particular edge.
+  void SetEdgeVersion(size_t ind, VersionId version);
 
   // inherited methods
   void Print(OutStream &out) const;

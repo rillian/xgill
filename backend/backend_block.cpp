@@ -141,16 +141,6 @@ void LoadDatabases()
     g_incremental = true;
 }
 
-// if we're doing an incremental build, fix the version in where to reflect
-// the CFGs we've written out.
-static inline void FixVersion(BlockPPoint *where)
-{
-  if (!g_incremental) return;
-  if (where->id->Kind() == B_Initializer) return;
-
-  where->version = g_body_version.LookupSingle(where->id->Function());
-}
-
 // if there are any annotations in the database for key, remove those
 // annotations but store them in the specified hash.
 void RemoveAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
@@ -359,11 +349,8 @@ EscapeEdgeSet* CombineEscapeEdge(Buffer *buf)
 
   EscapeEdgeSet *eset = EscapeEdgeSet::Make(source, forward);
 
-  for (size_t ind = 0; ind < edges.Size(); ind++) {
-    EscapeEdge edge = edges[ind];
-    FixVersion(&edge.where);
-    eset->AddEdge(edge);
-  }
+  for (size_t ind = 0; ind < edges.Size(); ind++)
+    eset->AddEdge(edges[ind]);
   return eset;
 }
 
@@ -372,6 +359,20 @@ EscapeEdgeSet* CombineEscapeEdge(Buffer *buf)
 void WriteEscapeEdges(bool forward, String *key,
                       Vector<EscapeEdgeSet*> &eset_list)
 {
+  // set the versions for the new edges.
+  if (g_incremental) {
+    for (size_t ind = 0; ind < eset_list.Size(); ind++) {
+      EscapeEdgeSet *eset = eset_list[ind];
+      for (size_t eind = 0; eind < eset->GetEdgeCount(); eind++) {
+        BlockId *id = eset->GetEdge(eind).where.id;
+        if (id->Kind() != B_Initializer) {
+          VersionId version = g_body_version.LookupSingle(id->Function());
+          eset->SetEdgeVersion(eind, version);
+        }
+      }
+    }
+  }
+
   Xdb *xdb = forward ?
       GetDatabase(ESCAPE_EDGE_FORWARD_DATABASE, true)
     : GetDatabase(ESCAPE_EDGE_BACKWARD_DATABASE, true);
@@ -389,6 +390,7 @@ void WriteEscapeEdges(bool forward, String *key,
       }
       eset->DecRef();
     }
+    scratch_buf.Reset();
   }
 
   for (size_t ind = 0; ind < eset_list.Size(); ind++) {
@@ -412,11 +414,8 @@ EscapeAccessSet* CombineEscapeAccess(Buffer *buf)
 
   EscapeAccessSet *aset = EscapeAccessSet::Make(value);
 
-  for (size_t ind = 0; ind < accesses.Size(); ind++) {
-    EscapeAccess access = accesses[ind];
-    FixVersion(&access.where);
-    aset->AddAccess(access);
-  }
+  for (size_t ind = 0; ind < accesses.Size(); ind++)
+    aset->AddAccess(accesses[ind]);
   return aset;
 }
 
@@ -425,6 +424,20 @@ EscapeAccessSet* CombineEscapeAccess(Buffer *buf)
 void WriteEscapeAccesses(String *key,
                          Vector<EscapeAccessSet*> &aset_list)
 {
+  // set the versions for the new accesses.
+  if (g_incremental) {
+    for (size_t ind = 0; ind < aset_list.Size(); ind++) {
+      EscapeAccessSet *aset = aset_list[ind];
+      for (size_t aind = 0; aind < aset->GetAccessCount(); aind++) {
+        BlockId *id = aset->GetAccess(aind).where.id;
+        if (id->Kind() != B_Initializer) {
+          VersionId version = g_body_version.LookupSingle(id->Function());
+          aset->SetAccessVersion(aind, version);
+        }
+      }
+    }
+  }
+
   Xdb *xdb = GetDatabase(ESCAPE_ACCESS_DATABASE, true);
 
   static Buffer scratch_buf;
@@ -440,6 +453,7 @@ void WriteEscapeAccesses(String *key,
       }
       aset->DecRef();
     }
+    scratch_buf.Reset();
   }
 
   for (size_t ind = 0; ind < aset_list.Size(); ind++) {
@@ -464,17 +478,25 @@ CallEdgeSet* CombineCallEdge(Buffer *buf)
 
   CallEdgeSet *cset = CallEdgeSet::Make(function, callers);
 
-  for (size_t ind = 0; ind < edges.Size(); ind++) {
-    CallEdge edge = edges[ind];
-    FixVersion(&edge.where);
-    cset->AddEdge(edge);
-  }
+  for (size_t ind = 0; ind < edges.Size(); ind++)
+    cset->AddEdge(edges[ind]);
   return cset;
 }
 
 // write out a set of call edges, and consume references from a call edge hash.
 void WriteCallEdges(bool callers, CallEdgeSet *cset)
 {
+  // set the versions for the new edges.
+  if (g_incremental) {
+    for (size_t ind = 0; ind < cset->GetEdgeCount(); ind++) {
+      BlockId *id = cset->GetEdge(ind).where.id;
+      if (id->Kind() != B_Initializer) {
+        VersionId version = g_body_version.LookupSingle(id->Function());
+        cset->SetEdgeVersion(ind, version);
+      }
+    }
+  }
+
   Xdb *xdb = callers ?
     GetDatabase(CALLER_DATABASE, true)
     : GetDatabase(CALLEE_DATABASE, true);
@@ -487,6 +509,7 @@ void WriteCallEdges(bool callers, CallEdgeSet *cset)
     CallEdgeSet *new_cset = CombineCallEdge(&read_buf);
     Assert(new_cset == cset);
     new_cset->DecRef();
+    scratch_buf.Reset();
   }
 
   CallEdgeSet::Write(&scratch_buf, cset);
@@ -748,11 +771,12 @@ void WriteWorklistIncremental()
 
       static Buffer stub_buf;
       Try(XdbFindUncompressed(g_body_xdb, function, &stub_buf));
+      Buffer read_buf(stub_buf.base, stub_buf.pos - stub_buf.base);
 
       // clone the old CFGs when reading them in to distinguish them
       // from the stub CFG we're writing out.
       Vector<BlockCFG*> old_cfgs;
-      BlockCFG::ReadList(&stub_buf, &old_cfgs, true);
+      BlockCFG::ReadList(&read_buf, &old_cfgs, true);
 
       String *stub_file = String::Make("<deleted>");
       Location *stub_loc = Location::Make(stub_file, 0);
@@ -783,7 +807,6 @@ void WriteWorklistIncremental()
 
       BlockCFG::Write(&stub_buf, stub_cfg);
       XdbReplaceCompress(g_body_xdb, function, &stub_buf);
-
       stub_buf.Reset();
 
       new_functions.PushBack(function);
@@ -1351,11 +1374,15 @@ bool BlockWriteFile(Transaction *t, const Vector<TOperand*> &arguments,
     }
   }
 
-  Buffer source_buf(source_data, source_length);
-  XdbReplaceCompress(g_source_xdb, file, &source_buf);
+  static Buffer scratch_buf;
 
-  Buffer preproc_buf(preproc_data, preproc_length);
-  XdbReplaceCompress(g_preproc_xdb, file, &preproc_buf);
+  scratch_buf.Append(source_data, source_length);
+  XdbReplaceCompress(g_source_xdb, file, &scratch_buf);
+  scratch_buf.Reset();
+
+  scratch_buf.Append(preproc_data, preproc_length);
+  XdbReplaceCompress(g_preproc_xdb, file, &scratch_buf);
+  scratch_buf.Reset();
 
   file->DecRef();
   return true;

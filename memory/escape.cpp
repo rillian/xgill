@@ -196,16 +196,21 @@ void EscapeEdgeSet::AddEdge(const EscapeEdge &edge)
   if (m_edges == NULL)
     m_edges = new Vector<EscapeEdge>();
 
-  edge.target->MoveRef(NULL, this);
-  edge.where.id->MoveRef(NULL, this);
-  m_edges->PushBack(edge);
+  if (!m_edges->Contains(edge)) {
+    edge.target->MoveRef(NULL, this);
+    edge.where.id->MoveRef(NULL, this);
+    m_edges->PushBack(edge);
+  }
+  else {
+    edge.target->DecRef();
+    edge.where.id->DecRef();
+  }
 }
 
-bool EscapeEdgeSet::HasEdge(const EscapeEdge &edge)
+void EscapeEdgeSet::SetEdgeVersion(size_t ind, VersionId version)
 {
-  if (m_edges)
-    return m_edges->Contains(edge);
-  return false;
+  Assert(m_edges);
+  m_edges->At(ind).where.version = version;
 }
 
 void EscapeEdgeSet::Print(OutStream &out) const
@@ -415,11 +420,25 @@ void EscapeAccessSet::AddAccess(const EscapeAccess &access)
   if (m_accesses == NULL)
     m_accesses = new Vector<EscapeAccess>();
 
-  access.target->MoveRef(NULL, this);
-  access.where.id->MoveRef(NULL, this);
-  if (access.field != NULL)
-    access.field->MoveRef(NULL, this);
-  m_accesses->PushBack(access);
+  if (!m_accesses->Contains(access)) {
+    access.target->MoveRef(NULL, this);
+    access.where.id->MoveRef(NULL, this);
+    if (access.field)
+      access.field->MoveRef(NULL, this);
+    m_accesses->PushBack(access);
+  }
+  else {
+    access.target->DecRef();
+    access.where.id->DecRef();
+    if (access.field)
+      access.field->DecRef();
+  }
+}
+
+void EscapeAccessSet::SetAccessVersion(size_t ind, VersionId version)
+{
+  Assert(m_accesses);
+  m_accesses->At(ind).where.version = version;
 }
 
 void EscapeAccessSet::Print(OutStream &out) const
@@ -541,11 +560,9 @@ static Trace* TraceAddField(Trace *trace, Field *field)
 // add the edge 'source -> target' over the direction indicated by forward
 // for all trace locations which match source. if the type of the edge
 // is a CSU, instead add the same edge for all fields of source and target.
-// check_exists indicates whether to check for duplicate edges.
 static void ProcessEdge(BlockPPoint where, bool forward,
                         Trace *source, Trace *target, Type *type,
-                        bool move_caller, bool move_callee,
-                        bool check_exists = false)
+                        bool move_caller, bool move_callee)
 {
   // if the assignment has a structure type then do the assignment
   // for all fields of the structure. also restrict just to Drf expressions;
@@ -565,7 +582,7 @@ static void ProcessEdge(BlockPPoint where, bool forward,
 
         ProcessEdge(where, forward,
                     new_source, new_target, df.field->GetType(),
-                    move_caller, move_callee, check_exists);
+                    move_caller, move_callee);
 
         new_source->DecRef();
         new_target->DecRef();
@@ -597,11 +614,6 @@ static void ProcessEdge(BlockPPoint where, bool forward,
     target->IncRef();
     where.id->IncRef();
     EscapeEdge edge(target, where, move_caller, move_callee);
-
-    if (check_exists) {
-      if (eset->HasEdge(edge))
-        continue;
-    }
 
     if (print_escape.IsSpecified()) {
       logout << "ESCAPE_EDGE: " << (forward ? "forward" : "backward")
@@ -787,7 +799,7 @@ static void ProcessBaseClasses(TypeCSU *type)
       Trace *sub_loc = Trace::MakeComp(empty, csu_name);
       Trace *super_loc = Trace::MakeComp(empty, base);
 
-      ProcessEdge(where, true, sub_loc, super_loc, NULL, false, false, true);
+      ProcessEdge(where, true, sub_loc, super_loc, NULL, false, false);
       ProcessEdge(where, false, super_loc, sub_loc, NULL, false, false);
 
       id->DecRef();
