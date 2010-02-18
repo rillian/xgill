@@ -1717,6 +1717,23 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       Exp *new_exp = MakeBinop(i.b_kind, lli.exp, op_exp);
       return SimplifyExp(exp, new_exp);
     }
+
+    // input:  (exp0 +/- n0) / n1  where n1 divides n0, exact division only
+    // output: (exp0 / n1) +/- (n0 / n1)
+
+    if (i.b_kind == B_DivExact &&
+        (li.b_kind == B_Plus || li.b_kind == B_Minus) &&
+        lri.has_value && ri.has_value && mpz_cmp_si(ri.value, 0) > 0 &&
+        mpz_divisible_p(lri.value, ri.value)) {
+      lli.exp->IncRef();
+      lri.exp->IncRef();
+      ri.exp->IncRef();
+      ri.exp->IncRef();
+      Exp *left_exp = MakeBinop(i.b_kind, lli.exp, ri.exp);
+      Exp *right_exp = MakeBinop(i.b_kind, lri.exp, ri.exp);
+      Exp *new_exp = MakeBinop(li.b_kind, left_exp, right_exp);
+      return SimplifyExp(exp, new_exp);
+    }
   }
 
   // fall through simplification cases.

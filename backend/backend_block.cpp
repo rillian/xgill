@@ -117,6 +117,30 @@ static CallEdgeHash g_callees;
 static HashSet<EscapeEdgeSet*,HashObject> g_seen_escape_edges;
 static HashSet<EscapeAccessSet*,HashObject> g_seen_escape_accesses;
 
+// open the block databases if they are not already open.
+void LoadDatabases()
+{
+  // only need to load these once.
+  static bool have_load = false;
+  if (have_load) return;
+  have_load = true;
+
+  g_body_xdb = GetDatabase(BODY_DATABASE, true);
+  g_init_xdb = GetDatabase(INIT_DATABASE, true);
+  g_comp_xdb = GetDatabase(COMP_DATABASE, true);
+
+  g_source_xdb = GetDatabase(SOURCE_DATABASE, true);
+  g_preproc_xdb = GetDatabase(PREPROC_DATABASE, true);
+
+  g_annot_body_xdb = GetDatabase(BODY_ANNOT_DATABASE, false);
+  g_annot_init_xdb = GetDatabase(INIT_ANNOT_DATABASE, false);
+  g_annot_comp_xdb = GetDatabase(COMP_ANNOT_DATABASE, false);
+
+  // we are doing an incremental analysis if there is an existing worklist.
+  if (access(WORKLIST_FILE, F_OK) == 0)
+    g_incremental = true;
+}
+
 // if we're doing an incremental build, fix the version in where to reflect
 // the CFGs we've written out.
 static inline void FixVersion(BlockPPoint *where)
@@ -171,24 +195,30 @@ void RemoveAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
 // affected by this annotation for reanalysis.
 void MarkReanalyzedBlocks(BlockCFG *cfg)
 {
+  static Buffer scratch_buf;
+
   if (cfg->GetAnnotationKind() == AK_Precondition) {
     // all callers of the annotated function should be reanalyzed.
-    Variable *func_var = cfg->GetId()->BaseVar();
-    CallEdgeSet *callers = CallerCache.Lookup(func_var);
+    String *function = cfg->GetId()->Function();
+    Xdb *xdb = GetDatabase(CALLER_DATABASE, true);
 
-    if (callers) {
+    if (XdbFindUncompressed(xdb, function, &scratch_buf)) {
+      Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
+      CallEdgeSet *callers = CallEdgeSet::Read(&read_buf);
+
       for (size_t ind = 0; ind < callers->GetEdgeCount(); ind++) {
         const CallEdge &edge = callers->GetEdge(ind);
-        if (edge.callee == func_var &&
+        if (edge.callee->GetName() == function &&
             edge.where.id->Kind() != B_Initializer) {
           String *function = edge.where.id->Function();
           if (!g_body_reanalyze.Insert(function))
             function->IncRef();
         }
       }
-    }
 
-    CallerCache.Release(func_var);
+      callers->DecRef();
+      scratch_buf.Reset();
+    }
   }
 
   if (cfg->GetAnnotationKind() == AK_Invariant) {
@@ -198,13 +228,29 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
       Vector<Trace*> heap_traces;
       GetUpdateTraces(bit, &heap_traces);
 
+      Xdb *xdb = GetDatabase(ESCAPE_ACCESS_DATABASE, true);
+
       for (size_t ind = 0; ind < heap_traces.Size(); ind++) {
         Trace *heap_trace = heap_traces[ind];
-        EscapeAccessSet *access_set = EscapeAccessCache.Lookup(heap_trace);
+        String *heap_key = GetTraceKey(heap_trace);
 
-        if (access_set) {
-          for (size_t aind = 0; aind < access_set->GetAccessCount(); aind++) {
-            const EscapeAccess &access = access_set->GetAccess(aind);
+        if (!XdbFindUncompressed(xdb, heap_key, &scratch_buf)) {
+          heap_key->DecRef();
+          continue;
+        }
+        heap_key->DecRef();
+
+        Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
+        Vector<EscapeAccessSet*> aset_list;
+        EscapeAccessSet::ReadList(&read_buf, &aset_list);
+
+        for (size_t ind = 0; ind < aset_list.Size(); ind++) {
+          EscapeAccessSet *aset = aset_list[ind];
+          if (aset->GetValue() != heap_trace)
+            continue;
+
+          for (size_t aind = 0; aind < aset->GetAccessCount(); aind++) {
+            const EscapeAccess &access = aset->GetAccess(aind);
             if (access.kind == EAK_Write &&
                 access.where.id->Kind() != B_Initializer) {
               String *function = access.where.id->Function();
@@ -214,9 +260,10 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
           }
         }
 
-        EscapeAccessCache.Release(heap_trace);
-        heap_trace->DecRef(&heap_traces);
+        DecRefVector<EscapeAccessSet>(aset_list);
       }
+
+      DecRefVector<Trace>(heap_traces, &heap_traces);
     }
   }
 }
@@ -852,13 +899,14 @@ void FinishBlockBackend()
 
   // drop references on written names.
 
-  HashIterate(g_write_comp)   g_write_comp.ItKey()->DecRef();
+  HashIterate(g_write_comp)  g_write_comp.ItKey()->DecRef();
   HashIterate(g_write_body)  g_write_body.ItKey()->DecRef();
   HashIterate(g_write_init)  g_write_init.ItKey()->DecRef();
-  HashIterate(g_write_files) g_write_files.ItKey()->DecRef();
+  HashIterate(g_write_files) g_write_files.ItKey()->DecRef(&g_write_files);
   HashIterate(g_body_file)   g_body_file.ItValues()[0]->DecRef();
 
   HashIterate(g_body_reanalyze) g_body_reanalyze.ItKey()->DecRef();
+  DecRefVector<String>(g_file_changed, &g_file_changed);
 
   // drop references on worklist data.
 
@@ -882,6 +930,8 @@ bool BlockQueryAnnot(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, db_name, db_length);
   BACKEND_ARG_STRING(1, var_name, var_length);
   BACKEND_ARG_STRING(2, annot_name, annot_length);
+
+  LoadDatabases();
 
   String *new_var_name = String::Make((const char*) var_name);
 
@@ -954,26 +1004,7 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
   Assert(arguments[0]->Kind() == TO_String);
   TOperandString *list = (TOperandString*) arguments[0];
 
-  // open up the databases if this is our first time here.
-  static bool have_query = false;
-  if (!have_query) {
-    have_query = true;
-
-    g_body_xdb = GetDatabase(BODY_DATABASE, true);
-    g_init_xdb = GetDatabase(INIT_DATABASE, true);
-    g_comp_xdb = GetDatabase(COMP_DATABASE, true);
-
-    g_source_xdb = GetDatabase(SOURCE_DATABASE, true);
-    g_preproc_xdb = GetDatabase(PREPROC_DATABASE, true);
-
-    g_annot_body_xdb = GetDatabase(BODY_ANNOT_DATABASE, false);
-    g_annot_init_xdb = GetDatabase(INIT_ANNOT_DATABASE, false);
-    g_annot_comp_xdb = GetDatabase(COMP_ANNOT_DATABASE, false);
-
-    // we are doing an incremental analysis if there is an existing worklist.
-    if (access(WORKLIST_FILE, F_OK) == 0)
-      g_incremental = true;
-  }
+  LoadDatabases();
 
   static Buffer result_buf;
 
@@ -1109,7 +1140,9 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
           // clone the old CFGs when reading them in to distinguish them
           // from the new CFGs we're writing out.
           Vector<BlockCFG*> old_cfgs;
-          BlockCFG::ReadList(&compare_buf, &old_cfgs, true);
+          Buffer compare_read_buf(compare_buf.base,
+                                  compare_buf.pos - compare_buf.base);
+          BlockCFG::ReadList(&compare_read_buf, &old_cfgs, true);
 
           if (old_cfgs.Size() == function_cfgs.Size()) {
             for (size_t ind = 0; ind < old_cfgs.Size(); ind++) {
@@ -1271,11 +1304,15 @@ bool BlockQueryFile(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(1);
   BACKEND_ARG_STRING(0, file_name, file_length);
 
+  LoadDatabases();
+
   String *file = String::Make((const char*) file_name);
   bool found = g_write_files.Insert(file);
 
   if (found)
     file->DecRef();
+  else
+    file->MoveRef(NULL, &g_write_files);
 
   *result = new TOperandBoolean(t, found);
   return true;
@@ -1309,7 +1346,7 @@ bool BlockWriteFile(Transaction *t, const Vector<TOperand*> &arguments,
     }
 
     if (preproc_new && !g_file_changed.Contains(file)) {
-      file->IncRef();
+      file->IncRef(&g_file_changed);
       g_file_changed.PushBack(file);
     }
   }

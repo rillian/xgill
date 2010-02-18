@@ -496,7 +496,7 @@ bool BlockCFG::IsEquivalent(BlockCFG *cfg) const
 
 void BlockCFG::SetVersion(VersionId version)
 {
-  Assert(!m_version);
+  Assert(m_version == version || !m_version);
   m_version = version;
 }
 

@@ -125,9 +125,7 @@ class TransactionBackend
   if (arguments[POS]->Kind() != TO_String)                              \
     BACKEND_FAIL(arguments[POS]);                                       \
   const uint8_t *DATA = arguments[POS]->AsString()->GetData();          \
-  size_t LEN = arguments[POS]->AsString()->GetDataLength();             \
-  if (LEN == 0)                                                         \
-    BACKEND_FAIL(arguments[POS]);
+  size_t LEN = arguments[POS]->AsString()->GetDataLength();
 
 // get a list from argument POS and store in LIST.
 #define BACKEND_ARG_LIST(POS, LIST)                                     \

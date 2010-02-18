@@ -266,6 +266,7 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
       Vector<FileData> *entries = file_table.Lookup(file, true);
       if (entries->Empty()) {
         entries->PushBack(FileData());
+        file->MoveRef(NULL, &file_table);
 
         Assert(line == 1);
         cur_data = &entries->Back();
@@ -349,7 +350,7 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
   delete dump;
 
   HashIterate(file_table) {
-    file_table.ItKey()->DecRef();
+    file_table.ItKey()->DecRef(&file_table);
     delete file_table.ItValueSingle().contents;
   }
 }

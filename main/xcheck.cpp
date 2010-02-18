@@ -40,12 +40,12 @@ ConfigOption xml_file(CK_String, "xml-out", "",
 // database receiving display XML for unverified assertions.
 const char *report_database = NULL;
 
+// number of callgraph stages.
+static size_t g_stage_count = 0;
+
 void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
 {
-  // don't use the worklist hash at all if we are generating a single
-  // XML file. we'll just run on the single check directly.
-  if (xml_file.IsSpecified())
-    return;
+  size_t count_var = t->MakeVariable(true);
 
   if (!checks.Empty()) {
     // doing a seed analysis, parse the functions from the check names.
@@ -69,48 +69,42 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
     t->PushAction(Backend::BlockSeedWorklist(t, functions));
   }
   else {
-    t->PushAction(Backend::BlockLoadWorklist(t, 0));
+    t->PushAction(Backend::BlockLoadWorklist(t, count_var));
   }
 
   SubmitTransaction(t);
+
+  if (checks.Empty())
+    g_stage_count = t->LookupInteger(count_var)->GetValue();
 }
 
-void DoFetchTransaction(Transaction *t, const Vector<const char*> &checks,
-                        size_t body_key_result, size_t body_data_result,
-                        size_t memory_data_result,
-                        size_t modset_data_result,
+void DoFetchTransaction(Transaction *t, size_t stage_result,
+                        size_t body_data_result,
+                        size_t memory_data_result, size_t modset_data_result,
                         size_t summary_data_result)
 {
-  TOperand *body_key_arg = new TOperandVariable(t, body_key_result);
+  TRANSACTION_MAKE_VAR(body_key);
+  TRANSACTION_MAKE_VAR(key_empty);
 
-  if (xml_file.IsSpecified()) {
-    // get the single check we will be analyzing.
-    Assert(checks.Size() == 1);
+  t->PushAction(Backend::BlockCurrentStage(t, stage_result));
+  t->PushAction(Backend::BlockPopWorklist(t, false, body_key_var));
+  t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));
 
-    Buffer *buf = new Buffer();
-    t->AddBuffer(buf);
+  TActionTest *non_empty_branch = new TActionTest(t, key_empty, false);
+  t->PushAction(non_empty_branch);
 
-    Try(BlockSummary::GetAssertFunction(checks[0], buf));
-    TOperand *key = new TOperandString(t, (const char*) buf->base);
-    t->PushAction(new TActionAssign(t, key, body_key_result));
-  }
-  else {
-    // pull a new function off the worklist.
-    t->PushAction(Backend::BlockPopWorklist(t, false, body_key_result));
-  }
-
-  t->PushAction(
+  non_empty_branch->PushAction(
     Backend::XdbLookup(
-      t, BODY_DATABASE, body_key_arg, body_data_result));
-  t->PushAction(
+      t, BODY_DATABASE, body_key, body_data_result));
+  non_empty_branch->PushAction(
     Backend::XdbLookup(
-      t, MEMORY_DATABASE, body_key_arg, memory_data_result));
-  t->PushAction(
+      t, MEMORY_DATABASE, body_key, memory_data_result));
+  non_empty_branch->PushAction(
     Backend::XdbLookup(
-      t, MODSET_DATABASE, body_key_arg, modset_data_result));
-  t->PushAction(
+      t, MODSET_DATABASE, body_key, modset_data_result));
+  non_empty_branch->PushAction(
     Backend::XdbLookup(
-      t, SUMMARY_DATABASE, body_key_arg, summary_data_result));
+      t, SUMMARY_DATABASE, body_key, summary_data_result));
 
   SubmitTransaction(t);
 }
@@ -158,7 +152,10 @@ void RunAnalysis(const Vector<const char*> &checks)
   DoInitTransaction(t, checks);
   t->Clear();
 
-  bool first = true;
+  size_t current_stage = 0;
+
+  // whether we've seen any checks.
+  bool handled = false;
 
   while (true) {
 #ifndef DEBUG
@@ -167,34 +164,32 @@ void RunAnalysis(const Vector<const char*> &checks)
 
     Timer _timer(&analysis_timer);
 
-    // only go around the loop once if we are generating an XML file.
-    // for XML output we don't use the worklist but run on a single assert.
-    if (!first) {
-      if (xml_file.IsSpecified())
-        break;
-    }
-    first = false;
-
     // construct and submit a worklist fetch transaction.
-    size_t body_key_result = t->MakeVariable(true);
+    size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
     size_t memory_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
     size_t summary_data_result = t->MakeVariable(true);
-    DoFetchTransaction(t, checks, body_key_result, body_data_result,
+
+    DoFetchTransaction(t, stage_result, body_data_result,
                        memory_data_result, modset_data_result,
                        summary_data_result);
 
-    // make sure the key is NULL terminated.
-    TOperandString *body_key = t->LookupString(body_key_result);
-    logout << endl;
+    size_t new_stage = t->LookupInteger(stage_result)->GetValue();
 
-    Assert(IsCStringOperand(body_key));
+    if (new_stage > current_stage) {
+      if (new_stage > g_stage_count) {
+        // we've analyzed every function. end the analysis.
+        break;
+      }
+      current_stage = new_stage;
+    }
 
-    if (body_key->GetDataLength() == 1) {
-      // key will be the empty string when the hashes are empty and there
-      // is nothing else to process.
-      break;
+    if (!t->Lookup(body_data_result, false)) {
+      // the current stage is finished, and the transaction bumped the stage
+      // counter. retry, we'll get any item from the new stage.
+      t->Clear();
+      continue;
     }
 
     Vector<BlockCFG*> function_cfgs;
@@ -224,15 +219,11 @@ void RunAnalysis(const Vector<const char*> &checks)
     BlockSummaryUncompress(t, summary_op, &function_sums);
     BlockSummaryCacheAddList(function_sums);
 
-    // make a copy of the function name.
-    size_t body_key_len = body_key->GetDataLength();
-    Buffer body_key_buf(body_key_len);
-    memcpy(body_key_buf.base, body_key->GetData(), body_key_len);
-
     t->Clear();
 
-    logout << "Checking: '"
-           << (const char*) body_key_buf.base << "'" << endl << endl << flush;
+    const char *function = function_cfgs.Back()->GetId()->Function()->Value();
+
+    logout << "Checking: '" << function << "'" << endl << endl << flush;
 
     size_t assertion_count = 0;
     size_t redundant_count = 0;
@@ -299,6 +290,11 @@ void RunAnalysis(const Vector<const char*> &checks)
             continue;
         }
 
+        // we should only get here once if we're writing an XML file directly.
+        if (handled)
+          Assert(!xml_file.IsSpecified());
+        handled = true;
+
         // reset the hard timeout at each new assertion. we want to avoid hard
         // failures as much as possible; this can make functions take a very
         // long time to analyze in the worst case. hard timeouts are disabled
@@ -355,7 +351,7 @@ void RunAnalysis(const Vector<const char*> &checks)
 
     Assert(file_name);
 
-    logout << "Finished: '" << (const char*) body_key_buf.base << "'"
+    logout << "Finished: '" << function << "'"
          << " FILE " << file_name
          << " REDUNDANT " << redundant_count
          << " ASSERTION " << assertion_count
@@ -367,8 +363,7 @@ void RunAnalysis(const Vector<const char*> &checks)
     logout << endl << endl << flush;
 
     // clear out held references on CFGs.
-    for (size_t find = 0; find < function_cfgs.Size(); find++)
-      function_cfgs[find]->DecRef();
+    DecRefVector<BlockCFG>(function_cfgs);
   }
 
   delete t;

@@ -71,8 +71,8 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &functions)
 // perform a transaction to get the next key from the worklist. the body data
 // will not be set if no key was fetched.
 void DoFetchTransaction(Transaction *t, size_t stage_result,
-                        size_t body_data_result, size_t memory_data_result,
-                        size_t modset_data_result)
+                        size_t body_data_result,
+                        size_t memory_data_result, size_t modset_data_result)
 {
   TRANSACTION_MAKE_VAR(body_key);
   TRANSACTION_MAKE_VAR(key_empty);
