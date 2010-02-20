@@ -338,6 +338,9 @@ class CompositeCSU : public HashObject
   // get the width in bytes of this CSU.
   size_t GetWidth() const { return m_width; }
 
+  // get the command used to construct this CSU.
+  String* GetCommand() const { return m_command; }
+
   // get the begin and end location of this CSU, NULL if not available.
   Location* GetBeginLocation() const { return m_begin_location; }
   Location* GetEndLocation() const { return m_end_location; }
@@ -377,6 +380,9 @@ class CompositeCSU : public HashObject
   void SetKind(CSUKind kind);
   void SetWidth(size_t width);
 
+  // set the command for generating this CSU.
+  void SetCommand(String *command);
+
   // set the begin and end locations of this CSU in the source.
   void SetBeginLocation(Location *loc);
   void SetEndLocation(Location *loc);
@@ -402,6 +408,7 @@ class CompositeCSU : public HashObject
   String *m_name;
   size_t m_width;
 
+  String *m_command;
   Location *m_begin_location;
   Location *m_end_location;
 

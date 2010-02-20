@@ -231,6 +231,9 @@ class BlockCFG : public HashObject
   // get the version of this block.
   size_t GetVersion() const { return m_version; }
 
+  // get the command used to construct this block.
+  String* GetCommand() const { return m_command; }
+
   // get the begin and end source locations of this block.
   Location* GetBeginLocation() const {
     Assert(m_begin_location);
@@ -340,6 +343,9 @@ class BlockCFG : public HashObject
   // set the version of this block, and all loop parents of this block.
   void SetVersion(VersionId version);
 
+  // set the command for generating this block.
+  void SetCommand(String *command);
+
   // set the begin and end locations of this function in the source.
   void SetBeginLocation(Location *loc);
   void SetEndLocation(Location *loc);
@@ -407,6 +413,7 @@ class BlockCFG : public HashObject
   BlockId *m_id;
 
   VersionId m_version;
+  String *m_command;
 
   Location *m_begin_location;
   Location *m_end_location;

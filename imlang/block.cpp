@@ -221,6 +221,9 @@ void BlockCFG::Write(Buffer *buf, const BlockCFG *cfg)
   BlockId::Write(buf, cfg->m_id);
   WriteTagUInt32(buf, TAG_Version, cfg->m_version);
 
+  if (cfg->m_command)
+    String::WriteWithTag(buf, cfg->m_command, TAG_Command);
+
   Location::Write(buf, cfg->m_begin_location);
   Location::Write(buf, cfg->m_end_location);
 
@@ -298,6 +301,13 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       Try(ReadTagUInt32(buf, TAG_Version, &version));
 
       res->SetVersion(version);
+      break;
+    }
+    case TAG_Command: {
+      Try(res);
+      String *command = String::ReadWithTag(buf, TAG_Command);
+
+      res->SetCommand(command);
       break;
     }
     case TAG_Location: {
@@ -443,7 +453,8 @@ void BlockCFG::ReadList(Buffer *buf, Vector<BlockCFG*> *cfgs, bool clone)
 /////////////////////////////////////////////////////////////////////
 
 BlockCFG::BlockCFG(BlockId *id)
-  : m_id(id), m_version(0), m_begin_location(NULL), m_end_location(NULL),
+  : m_id(id), m_version(0), m_command(NULL),
+    m_begin_location(NULL), m_end_location(NULL),
     m_vars(NULL), m_loop_parents(NULL),
     m_loop_heads(NULL), m_loop_isomorphic(NULL),
     m_points(NULL), m_entry_point(0), m_exit_point(0), m_edges(NULL),
@@ -503,6 +514,14 @@ void BlockCFG::SetVersion(VersionId version)
     for (size_t ind = 0; ind < m_loop_parents->Size(); ind++)
       m_loop_parents->At(ind).version = version;
   }
+}
+
+void BlockCFG::SetCommand(String *command)
+{
+  if (m_command != NULL)
+    m_command->DecRef(this);
+  command->MoveRef(NULL, this);
+  m_command = command;
 }
 
 void BlockCFG::SetBeginLocation(Location *loc)
@@ -824,6 +843,9 @@ void BlockCFG::Print(OutStream &out) const
   if (m_version) out << " [#" << m_version << "]";
   out << endl;
 
+  if (m_command)
+    out << "command: " << m_command->Value() << endl;
+
   out << "begin: " << m_begin_location << endl;
   out << "end:   " << m_end_location << endl;
 
@@ -898,6 +920,11 @@ void BlockCFG::UnPersist()
 {
   // in addition to deleting allocated data, we also need to drop all the
   // references other than the block ID and reset the data to NULL.
+
+  if (m_command) {
+    m_command->DecRef(this);
+    m_command = NULL;
+  }
 
   if (m_begin_location) {
     m_begin_location->DecRef(this);

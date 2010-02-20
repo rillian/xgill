@@ -33,6 +33,7 @@ const char *xil_remote_address = NULL;
 
 const char *xil_gcc_path = NULL;
 const char *xil_plugin_path = NULL;
+const char *xil_command = NULL;
 bool xil_has_annotation = false;
 tree xil_annotation_this = NULL;
 
@@ -274,6 +275,9 @@ void XIL_GenerateBlock(tree decl)
     TREE_UNEXPECTED(decl);
 
   XIL_Location end_loc = XIL_MakeLocation(end_file, end_line);
+
+  if (xil_command)
+    XIL_CFGSetCommand(xil_command);
 
   XIL_CFGSetBeginLocation(begin_loc);
   XIL_CFGSetEndLocation(end_loc);
@@ -669,6 +673,11 @@ int plugin_init (struct plugin_name_args *plugin_info,
                  struct plugin_gcc_version *version)
 {
   xil_plugin_path = plugin_info->full_name;
+
+  // check the environment for the command used to invoke gcc. we can't pass
+  // this as a plugin argument as the command line may include '=' and
+  // use both single and double quotes.
+  xil_command = getenv("XGILL_COMMAND");
 
   // process any plugin arguments.
   int arg_ind;

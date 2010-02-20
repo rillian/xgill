@@ -144,6 +144,7 @@ void XIL_PopActiveCSU(int drop);
 
 void XIL_CSUSetKind(int kind);
 void XIL_CSUSetWidth(int width);
+void XIL_CSUSetCommand(const char *command);
 void XIL_CSUSetBeginLocation(XIL_Location begin_loc);
 void XIL_CSUSetEndLocation(XIL_Location end_loc);
 void XIL_CSUAddBaseClass(const char *base_class);
@@ -281,6 +282,7 @@ XIL_Exp XIL_ExpAddress(XIL_Exp target);
 // Blocks
 /////////////////////////////////////////////////////////////////////
 
+void XIL_CFGSetCommand(const char *command);
 void XIL_CFGSetBeginLocation(XIL_Location begin_loc);
 void XIL_CFGSetEndLocation(XIL_Location end_loc);
 void XIL_CFGAddVar(XIL_Var var, XIL_Type type, int override);

@@ -418,6 +418,12 @@ PPoint FollowSkipEdges(BlockCFG *cfg, PPoint point)
 
 void CopyCFGLocationsVariables(BlockCFG *old_cfg, BlockCFG *new_cfg)
 {
+  String *command = old_cfg->GetCommand();
+  if (command) {
+    command->IncRef();
+    new_cfg->SetCommand(command);
+  }
+
   Location *begin_loc = old_cfg->GetBeginLocation();
   begin_loc->IncRef();
   new_cfg->SetBeginLocation(begin_loc);

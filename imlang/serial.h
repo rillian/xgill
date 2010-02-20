@@ -59,15 +59,16 @@
 //   TAG_Kind
 //   TAG_Name
 //   TAG_Width
+//   TAG_Command (optional)
 //   TAG_Location x2
 //   list of TAG_CSUBaseClass
 //   list of TAG_DataField
 //   list of TAG_FunctionField
 #define TAG_CompositeCSU  1200
 
-// children:
-//   TAG_String
+// children: TAG_String
 #define   TAG_CSUBaseClass  1202
+#define   TAG_Command  1204
 
 // children:
 //   TAG_Name
@@ -192,6 +193,7 @@
 // children:
 //   TAG_BlockId
 //   TAG_Version
+//   TAG_Command (optional)
 //   TAG_Location x2
 //   TAG_Type (instance function only)
 //   TAG_Field (instance function only)

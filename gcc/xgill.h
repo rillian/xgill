@@ -50,6 +50,9 @@ extern const char *xil_gcc_path;
 // path to this plugin passed via -fplugin.
 extern const char *xil_plugin_path;
 
+// gcc binary and command line arguments used to invoke the plugin.
+extern const char *xil_command;
+
 // whether our input file is generating an annotation CFG.
 extern bool xil_has_annotation;
 

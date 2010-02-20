@@ -95,6 +95,11 @@ while (my $arg = shift) {
 my $cwd = `pwd`;
 chomp $cwd;
 
+# get the command for the plugin and store in the environment.
+# this is an end run around the restrictions on what can be passed as
+# an argument to a gcc plugin (can't mix quotes, can't use '=').
+$ENV{'XGILL_COMMAND'} = "$cwd: $gccdir/$ccname $args";
+
 if ($logfile ne "") {
     open(OUT,">> $logfile");
     print OUT "\nCommand: $cwd\n";

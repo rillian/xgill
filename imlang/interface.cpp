@@ -373,6 +373,14 @@ extern "C" void XIL_CSUSetWidth(int width)
   csu->SetWidth((size_t)width);
 }
 
+extern "C" void XIL_CSUSetCommand(const char *command)
+{
+  CompositeCSU *csu = g_active_csus.Back();
+
+  String *new_command = String::Make(command);
+  csu->SetCommand(new_command);
+}
+
 extern "C" void XIL_CSUSetBeginLocation(XIL_Location begin_loc)
 {
   CompositeCSU *csu = g_active_csus.Back();
@@ -665,6 +673,13 @@ extern "C" XIL_Exp XIL_ExpAddress(XIL_Exp target)
 /////////////////////////////////////////////////////////////////////
 // Blocks
 /////////////////////////////////////////////////////////////////////
+
+extern "C" void XIL_CFGSetCommand(const char *command)
+{
+  Assert(g_active_cfg);
+  String *new_command = String::Make(command);
+  g_active_cfg->SetCommand(new_command);
+}
 
 extern "C" void XIL_CFGSetBeginLocation(XIL_Location begin_loc)
 {
@@ -1217,7 +1232,7 @@ void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
   BlockCFG *cfg = BlockCFG::Make(cfg_id);
   cfg->SetAnnotationKind((AnnotationKind) annot_kind);
 
-  // make a single local variable '__error__'.
+ // make a single local variable '__error__'.
   cfg_id->IncRef();
   String *error_name = String::Make("__error__");
   Variable *error_var = Variable::Make(cfg_id, VK_Local, error_name, 0, NULL);
