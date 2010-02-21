@@ -288,7 +288,10 @@ int main(int argc, const char **argv)
 {
   spawn_command.Enable();
   spawn_count.Enable();
+
+#ifdef USE_COUNT_ALLOCATOR
   memory_limit.Enable();
+#endif
 
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);

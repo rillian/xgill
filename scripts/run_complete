@@ -51,11 +51,11 @@ sub build_project {
 my $wrap_dir = "/path/to/wrap_gcc";
 die "Bad wrapper directory: $wrap_dir" if (not (-e "$wrap_dir/basecc"));
 
-# soft memory limit for the manager, in MB. 0 for no limit. this requires
-# that USE_COUNT_ALLOCATOR is defined in util/alloc.h
-my $memory_limit = 0;
-
-# analysis commands with timeouts to use.
+# commands to start the various xgill binaries. timeouts can be specified
+# for the backend analyses here, and a memory limit can be specified for
+# xmanager if desired (and USE_COUNT_ALLOCATOR is defined in util/alloc.h).
+my $xmanager = "xmanager";
+my $xsource = "xsource";
 my $xmemlocal = "xmemlocal -timeout=20";
 my $xinfer = "xinfer -timeout=60";
 my $xcheck = "xcheck -timeout=30";
@@ -87,16 +87,15 @@ if (not (-d $result_dir)) {
 open(OUT, "> $result_dir/complete.log");
 OUT->autoflush(1);  # don't buffer writes to the main log.
 
-# redirect our stdout and stderr to the log.
+# redirect stdout and stderr to the log.
 STDOUT->fdopen(\*OUT, "w");
 STDERR->fdopen(\*OUT, "w");
 
-# if you only want to do a partial run, comment out the run_ commands here
-# which you don't want to do.
+chdir $result_dir;
+
+# to do a partial run, comment out the commands here you don't want to do.
 
 run_build();
-
-chdir $result_dir;
 
 run_pass("xmemlocal", $xmemlocal);
 run_pass("xinfer", $xinfer);
@@ -109,7 +108,22 @@ run_index("index_rtime", "annotation_runtime");
 run_index("index_oflow", "write_overflow");
 archive_indexes();
 
+# end of run commands.
+
 close(OUT);
+
+# get the IP address which a freshly created manager is listening on.
+sub get_manager_address
+{
+    my $log_file = shift or die;
+
+    # give the manager one second to start, any longer and something's broken.
+    sleep(1);
+
+    my $log_data = `cat $log_file`;
+    $log_data =~ /Listening on ([\.\:0-9]*)/ or die;
+    return $1;
+}
 
 sub run_build
 {
@@ -117,11 +131,52 @@ sub run_build
     print scalar(localtime());
     print "\n";
 
-chdir $build_dir;
+    # fork off a process to run the build.
+    defined(my $pid = fork) or die;
 
-    my $build_log = "$result_dir/build.log";
-    my $build_err = "$result_dir/build_err.log";
-    system("$build_script $result_dir > $build_log 2> $build_err");
+    # log file for the manager.
+    my $log_file = "$result_dir/build_manager.log";
+
+    if (!$pid) {
+        # this is the child process, fork another process to run a manager.
+        defined(my $pid = fork) or die;
+        exec("xmanager > $log_file 2>&1") if (!$pid);
+
+        # open new streams to redirect stdout and stderr.
+        open(LOGOUT, "> $result_dir/build.log");
+        open(LOGERR, "> $result_dir/build_err.log");
+        STDOUT->fdopen(\*LOGOUT, "w");
+        STDERR->fdopen(\*LOGERR, "w");
+
+        my $address = get_manager_address($log_file);
+
+        # write the configuration file for the wrapper script.
+        open(CONFIG, "> $wrap_dir/xgill.config");
+        print CONFIG "$build_dir\n";
+        print CONFIG "$result_dir/build_xgill.log\n";
+        print CONFIG "$address\n";
+        close(CONFIG);
+
+        # update the PATH so that the build will see the wrappers.
+        $ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
+
+        # do the build.
+        chdir $build_dir;
+        build_project();
+
+        # signal the manager that it's over.
+        system("$xsource -remote=$address -end-manager");
+
+        # wait for the manager to clean up and terminate.
+        print "Waiting for manager to finish...\n";
+        waitpid($pid, 0);
+
+        # build is finished, the complete run can resume.
+        exit;
+    }
+
+    # this is the complete process, wait for the build to finish.
+    waitpid($pid, 0);
 
     print "build finished: ";
     print scalar(localtime());
@@ -135,22 +190,11 @@ sub run_pass
 
     # fork off a manager process for the analysis.
     defined(my $pid = fork) or die;
+    exec("xmanager > $log_file 2>&1") if (!$pid);
 
-    if (!$pid) {
-        # this is the child process, start the manager.
-        exec("xmanager > $log_file");
-    }
+    my $address = get_manager_address($log_file);
 
-    # can only get here in the parent process. figure out the address of the
-    # manager for connecting workers. we need to read the manager's log file,
-    # will be the first line. give the manager one second to start up,
-    # any longer and something's broken.
-    sleep(1);
-    my $log_data = `cat $log_file`;
-    $log_data =~ /Listening on ([\.\:0-9]*)/ or die;
-    my $address = $1;
-
-    # write the configuration file.
+    # write the poll file for this pass.
     open(POLL, "> $poll_file");
     print POLL "$command\n";
     print POLL "$result_dir/$name\n";
