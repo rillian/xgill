@@ -19,7 +19,7 @@
 
 # get a summary of assertions, reports and failures from an xcheck log.
 
-my $usage = "USAGE: scan_check [-split | dir] < xcheck.log\n";
+my $usage = "USAGE: check_scan [-split | dir] < xcheck.log\n";
 
 my $arg = shift or "";
 my $dosplit = 0;

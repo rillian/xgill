@@ -18,8 +18,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # do a complete run of the system from raw source to reports. this requires
-# various xmonitor processes to be running in the background (maybe on other
-# machines) and watching a shared poll_file for jobs.
+# various run_monitor processes to be running in the background (maybe on other
+# machines) and watching a shared poll_file for jobs. if the output directory
+# for this script already exists then an incremental analysis will be performed
+# and the reports will only reflect the changes since the earlier run.
 
 use strict;
 use IO::Handle;
@@ -28,13 +30,30 @@ use IO::Handle;
 # environment specific settings #
 #################################
 
-# directory to build the project from.
+# poll file shared with the run_monitor script.
+my $poll_file = "/path/to/poll-file";
+
+# root directory of the project.
 my $build_dir = "/path/to/project";
 die "Need build directory: $build_dir\n" if (not -d $build_dir);
 
-# location of the build_xgill script to run.
-my $build_script = "/path/to/build_xgill";
-die "Need build script: $build_script\n" if (not -e $build_script);
+# code to clean the project from $build_dir.
+sub clean_project {
+    system("make clean");
+}
+
+# code to build the project from $build_dir.
+sub build_project {
+    system("make");
+}
+
+# directory containing gcc wrapper scripts.
+my $wrap_dir = "/path/to/wrap_gcc";
+die "Bad wrapper directory: $wrap_dir" if (not (-e "$wrap_dir/basecc"));
+
+# soft memory limit for the manager, in MB. 0 for no limit. this requires
+# that USE_COUNT_ALLOCATOR is defined in util/alloc.h
+my $memory_limit = 0;
 
 # analysis commands with timeouts to use.
 my $xmemlocal = "xmemlocal -timeout=20";
@@ -49,7 +68,7 @@ die "Need old directory: $old_dir\n" if ($old_dir ne "" && not -d $old_dir);
 # general purpose script #
 ##########################
 
-my $usage = "USAGE: xcomplete poll-file result-dir\n";
+my $usage = "USAGE: run_complete result-dir\n";
 my $poll_file = shift or die $usage;
 my $result_dir = shift or die $usage;
 
@@ -59,16 +78,23 @@ if ($pid != 0) {
     exit(0);
 }
 
-mkdir $result_dir if (not -d $result_dir);
+# if the result directory does not already exist, clean before building.
+if (not (-d $result_dir)) {
+    clean_project();
+    mkdir $result_dir;
+}
 
-open(OUT, "> $result_dir/xcomplete.log");
-OUT->autoflush(1);  # don't buffer writes to the main log
+open(OUT, "> $result_dir/complete.log");
+OUT->autoflush(1);  # don't buffer writes to the main log.
+
+# redirect our stdout and stderr to the log.
+STDOUT->fdopen(\*OUT, "w");
+STDERR->fdopen(\*OUT, "w");
 
 # if you only want to do a partial run, comment out the run_ commands here
 # which you don't want to do.
 
-chdir $build_dir;
-run_frontend();
+run_build();
 
 chdir $result_dir;
 
@@ -85,19 +111,21 @@ archive_indexes();
 
 close(OUT);
 
-sub run_frontend
+sub run_build
 {
-    print OUT "build started: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "build started: ";
+    print scalar(localtime());
+    print "\n";
+
+chdir $build_dir;
 
     my $build_log = "$result_dir/build.log";
     my $build_err = "$result_dir/build_err.log";
     system("$build_script $result_dir > $build_log 2> $build_err");
 
-    print OUT "build finished: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "build finished: ";
+    print scalar(localtime());
+    print "\n";
 }
 
 sub run_pass
@@ -129,16 +157,16 @@ sub run_pass
     print POLL "$address\n";
     close(POLL);
 
-    print OUT "$name started: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "$name started: ";
+    print scalar(localtime());
+    print "\n";
 
     waitpid($pid, 0);
     unlink($poll_file);
 
-    print OUT "$name finished: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "$name finished: ";
+    print scalar(localtime());
+    print "\n";
 
     # collate the worker's output into a single file. wait a few seconds first
     # to make sure we get all the worker output.
@@ -155,9 +183,9 @@ sub run_index
 
     return if (not (-e "report_$kind.xdb"));
 
-    print OUT "$name started: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "$name started: ";
+    print scalar(localtime());
+    print "\n";
 
     # make an index for the report diff if applicable.
     if ($old_dir ne "") {
@@ -170,21 +198,21 @@ sub run_index
     system("make_index $kind > $name.log");
     $indexes .= " $kind";
 
-    print OUT "$name finished: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "$name finished: ";
+    print scalar(localtime());
+    print "\n";
 }
 
 sub archive_indexes
 {
-    print OUT "archive started: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "archive started: ";
+    print scalar(localtime());
+    print "\n";
 
     system("tar -czf reports.tgz $indexes");
     system("rm -rf $indexes");
 
-    print OUT "archive finished: ";
-    print OUT scalar(localtime());
-    print OUT "\n";
+    print "archive finished: ";
+    print scalar(localtime());
+    print "\n";
 }

@@ -24,14 +24,12 @@
 
 #include "stream.h"
 
-// use the custom allocator only for release builds. for debug builds we
-// want valgrind to work without getting confused.
-//#ifdef DEBUG
-//#define USE_STANDARD_ALLOCATOR
+// use the custom allocator for counting allocations for release builds.
+// for debug builds we want valgrind to work without getting confused.
+// this is currently disabled as it does not work in all configurations. fix?
+//#ifndef DEBUG
+//#define USE_COUNT_ALLOCATOR
 //#endif
-
-// TODO: the custom allocator does not work in all configurations. fix it?
-#define USE_STANDARD_ALLOCATOR
 
 // total number of heap-allocated bytes. this is a delta from the
 // last time ResetAllocs() was called, so it could be negative
@@ -63,7 +61,7 @@ struct TrackAlloc
 // with an allocator that is statically allocated (a global variable).
 TrackAlloc& LookupAlloc(const char *name);
 
-#ifndef USE_STANDARD_ALLOCATOR
+#ifdef USE_COUNT_ALLOCATOR
 
 inline void* operator new(size_t size)
 {
@@ -179,7 +177,7 @@ inline void track_delete(TrackAlloc &alloc, T *val) {
     }                                                   \
   }
 
-#else // USE_STANDARD_ALLOCATOR
+#else // USE_COUNT_ALLOCATOR
 
 #define ALLOC_OVERRIDE(alloc)
 
@@ -204,7 +202,7 @@ inline void track_delete(TrackAlloc &alloc, T *val) {
   delete[] val;
 }
 
-#endif // USE_STANDARD_ALLOCATOR
+#endif // USE_COUNT_ALLOCATOR
 
 // allocators provided for other utility headers which do not have
 // object files.
