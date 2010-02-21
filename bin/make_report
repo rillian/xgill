@@ -813,6 +813,17 @@ while ($frameindex <= $maxframe) {
     my $preproc_cmd = "xdbfind -plain-text $filepp_xdb '$file' | head -$endline | tail -$linecount";
     my @preproc_lines = `$preproc_cmd`;
 
+    # pad the lines if necessary (we weren't able to get the source correctly,
+    # but we don't want the scripts in the report to break).
+
+    while (scalar(@source_lines) < $linecount) {
+        push(@source_lines, "");
+    }
+
+    while (scalar(@preproc_lines) < $linecount) {
+        push(@preproc_lines, "");
+    }
+
     print "<div id='code_$frameindex' style='display: none'>\n";
 
     print "<span class='code_filename'>\n";
