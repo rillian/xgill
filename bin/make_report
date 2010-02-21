@@ -560,6 +560,10 @@ function hideResult()
     document.getElementById("job_result").style.paddingBottom = "";
 }
 
+var refreshJob = function () {
+    document.getElementById("job_server").innerHTML = ":(";
+}
+
 function submitReanalyze()
 {
     if (login_value == "")
@@ -572,10 +576,19 @@ EOF
 print <<EOF;
 
     var ext = newExtension();
-    var url = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext;
 
     document.getElementById("job_result").innerHTML =
-        "<iframe frameborder=0 scrolling=no width=90% height=20px marginheight=0 src='" + url + "'></iframe>";
+        "<span style='padding: 0px 5px' id='job_server'></span>";
+
+    refreshJob = function() {
+        var head = document.getElementsByTagName("head").item(0);
+        var script = document.createElement("script");
+        script.type = "text/javascript";
+        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext;
+        head.appendChild(script);
+    }
+
+    refreshJob();
 }
 
 function doReanalyze()
@@ -612,13 +625,21 @@ print <<EOF;
     var trustItem = document.getElementById("annotate_trust");
 
     var ext = newExtension();
-    var name = encodeURIComponent(hookItem.value);
+    var hook = encodeURIComponent(hookItem.value);
     var text = encodeURIComponent(textItem.value);
 
-    var url = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&name=" + name + "&text=" + text + "&trust=" + trustItem.checked;
-
     document.getElementById("job_result").innerHTML =
-        "<iframe frameborder=0 scrolling=no width=90% height=20px marginheight=0 src='" + url + "'></iframe>";
+        "<span style='padding: 0px 5px' id='job_server'></span>";
+
+    refreshJob = function() {
+        var head = document.getElementsByTagName("head").item(0);
+        var script = document.createElement("script");
+        script.type = "text/javascript";
+        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&hook=" + hook + "&text=" + text + "&trust=" + trustItem.checked;
+        head.appendChild(script);
+    }
+
+    refreshJob();
 }
 
 function doAnnotate()

@@ -69,7 +69,6 @@ die "Need old directory: $old_dir\n" if ($old_dir ne "" && not -d $old_dir);
 ##########################
 
 my $usage = "USAGE: run_complete result-dir\n";
-my $poll_file = shift or die $usage;
 my $result_dir = shift or die $usage;
 
 my $pid = fork();
@@ -78,9 +77,10 @@ if ($pid != 0) {
     exit(0);
 }
 
-# if the result directory does not already exist, clean before building.
+# if the result directory does not already exist, mark for a clean build.
+my $do_clean = 0;
 if (not (-d $result_dir)) {
-    clean_project();
+    $do_clean = 1;
     mkdir $result_dir;
 }
 
@@ -90,6 +90,9 @@ OUT->autoflush(1);  # don't buffer writes to the main log.
 # redirect stdout and stderr to the log.
 STDOUT->fdopen(\*OUT, "w");
 STDERR->fdopen(\*OUT, "w");
+
+# pids to wait on before exiting. these are collating worker output.
+my @waitpids;
 
 chdir $result_dir;
 
@@ -111,6 +114,10 @@ archive_indexes();
 # end of run commands.
 
 close(OUT);
+
+for my $pid (@waitpids) {
+    waitpid($pid, 0);
+}
 
 # get the IP address which a freshly created manager is listening on.
 sub get_manager_address
@@ -160,8 +167,9 @@ sub run_build
         # update the PATH so that the build will see the wrappers.
         $ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
 
-        # do the build.
+        # do the build, cleaning if necessary.
         chdir $build_dir;
+        clean_project() if ($do_clean);
         build_project();
 
         # signal the manager that it's over.
@@ -212,10 +220,16 @@ sub run_pass
     print scalar(localtime());
     print "\n";
 
-    # collate the worker's output into a single file. wait a few seconds first
-    # to make sure we get all the worker output.
-    sleep(10);
-    system("cat $name.*.log > $name.log");
+    # collate the worker's output into a single file. make this asynchronous
+    # so we can wait a bit and make sure we get all worker output.
+    defined(my $pid = fork) or die;
+
+    if (!$pid) {
+        sleep(20);
+        exec("cat $name.*.log > $name.log");
+    }
+
+    push(@waitpids, $pid);
 }
 
 # the names of all directories containing reports to archive.
