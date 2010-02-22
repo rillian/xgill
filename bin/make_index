@@ -292,7 +292,7 @@ while ($report)
     $prevlink = "none" if ($prevlink eq "");
     $nextlink = "none" if ($nextlink eq "");
 
-    my $retcode = system("xdbfind -plain-text report_$assertkind.xdb '$report' | make_report $prevlink $nextlink > $output");
+    my $retcode = system("xdbfind -plain-text report_$assertkind.xdb '$report' | make_report $nameid $prevlink $nextlink > $output");
 
     if ($retcode ne 0) {
         print "Failed on '$report'\n";

@@ -36,7 +36,8 @@ use LWP;
 my $get_url = "http://sixgill.org/test/getjob.cgi";
 
 # URL for posting the result of a job.
-my $post_url = "http://path/to/postjob.cgi";
+#my $post_url = "http://path/to/postjob.cgi";
+my $post_url = "http://sixgill.org/test/postjob.cgi";
 
 # number of worker processes to use.
 my $worker_count = 4;
@@ -115,7 +116,7 @@ sub run_fetch_loop {
 
         my $response = $browser->get($get_url);
 
-        die ("Can't get $get_url: " . $response->status_line)
+        die ("Couldn't get from $get_url: " . $response->status_line)
             unless ($response->is_success);
 
         die ("Unexpected content: " . $response->content_type)
@@ -123,13 +124,53 @@ sub run_fetch_loop {
 
         my @lines = split(/\n/, $response->content);
 
-        print "RECEIVED:\n";
-        foreach my $line (@lines) {
-            chomp $line;
-            print "LINE $line\n";
+        # if the response is empty there is no job to do.
+        my $ext = shift @lines or next;
+
+        my $name = shift @lines or die;
+        my $mail = shift @lines or die;
+        my $report = shift @lines or die;
+        my $link = shift @lines or die;
+        my $prev = shift @lines or die;
+        my $next = shift @lines or die;
+        my $hook = shift @lines or "";
+        my $text = shift @lines or "";
+        my $trust = shift @lines or "";
+
+        print "Processing $ext...\n";
+
+        if ($hook ne "") {
+            # not handled yet.
         }
 
-        # wait time between subsequent requests.
-        sleep(10);
+        my $res = system("$xcheck '$report' -xml-out=$ext.xml");
+        my $message;
+        my $html = "";
+
+        if ($res != 0) {
+            $message = "Failure during analysis";
+        }
+        else {
+            if (-e "$ext.xml") {
+                $message = "New report generated. Refresh your browser.";
+                $html = `make_report $link $prev $next < $ext.xml`;
+            }
+            else {
+                $message = "Assertion successfully checked. Refresh your browser.";
+                $html = `make_report $link $prev $next -success`;
+            }
+        }
+
+        $response = $browser->post($post_url,
+          [
+           'report' => $report,
+           'ext' => $ext,
+           'message' => $message,
+           'html' => $html,
+           'file' => $link,
+          ]);
+
+        die ("Couldn't post to $post_url: " . $response->status_line)
+            unless ($response->is_success);
     }
 }

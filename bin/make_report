@@ -24,30 +24,43 @@ use strict;
 # string to replace tabs with.
 my $tab_str = ' ' x 8;
 
-my $usage = "USAGE: make_report prev-link next-link < report-xml\n";
+my $usage = "USAGE: make_report cur-link prev-link next-link [-success] < report-xml\n";
 
+my $cur_link = shift or die $usage;
 my $prev_link = shift or die $usage;
 my $next_link = shift or die $usage;
+my $success = shift or "";
+
+die $usage if ($success ne "" && $success ne "-success");
 
 my $file_xdb = "file_source.xdb";
 my $filepp_xdb = "file_preprocess.xdb";
 die "Missing $file_xdb\n" if (not -e $file_xdb);
 die "Missing $filepp_xdb\n" if (not -e $filepp_xdb);
 
-# parse the input XML
-my $data = <STDIN>;
-my $table = recursive_parse_xml($data);
+my $path;
+my $report_name;
+my $title;
 
-my $path_entries = $table->{path};
-my $path = @{$path_entries}[0];
-die "Could not find <path>\n" if not defined $path;
+if ($success eq "") {
+    # parse the input XML.
+    my $data = <STDIN>;
+    my $table = recursive_parse_xml($data);
 
-my $report_name = get_single_xml_tag($path, 'name');
-print "<!-- '$report_name' -->\n";
+    my $path_entries = $table->{path};
+    $path = @{$path_entries}[0];
+    die "Could not find <path>\n" if not defined $path;
 
-my $title = report_printable($report_name);
+    $report_name = get_single_xml_tag($path, 'name');
+    print "<!-- '$report_name' -->\n";
 
-print "<html>\n<head>\n<title>Report: $title</title>\n\n";
+    $title = "Report: " . report_printable($report_name);
+}
+else {
+    $title = "Successful Check";
+}
+
+print "<html>\n<head>\n<title>$title</title>\n\n";
 
 print <<EOF;
 
@@ -153,6 +166,110 @@ a.code_link {
 }
 
 </style>
+</head>
+
+<body>
+
+<div id='header_div'>
+
+<div style="padding-bottom: 7px; padding-top: 3px">
+
+Report:
+
+<a class='navlink' id='annotate' href='#' onClick='doAnnotate(); return false;'>Annotate</a>
+<a class='navlink' id='reanalyze' href='#' onClick='doReanalyze(); return false;'>Reanalyze</a>
+<a class='navlink' id='reporttop' href='index.html'>Top</a>
+
+EOF
+
+if ($prev_link eq "none") {
+    print "<a class='navlink' id='reportprev' href='#' onClick='return false;'>Prev</a>\n";
+}
+else {
+    print "<a class='navlink' id='reportprev' href='$prev_link.html'>Prev</a>\n";
+}
+
+if ($next_link eq "none") {
+    print "<a class='navlink' id='reportnext' href='#' onClick='return false;'>Next</a>\n";
+}
+else {
+    print "<a class='navlink' id='reportnext' href='$next_link.html'>Next</a>\n";
+}
+
+print "</div>\n";
+
+print <<EOF;
+
+<script type="text/javascript">
+
+function setNavLink(name, value)
+{
+    var navItem = document.getElementById(name);
+    if (value != 0) {
+        navItem.style.backgroundColor = "#9999FF";
+    }
+    else {
+        navItem.style.backgroundColor = "#CCCCCC";
+    }
+}
+
+setNavLink("annotate",0);
+setNavLink("reanalyze",0);
+setNavLink("reporttop",1);
+
+EOF
+
+if ($prev_link eq "none") {
+    print "setNavLink(\"reportprev\",0);\n";
+}
+else {
+    print "setNavLink(\"reportprev\",1);\n";
+}
+
+if ($next_link eq "none") {
+    print "setNavLink(\"reportnext\",0);\n";
+}
+else {
+    print "setNavLink(\"reportnext\",1);\n";
+}
+
+if ($success ne "") {
+    print "function doAnnotate() {}\n";
+    print "function doReanalyze() {}\n";
+    print "</script>\n";
+    print "<div>Assertion successfully checked</div>\n";
+
+    exit;
+}
+
+print <<EOF;
+
+</script>
+
+<div id="login_result" style="font-size: 12pt"></div>
+<div id="job_result" style="font-size: 12pt"></div>
+
+<div style="padding-bottom: 5px">
+<span style="float: left; width: 125px">Goal:</span><span id="maindata"></span>
+</div>
+
+<div style="padding-bottom: 10px">
+<span style="float: left; width: 125px">Dependent:</span><span id="wheredata"></span>
+</div>
+
+<div>
+
+Steps:
+<a class="navlink" href="#" id="navfirst" onClick="setMoveIndex(firstArray[curIndex]); return false;">First</a>
+<a class="navlink" href="#" id="navprev"  onClick="setMoveIndex(prevArray[curIndex]); return false;">Prev</a>
+<a class="navlink" href="#" id="navnext"  onClick="setMoveIndex(nextArray[curIndex]); return false;">Next</a>
+<a class="navlink" href="#" id="navlast"  onClick="setMoveIndex(lastArray[curIndex]); return false;">Last</a>
+
+<span style="padding-left: 10px; padding-right: 5px">Statement:</span>
+<span id="textdata"></span>
+
+</div>
+</div>
 
 <script type="text/javascript">
 
@@ -296,17 +413,6 @@ for my $point (@{$point_entries}) {
 }
 
 print <<EOF;
-
-function setNavLink(name, value)
-{
-    var navItem = document.getElementById(name);
-    if (value != 0) {
-        navItem.style.backgroundColor = "#9999FF";
-    }
-    else {
-        navItem.style.backgroundColor = "#CCCCCC";
-    }
-}
 
 function setIndex(newIndex)
 {
@@ -571,7 +677,10 @@ function submitReanalyze()
 
 EOF
 
-    print("var report = encodeURIComponent('$report_name');");
+    print("var report = encodeURIComponent('$report_name');\n");
+    print("var link = '$cur_link';\n");
+    print("var prev_link = '$prev_link';\n");
+    print("var next_link = '$next_link';\n");
 
 print <<EOF;
 
@@ -584,7 +693,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext;
+        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link;
         head.appendChild(script);
     }
 
@@ -617,6 +726,9 @@ function submitAnnotate()
 EOF
 
     print("var report = encodeURIComponent('$report_name');");
+    print("var link = $cur_link;\n");
+    print("var prev_link = $prev_link;\n");
+    print("var next_link = $next_link;\n");
 
 print <<EOF;
 
@@ -635,7 +747,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&hook=" + hook + "&text=" + text + "&trust=" + trustItem.checked;
+        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link + "&hook=" + hook + "&text=" + text + "&trust=" + trustItem.checked;
         head.appendChild(script);
     }
 
@@ -692,67 +804,6 @@ print <<EOF;
 }
 
 </script>
-
-</head>
-
-<body>
-
-<div id='header_div'>
-
-<div style="padding-bottom: 7px; padding-top: 3px">
-
-Report:
-
-EOF
-
-print "<a class='navlink' id='annotate' href='#' onClick='doAnnotate(); return false;'>Annotate</a>\n";
-print "<a class='navlink' id='reanalyze' href='#' onClick='doReanalyze(); return false;'>Reanalyze</a>\n";
-print "<a class='navlink' id='reporttop' href='index.html'>Top</a>\n";
-
-if ($prev_link eq "none") {
-    print "<a class='navlink' id='reportprev' href='#' onClick='return false;'>Prev</a>\n";
-}
-else {
-    print "<a class='navlink' id='reportprev' href='$prev_link.html'>Prev</a>\n";
-}
-
-if ($next_link eq "none") {
-    print "<a class='navlink' id='reportnext' href='#' onClick='return false;'>Next</a>\n";
-}
-else {
-    print "<a class='navlink' id='reportnext' href='$next_link.html'>Next</a>\n";
-}
-
-print <<EOF;
-
-</div>
-
-<div id="login_result" style="font-size: 12pt"></div>
-
-<div id="job_result" style="font-size: 12pt"></div>
-
-<div style="padding-bottom: 5px">
-<span style="float: left; width: 125px">Goal:</span><span id="maindata"></span>
-</div>
-
-<div style="padding-bottom: 10px">
-<span style="float: left; width: 125px">Dependent:</span><span id="wheredata"></span>
-</div>
-
-<div>
-
-Steps:
-<a class="navlink" href="#" id="navfirst" onClick="setMoveIndex(firstArray[curIndex]); return false;">First</a>
-<a class="navlink" href="#" id="navprev"  onClick="setMoveIndex(prevArray[curIndex]); return false;">Prev</a>
-<a class="navlink" href="#" id="navnext"  onClick="setMoveIndex(nextArray[curIndex]); return false;">Next</a>
-<a class="navlink" href="#" id="navlast"  onClick="setMoveIndex(lastArray[curIndex]); return false;">Last</a>
-
-<span style="padding-left: 10px; padding-right: 5px">Statement:</span>
-<span id="textdata"></span>
-
-</div>
-
-</div>
 
 <div id='path_div'>
 
@@ -901,26 +952,12 @@ print <<EOF;
 
 <script type="text/javascript">
 
+setNavLink("annotate",1);
+setNavLink("reanalyze",1);
+
 EOF
 
 print "setInitialIndex($maxpoint);\n";
-print "setNavLink(\"annotate\",1);\n";
-print "setNavLink(\"reanalyze\",1);\n";
-print "setNavLink(\"reporttop\",1);\n";
-
-if ($prev_link eq "none") {
-    print "setNavLink(\"reportprev\",0);\n";
-}
-else {
-    print "setNavLink(\"reportprev\",1);\n";
-}
-
-if ($next_link eq "none") {
-    print "setNavLink(\"reportnext\",0);\n";
-}
-else {
-    print "setNavLink(\"reportnext\",1);\n";
-}
 
 print <<EOF;
 
