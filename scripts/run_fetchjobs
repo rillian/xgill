@@ -1,0 +1,135 @@
+#!/usr/bin/perl
+
+# Sixgill: Static assertion checker for C/C++ programs.
+# Copyright (C) 2009-2010  Stanford University
+# Author: Brian Hackett
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# monitor an external HTTP server for jobs to run on some local databases.
+# these jobs either specify a new annotation and a check to reanalyze,
+# or just the check to reanalyze. after the job finishes, posts the result
+# back to the server.
+
+use strict;
+use IO::Handle;
+
+use LWP;
+
+#################################
+# environment specific settings #
+#################################
+
+# URL for getting new jobs to perform.
+#my $get_url = "http://path/to/getjob.cgi";
+my $get_url = "http://sixgill.org/test/getjob.cgi";
+
+# URL for posting the result of a job.
+my $post_url = "http://path/to/postjob.cgi";
+
+# number of worker processes to use.
+my $worker_count = 4;
+
+# how often some worker should attempt to fetch a new job. if the workers
+# are busy then some fetch attempts may be skipped.
+my $fetch_delay = 10;
+
+# commands to run xgill binaries, as in run_complete.
+my $xmanager = "xmanager";
+my $xsource = "xsource";
+my $xcheck = "xcheck -timeout=30";
+
+##########################
+# general purpose script #
+##########################
+
+# this script should run from a result directory.
+die "Need database: src_body.xdb" if (not (-e "src_body.xdb"));
+
+# fork a manager process.
+defined(my $pid = fork) or die;
+if (!$pid) {
+    exec("$xmanager > fetch.manager.log 2>&1");
+}
+
+# get the manager's address, as in run_complete.
+sleep(1);
+my $log_data = `cat fetch.manager.log`;
+$log_data =~ /Listening on ([\.\:0-9]*)/ or die;
+my $address = $1;
+
+# fork the worker processes.
+for (my $ind = 0; $ind < $worker_count; $ind++) {
+    defined($pid = fork) or die;
+    if (!$pid) {
+        run_fetch_loop($ind);
+        exit;
+    }
+}
+
+print "Workers forked, exiting...\n";
+exit;
+
+# main loop for fetch workers.
+sub run_fetch_loop {
+    my $index = shift;
+
+    # open a log for this and redirect all output.
+    open(OUT, "> fetch.$index.log");
+    STDOUT->fdopen(\*OUT, "w");
+    STDERR->fdopen(\*OUT, "w");
+
+    my $browser = LWP::UserAgent->new;
+
+    my $secshift = $worker_count * $fetch_delay;
+    my $secpos = $index * $fetch_delay;
+
+    while (1) {
+        # figure out how many seconds to sleep before making a fetch.
+        (my $sec, my $min) = localtime(time);
+        my $secmod = ($min * 60 + $sec) % $secshift;
+
+        if ($secpos > $secmod) {
+            sleep($secpos - $secmod);
+        }
+        else {
+            sleep($secpos + $secshift - $secmod);
+        }
+
+        # check if we should terminate.
+        if (-e "fetch.finish") {
+            system("$xsource -remote=$address -end-manager") if ($index == 0);
+            last;
+        }
+
+        my $response = $browser->get($get_url);
+
+        die ("Can't get $get_url: " . $response->status_line)
+            unless ($response->is_success);
+
+        die ("Unexpected content: " . $response->content_type)
+            unless ($response->content_type eq "text/plain");
+
+        my @lines = split(/\n/, $response->content);
+
+        print "RECEIVED:\n";
+        foreach my $line (@lines) {
+            chomp $line;
+            print "LINE $line\n";
+        }
+
+        # wait time between subsequent requests.
+        sleep(10);
+    }
+}
