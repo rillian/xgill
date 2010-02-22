@@ -726,9 +726,9 @@ function submitAnnotate()
 EOF
 
     print("var report = encodeURIComponent('$report_name');");
-    print("var link = $cur_link;\n");
-    print("var prev_link = $prev_link;\n");
-    print("var next_link = $next_link;\n");
+    print("var link = '$cur_link';\n");
+    print("var prev_link = '$prev_link';\n");
+    print("var next_link = '$next_link';\n");
 
 print <<EOF;
 
@@ -761,7 +761,7 @@ function doAnnotate()
     result_annotate = true;
 
     var job_html =
-        "<a class='joblink' id='job_submit' href='#' onClick='submitReanalyze(); return false;'>Submit</a>";
+        "<a class='joblink' id='job_submit' href='#' onClick='submitAnnotate(); return false;'>Submit</a>";
     job_html += "<span style='padding: 0px 5px'><select id='annotate_hook' style='width: 200px'>";
 
     var curFrame = codeFrameArray[curIndex];

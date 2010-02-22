@@ -172,6 +172,19 @@ enum AnnotationKind {
 
 };
 
+// get the string representation of an annotation kind.
+inline const char* AnnotationKindString(AnnotationKind kind)
+{
+  switch (kind) {
+
+#define XIL_PRINT_ANNOT(NAME, STR, _)  case AK_ ## NAME: return STR; break;
+  XIL_ITERATE_ANNOT(XIL_PRINT_ANNOT)
+#undef XIL_PRINT_ANNOT
+
+  default: Assert(false);
+  }
+}
+
 class PEdge;
 
 // information about a variable defined by a CFG.
@@ -200,6 +213,22 @@ struct LoopHead
   LoopHead() : point(0), end_location(NULL) {}
   LoopHead(PPoint _point, Location *_end_location)
     : point(_point), end_location(_end_location) {}
+};
+
+// information about a point annotation in a CFG. in contrast to annotations
+// on edges, which came from assertions in the source code, these come from
+// the web interface and can be inserted without changing the CFG's structure.
+struct PointAnnotation
+{
+  // point where this annotation occurs at.
+  PPoint point;
+
+  // ID of the annotation CFG.
+  BlockId *annot;
+
+  PointAnnotation() : point(0), annot(NULL) {}
+  PointAnnotation(PPoint _point, BlockId *_annot)
+    : point(_point), annot(_annot) {}
 };
 
 // a control flow graph - points and edges with distinguished entry/exit
@@ -310,13 +339,22 @@ class BlockCFG : public HashObject
     return m_loop_isomorphic ? m_loop_isomorphic->Contains(point) : false;
   }
 
-  // get the edges in this block
+  // get the edges in this block.
   size_t GetEdgeCount() const {
     return m_edges ? m_edges->Size() : 0;
   }
   PEdge* GetEdge(size_t ind) const {
     Assert(m_edges);
     return m_edges->At(ind);
+  }
+
+  // get the point annotations in this block.
+  size_t GetPointAnnotationCount() const {
+    return m_point_annotations ? m_point_annotations->Size() : 0;
+  }
+  const PointAnnotation& GetPointAnnotation(size_t ind) const {
+    Assert(m_point_annotations);
+    return m_point_annotations->At(ind);
   }
 
   // return whether this CFG is equivalent to cfg. these CFGs should be for
@@ -388,6 +426,9 @@ class BlockCFG : public HashObject
   // consumes a reference on edge.
   void SetEdge(size_t eind, PEdge *edge);
 
+  // add a point annotation to this CFG.
+  void AddPointAnnotation(PPoint point, BlockId *annot);
+
   // helper methods.
 
   // get a list of the outgoing/incoming edges for a point. if these are
@@ -444,6 +485,9 @@ class BlockCFG : public HashObject
 
   // the edges in this CFG.
   Vector<PEdge*> *m_edges;
+
+  // the point annotations in this CFG.
+  Vector<PointAnnotation> *m_point_annotations;
 
   // if this is an annotation CFG, the annotation kind and bit (if computed).
   AnnotationKind m_annotation_kind;

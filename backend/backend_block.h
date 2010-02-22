@@ -44,21 +44,29 @@ TAction* BlockQueryList(Transaction *t, TOperand *query_data,
 
 // add the results of processing a set of CSUs and/or blocks. list is
 // a compressed series of CompositeCSUs, TAG_Uint32 followed by BlockCFGs,
-// EscapeEdgeSets, EscapeAccessSets, and CallEdgeSets.
-// these will be merged with any previous data.
+// EscapeEdgeSets, EscapeAccessSets, and CallEdgeSets. these will be merged
+// with any previous data. blocks/CSUs are written to databases immediately,
+// escape/callgraph info is kept in caches until a BlockFlushEscape.
 TAction* BlockWriteList(Transaction *t, TOperand *write_data);
 
-// return whether an annotation CFG has already been processed.
+// return whether an annotation CFG has already been processed: there has been
+// a previous BlockWriteAnnot for the CFG or, if check_db is specified,
+// there is already a CFG in the database.
 TAction* BlockQueryAnnot(Transaction *t, const char *db_name,
                          const char *var_name, const char *annot_name,
-                         size_t var_result);
+                         bool check_db, size_t var_result);
 
-// write out an annotation CFG stored in annot_data.
+// write an annotation CFG stored in annot_data. these CFGs are kept in caches
+// until a BlockFlushAnnotations.
 TAction* BlockWriteAnnot(Transaction *t, TOperand *annot_data);
 
-// flush all escape/callgraph data that has been written to the databases.
+// flush all written escape/callgraph info to the databases.
 // this is also performed when the backend finishes.
-TAction* BlockFlush(Transaction *t);
+TAction* BlockFlushEscape(Transaction *t);
+
+// flush all written annotation CFGs to the databases.
+// this is also performed when the backend finishes.
+TAction* BlockFlushAnnotations(Transaction *t);
 
 // file source functions.
 

@@ -170,6 +170,9 @@
 // children: TAG_Index
 #define TAG_LoopIsomorphic  1624
 
+// children: TAG_Index, TAG_BlockId
+#define TAG_PointAnnotation  1626
+
 // children:
 //   TAG_Kind (all)
 //   TAG_Index (all x2)
@@ -205,4 +208,5 @@
 //   list of TAG_BlockPPoint (loop parents)
 //   list of TAG_LoopHead
 //   list of TAG_LoopIsomorphic
+//   list of TAG_PointAnnotation
 #define TAG_BlockCFG 1700

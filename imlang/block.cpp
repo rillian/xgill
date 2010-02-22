@@ -273,6 +273,14 @@ void BlockCFG::Write(Buffer *buf, const BlockCFG *cfg)
     }
   }
 
+  for (size_t ind = 0; ind < cfg->GetPointAnnotationCount(); ind++) {
+    PointAnnotation pann = cfg->GetPointAnnotation(ind);
+    WriteOpenTag(buf, TAG_PointAnnotation);
+    WriteTagUInt32(buf, TAG_Index, pann.point);
+    BlockId::Write(buf, pann.annot);
+    WriteCloseTag(buf, TAG_PointAnnotation);
+  }
+
   WriteCloseTag(buf, TAG_BlockCFG);
 }
 
@@ -377,7 +385,6 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
         else
           res->SetExitPoint((PPoint) point_index);
       }
-
       break;
     }
     case TAG_LoopHead: {
@@ -410,6 +417,19 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
         res->AddLoopIsomorphic(point);
       break;
     }
+    case TAG_PointAnnotation: {
+      uint32_t point;
+      Try(ReadOpenTag(buf, TAG_PointAnnotation));
+      Try(ReadTagUInt32(buf, TAG_Index, &point));
+      BlockId *annot = BlockId::Read(buf);
+      Try(ReadCloseTag(buf, TAG_PointAnnotation));
+
+      if (drop_info)
+        annot->DecRef();
+      else
+        res->AddPointAnnotation(point, annot);
+      break;
+    }
     case TAG_PEdge: {
       PEdge *edge = PEdge::Read(buf);
 
@@ -417,7 +437,6 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
         edge->DecRef();
       else
         res->AddEdge(edge);
-
       break;
     }
     default:
@@ -458,7 +477,7 @@ BlockCFG::BlockCFG(BlockId *id)
     m_vars(NULL), m_loop_parents(NULL),
     m_loop_heads(NULL), m_loop_isomorphic(NULL),
     m_points(NULL), m_entry_point(0), m_exit_point(0), m_edges(NULL),
-    m_annotation_kind(AK_Invalid),
+    m_point_annotations(NULL), m_annotation_kind(AK_Invalid),
     m_annotation_computed(false), m_annotation_bit(NULL),
     m_outgoing_edges(NULL), m_incoming_edges(NULL)
 {
@@ -596,6 +615,13 @@ void BlockCFG::ClearBody()
   if (m_loop_isomorphic) {
     delete m_loop_isomorphic;
     m_loop_isomorphic = NULL;
+  }
+
+  if (m_point_annotations) {
+    for (size_t ind = 0; ind < m_point_annotations->Size(); ind++)
+      m_point_annotations->At(ind).annot->DecRef(this);
+    delete m_point_annotations;
+    m_point_annotations = NULL;
   }
 
   if (m_edges) {
@@ -765,6 +791,15 @@ void BlockCFG::SetEdge(size_t ind, PEdge *edge)
   m_edges->At(ind) = edge;
 }
 
+void BlockCFG::AddPointAnnotation(PPoint point, BlockId *annot)
+{
+  if (!m_point_annotations)
+    m_point_annotations = new Vector<PointAnnotation>();
+
+  annot->MoveRef(NULL, this);
+  m_point_annotations->PushBack(PointAnnotation(point, annot));
+}
+
 const Vector<PEdge*>& BlockCFG::GetOutgoingEdges(PPoint point)
 {
   ComputeEdgeInfo();
@@ -849,14 +884,9 @@ void BlockCFG::Print(OutStream &out) const
   out << "begin: " << m_begin_location << endl;
   out << "end:   " << m_end_location << endl;
 
-  switch (m_annotation_kind) {
-
-#define PRINT_ANNOT(NAME, STR, _)               \
-    case AK_ ## NAME: out << "annotation_kind: " << STR << endl; break;
-  XIL_ITERATE_ANNOT(PRINT_ANNOT)
-#undef PRINT_ANNOT
-
-  default: break;
+  if (m_annotation_kind) {
+    out << "annotation_kind: "
+        << AnnotationKindString(m_annotation_kind) << endl;
   }
 
   for (size_t ind = 0; ind < GetLoopParentCount(); ind++) {
@@ -889,6 +919,13 @@ void BlockCFG::Print(OutStream &out) const
       if (head.end_location)
         out << " [" << head.end_location << "]";
       out << endl;
+    }
+  }
+
+  if (m_point_annotations) {
+    for (size_t ind = 0; ind < m_point_annotations->Size(); ind++) {
+      PointAnnotation pann = m_point_annotations->At(ind);
+      out << "point_annotation: " << pann.point << ": " << pann.annot << endl;
     }
   }
 

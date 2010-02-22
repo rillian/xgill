@@ -63,13 +63,13 @@ XIL_Location XIL_MakeLocation(const char *file, int line);
 // at which they are cleared.
 typedef enum {
   // associations cleared after each annotation.
-  XIL_AscAnnotate = 0,
+  XIL_AscAnnotate,
 
   // associations cleared after each block.
-  XIL_AscBlock = 1,
+  XIL_AscBlock,
 
   // associations which are never cleared.
-  XIL_AscGlobal = 2
+  XIL_AscGlobal
 
 } XIL_AssociateKind;
 
@@ -79,7 +79,7 @@ void** XIL_Associate(XIL_AssociateKind table, const char *kind, void *value);
 void XIL_ClearAssociate(XIL_AssociateKind table);
 
 /////////////////////////////////////////////////////////////////////
-// Active block
+// Annotations
 /////////////////////////////////////////////////////////////////////
 
 #define XIL_ITERATE_ANNOT(MACRO)                                \
@@ -103,6 +103,26 @@ enum _enum_XIL_AnnotationKind {
 #undef XIL_FILL_ANNOT
 };
 typedef enum _enum_XIL_AnnotationKind XIL_AnnotationKind;
+
+// read a file of annotations generated from the web interface.
+void XIL_ReadAnnotationFile(const char *file);
+
+// get the number of read annotations associated with var.
+int XIL_GetAnnotationCount(XIL_Var var, int annot_type);
+
+// get one of the read annotations associated with var.
+void XIL_GetAnnotation(XIL_Var var, int annot_type, int index,
+                       const char **pwhere, const char **ptext,
+                       int *ptrusted);
+
+// ensure that any generated annotations are forced to disk after processing
+// is done. only write out CFGs affected by read annotations (annotations
+// which indicate loop invariant or other assertions within the CFG).
+void XIL_ForceAnnotationWrites();
+
+/////////////////////////////////////////////////////////////////////
+// Active block
+/////////////////////////////////////////////////////////////////////
 
 // set/clear the global variable or function we are generating a CFG for.
 // if annot is specified then we are making an annotation CFG for var.

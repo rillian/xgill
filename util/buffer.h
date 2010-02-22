@@ -239,7 +239,7 @@ void ReadInStream(InStream &in, Buffer *buf);
 
 // Utility methods. return value indicates an error occurred.
 
-// useful helper for ReadInStream. tokenizes the buffer contents by
+// useful helper for ReadInStream. tokenizes the in-use portion of buffer by
 // splitting into strings separated by each occurrence of tok ('\n', say).
 // destructively updates the buffer contents to insert NULL terminators;
 // the strings added will be internal pointers to data in buf.

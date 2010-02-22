@@ -343,6 +343,17 @@ void XIL_GenerateBlock(tree decl)
   XIL_ClearActiveBlock(xil_active_env.dropped);
   XIL_ClearAssociate(XIL_AscBlock);
 
+  // process any annotations read in from file for the function,
+  // now that we know all locals.
+  int ind = 0;
+  for (; ind < XIL_GetAnnotationCount(xil_var, false); ind++) {
+    const char *where;
+    const char *text;
+    int trusted;
+    XIL_GetAnnotation(xil_var, false, ind, &where, &text, &trusted);
+    XIL_ProcessAnnotationRead(decl, where, text, trusted);
+  }
+
   memset(&xil_active_env, 0, sizeof(struct XIL_BlockEnv));
 }
 
@@ -530,7 +541,7 @@ void gcc_plugin_pre_genericize(void *gcc_data, void *user_data)
   // check for annotations on this function.
   tree attr = DECL_ATTRIBUTES(decl);
   while (attr) {
-    XIL_ProcessAnnotation(decl, attr, NULL, NULL);
+    XIL_ProcessAnnotationAttr(decl, attr, NULL, NULL);
     attr = TREE_CHAIN(attr);
   }
 
@@ -569,7 +580,7 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     }
   }
 
-  // check for a global variable. for now the tests are pretty crude.
+  // check for a global variable.
   bool is_global = false;
 
   if (TREE_CODE(decl) == VAR_DECL) {
@@ -579,20 +590,36 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
       is_global = true;
   }
 
-  // process any annotation attributes on functions and globals.
-  if (is_global || TREE_CODE(decl) == FUNCTION_DECL) {
-    tree idnode = DECL_NAME(decl);
-    if (idnode && TREE_CODE(idnode) == IDENTIFIER_NODE) {
-      tree attr = DECL_ATTRIBUTES(decl);
-      while (attr) {
-        XIL_ProcessAnnotation(decl, attr, NULL, NULL);
-        attr = TREE_CHAIN(attr);
-      }
-    }
+  if (!is_global && TREE_CODE(decl) != FUNCTION_DECL)
+    return;
 
-    // future parameter declarations will be for a different function.
-    xil_pending_param_decls = NULL;
+  XIL_Var var = XIL_TranslateVar(decl);
+  const char *name = XIL_GetVarName(var);
+
+  // this is a function or global, process any annotation attributes.
+  tree attr = DECL_ATTRIBUTES(decl);
+  while (attr) {
+    XIL_ProcessAnnotationAttr(decl, attr, NULL, NULL);
+    attr = TREE_CHAIN(attr);
   }
+
+  // also look for annotations read in from file.
+  int ind = 0;
+  for (; ind < XIL_GetAnnotationCount(var, false); ind++) {
+    const char *where;
+    const char *text;
+    int trusted;
+    XIL_GetAnnotation(var, false, ind, &where, &text, &trusted);
+
+    // we'll handle loop invariants after seeing the function's definition.
+    if (!strncmp(where, "loop", 4))
+      continue;
+
+    XIL_ProcessAnnotationRead(decl, where, text, trusted);
+  }
+
+  // future parameter declarations will be for a different function.
+  xil_pending_param_decls = NULL;
 
   if (!is_global)
     return;
@@ -610,10 +637,7 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     "const char _ZTS",
     NULL
   };
-  int ind = 0;
-  XIL_Var var = XIL_TranslateVar(decl);
-  const char *name = XIL_GetVarName(var);
-  for (; bad_prefix_list[ind]; ind++) {
+  for (ind = 0; bad_prefix_list[ind]; ind++) {
     const char *bad_prefix = bad_prefix_list[ind];
     if (!strncmp(name, bad_prefix, strlen(bad_prefix)))
       return;
@@ -708,6 +732,15 @@ int plugin_init (struct plugin_name_args *plugin_info,
         normalize_directory = arg_value;
       else
         printf("WARNING: xgill argument 'basedir' requires value\n");
+    }
+    else if (!strcmp(arg_key,"annfile")) {
+      if (arg_value)
+        XIL_ReadAnnotationFile(arg_value);
+      else
+        printf("WARNING: xgill argument 'annfile' requires value\n");
+    }
+    else if (!strcmp(arg_key,"annforce")) {
+      XIL_ForceAnnotationWrites();
     }
     else if (!strcmp(arg_key,"annot")) {
       if (arg_value) {

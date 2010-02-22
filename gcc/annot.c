@@ -1510,48 +1510,16 @@ void WriteAnnotationFile(FILE *file)
 // before giving up.
 #define PROCESS_MAX_TRIES 8
 
-bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
-                           XIL_Location loc)
+// process an annotation either from an attribute or read in from a file.
+void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
+                           XIL_Location loc, XIL_AnnotationKind annot_kind,
+                           const char *annot_text)
 {
-  const char *annot_text = NULL;
-  const char *purpose = XIL_DecodeAttribute(attr, &annot_text, NULL);
-
-  if (!purpose)
-    return false;
-
-  // figure out the kind of annotation, if this is an annotation.
-  XIL_AnnotationKind annot_kind = 0;
-
-#define XIL_CHECK_ATTR(_, STR, VALUE)                   \
-    if (!strcmp(purpose, STR)) annot_kind = VALUE;
-  XIL_ITERATE_ANNOT(XIL_CHECK_ATTR)
-#undef XIL_CHECK_ATTR
-
-  if (!annot_kind)
-    return false;
-
-  // make sure annotations which expect a program point are attached to one,
-  // and annotations which don't expect a point aren't. annotations not meeting
-  // these criteria are silently dropped; in the future we should warn.
-
-  bool expect_point = false;
-  if (annot_kind == XIL_AK_Assert || annot_kind == XIL_AK_Assume ||
-      annot_kind == XIL_AK_AssertRuntime)
-    expect_point = true;
-
-  if (expect_point && !point) return true;
-  if (!expect_point && point) return true;
-
-  if (!annot_text) {
-    TREE_UNEXPECTED(attr);
-    return true;
-  }
-
   gcc_assert(xil_plugin_path);
   if (!xil_gcc_path) {
     fprintf(xil_log,
       "ERROR: Can't process annotation without -fplugin-arg-xgill-gcc\n");
-    return true;
+    return;
   }
 
   // get the class, name and target of the annotation.
@@ -1559,6 +1527,16 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   char *annot_name = malloc(strlen(annot_text) + 100);
   XIL_Var annot_var = NULL;
   bool annot_type = false;
+
+  // get the purpose of the annotation, the same as from an attribute.
+  const char *purpose = NULL;
+
+#define XIL_CHECK_ATTR(_, STR, VALUE)                   \
+    if (annot_kind == VALUE) purpose = STR;
+  XIL_ITERATE_ANNOT(XIL_CHECK_ATTR)
+#undef XIL_CHECK_ATTR
+
+  gcc_assert(purpose);
 
   if (TREE_CODE(node) == FUNCTION_DECL) {
     annot_class = "func";
@@ -1602,7 +1580,7 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 
   if (XIL_HasAnnotation(annot_var, annot_name, annot_type)) {
     // we've seen this annotation before, don't need to process it again.
-    return true;
+    return;
   }
 
   fprintf(xil_log, "Annotation: %s: %s: %s\n",
@@ -1745,7 +1723,7 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
 #endif
 
       state = NULL;
-      return true;
+      return;
     }
 
     // parse the first error from the output file. this is the text
@@ -1817,6 +1795,65 @@ bool XIL_ProcessAnnotation(tree node, tree attr, XIL_PPoint *point,
   remove(out_file);
   remove(annotation_file);
 #endif
+}
 
+bool XIL_ProcessAnnotationAttr(tree node, tree attr, XIL_PPoint *point,
+                               XIL_Location loc)
+{
+  const char *annot_text = NULL;
+  const char *purpose = XIL_DecodeAttribute(attr, &annot_text, NULL);
+
+  if (!purpose)
+    return false;
+
+  // figure out the kind of annotation, if this is an annotation.
+  XIL_AnnotationKind annot_kind = 0;
+
+#define XIL_CHECK_ATTR(_, STR, VALUE)                   \
+    if (!strcmp(purpose, STR)) annot_kind = VALUE;
+  XIL_ITERATE_ANNOT(XIL_CHECK_ATTR)
+#undef XIL_CHECK_ATTR
+
+  if (!annot_kind)
+    return false;
+
+  // make sure annotations which expect a program point are attached to one,
+  // and annotations which don't expect a point aren't. annotations not meeting
+  // these criteria are silently dropped; in the future we should warn.
+
+  bool expect_point = false;
+  if (annot_kind == XIL_AK_Assert || annot_kind == XIL_AK_Assume ||
+      annot_kind == XIL_AK_AssertRuntime)
+    expect_point = true;
+
+  if (expect_point && !point) return true;
+  if (!expect_point && point) return true;
+
+  if (!annot_text) {
+    TREE_UNEXPECTED(attr);
+    return true;
+  }
+
+  XIL_ProcessAnnotation(node, point, false, loc, annot_kind, annot_text);
   return true;
+}
+
+void XIL_ProcessAnnotationRead(tree node, const char *where,
+                               const char *text, bool trusted)
+{
+  XIL_AnnotationKind annot_kind = 0;
+  bool all_locals = false;
+
+  if (!strcmp(where, "pre")) {
+    annot_kind = trusted ? XIL_AK_PreconditionAssume : XIL_AK_Precondition;
+  }
+  else if (!strcmp(where, "post")) {
+    annot_kind = trusted ? XIL_AK_PostconditionAssume : XIL_AK_Postcondition;
+  }
+  else if (!strncmp(where, "loop", 4)) {
+    annot_kind = trusted ? XIL_AK_Assume : XIL_AK_Assert;
+    all_locals = true;
+  }
+
+  XIL_ProcessAnnotation(node, NULL, all_locals, NULL, annot_kind, text);
 }

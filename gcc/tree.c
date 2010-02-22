@@ -731,7 +731,8 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     while (attr) {
       if (!*env->point)
         *env->point = XIL_CFGAddPoint(loc);
-      if (XIL_ProcessAnnotation(xil_active_env.decl, attr, env->point, loc))
+      if (XIL_ProcessAnnotationAttr(xil_active_env.decl, attr,
+                                    env->point, loc))
         return;
       attr = TREE_CHAIN(attr);
     }
