@@ -165,7 +165,8 @@ sub run_build
         print CONFIG "$build_dir\n";
         print CONFIG "$result_dir/build_xgill.log\n";
         print CONFIG "$address\n";
-        print CONFIG "$ann_file\n";
+        print CONFIG "-fplugin-arg-xgill-annfile=$ann_file\n"
+          if ($ann_file ne "" && -e $ann_file);
         close(CONFIG);
 
         # update the PATH so that the build will see the wrappers.

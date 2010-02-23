@@ -43,8 +43,22 @@ const char *report_database = NULL;
 // number of callgraph stages.
 static size_t g_stage_count = 0;
 
+// if we're generating an XML file, the single function to analyze. there can
+// be multiple workers using the manager and generating separate XML files,
+// and we don't want them to share a worklist.
+static Buffer xml_function_buf;
+
 void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
 {
+  // don't use the worklist if we're generating an XML file. there can be
+  // multiple workers using the manager and generating separate XML files,
+  // and we don't want them to share a worklist.
+  if (xml_file.IsSpecified()) {
+    Assert(checks.Size() == 1);
+    Try(BlockSummary::GetAssertFunction(checks[0], &xml_function_buf));
+    return;
+  }
+
   size_t count_var = t->MakeVariable(true);
 
   if (!checks.Empty()) {
@@ -53,16 +67,10 @@ void DoInitTransaction(Transaction *t, const Vector<const char*> &checks)
 
     // parse the function names from the assertion format.
     for (size_t uind = 0; uind < checks.Size(); uind++) {
-      const char *check = checks[uind];
-
       Buffer *buf = new Buffer();
       t->AddBuffer(buf);
 
-      if (!BlockSummary::GetAssertFunction(checks[uind], buf)) {
-        cout << "ERROR: Malformed check name: " << check << endl;
-        continue;
-      }
-
+      Try(BlockSummary::GetAssertFunction(checks[uind], buf));
       functions->PushOperand(new TOperandString(t, (const char*) buf->base));
     }
 
@@ -86,8 +94,17 @@ void DoFetchTransaction(Transaction *t, size_t stage_result,
   TRANSACTION_MAKE_VAR(body_key);
   TRANSACTION_MAKE_VAR(key_empty);
 
-  t->PushAction(Backend::BlockCurrentStage(t, stage_result));
-  t->PushAction(Backend::BlockPopWorklist(t, false, body_key_var));
+  if (xml_file.IsSpecified()) {
+    // get the single function instead of going to the worklist.
+    TOperand *zero = new TOperandInteger(t, 0);
+    body_key = new TOperandString(t, (const char*) xml_function_buf.base);
+    t->PushAction(new TActionAssign(t, zero, stage_result));
+  }
+  else {
+    t->PushAction(Backend::BlockCurrentStage(t, stage_result));
+    t->PushAction(Backend::BlockPopWorklist(t, false, body_key_var));
+  }
+
   t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));
 
   TActionTest *non_empty_branch = new TActionTest(t, key_empty, false);
@@ -153,9 +170,6 @@ void RunAnalysis(const Vector<const char*> &checks)
   t->Clear();
 
   size_t current_stage = 0;
-
-  // whether we've seen any checks.
-  bool handled = false;
 
   while (true) {
 #ifndef DEBUG
@@ -290,11 +304,6 @@ void RunAnalysis(const Vector<const char*> &checks)
             continue;
         }
 
-        // we should only get here once if we're writing an XML file directly.
-        if (handled)
-          Assert(!xml_file.IsSpecified());
-        handled = true;
-
         // reset the hard timeout at each new assertion. we want to avoid hard
         // failures as much as possible; this can make functions take a very
         // long time to analyze in the worst case. hard timeouts are disabled
@@ -364,6 +373,11 @@ void RunAnalysis(const Vector<const char*> &checks)
 
     // clear out held references on CFGs.
     DecRefVector<BlockCFG>(function_cfgs);
+
+    // we should analyze the single check our first time through the loop
+    // if we're generating an XML file.
+    if (xml_file.IsSpecified())
+      break;
   }
 
   delete t;
@@ -478,10 +492,15 @@ int main(int argc, const char **argv)
   ResetAllocs();
   AnalysisPrepare();
 
-  if (trans_initial.IsSpecified())
-    SubmitInitialTransaction();
-  RunAnalysis(new_checks);
-  SubmitFinalTransaction();
+  if (new_checks.Empty()) {
+    if (trans_initial.IsSpecified())
+      SubmitInitialTransaction();
+    RunAnalysis(new_checks);
+    SubmitFinalTransaction();
+  }
+  else {
+    RunAnalysis(new_checks);
+  }
 
   ClearBlockCaches();
   ClearMemoryCaches();

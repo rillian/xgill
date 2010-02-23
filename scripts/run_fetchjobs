@@ -24,6 +24,7 @@
 
 use strict;
 use IO::Handle;
+use Cwd;
 
 use LWP;
 
@@ -32,12 +33,10 @@ use LWP;
 #################################
 
 # URL for getting new jobs to perform.
-#my $get_url = "http://path/to/getjob.cgi";
-my $get_url = "http://sixgill.org/test/getjob.cgi";
+my $get_url = "http://path/to/getjob.cgi";
 
 # URL for posting the result of a job.
-#my $post_url = "http://path/to/postjob.cgi";
-my $post_url = "http://sixgill.org/test/postjob.cgi";
+my $post_url = "http://path/to/postjob.cgi";
 
 # number of worker processes to use.
 my $worker_count = 4;
@@ -45,6 +44,14 @@ my $worker_count = 4;
 # how often some worker should attempt to fetch a new job. if the workers
 # are busy then some fetch attempts may be skipped.
 my $fetch_delay = 10;
+
+# root directory of the project, as in run_complete.
+my $build_dir = "/path/to/project";
+die "Need build directory: $build_dir\n" if (not -d $build_dir);
+
+# directory containing gcc wrapper scripts, as in run_complete.
+my $wrap_dir = "/path/to/wrap_gcc";
+die "Bad wrapper directory: $wrap_dir" if (not (-e "$wrap_dir/basecc"));
 
 # commands to run xgill binaries, as in run_complete.
 my $xmanager = "xmanager";
@@ -58,6 +65,13 @@ my $xcheck = "xcheck -timeout=30";
 # this script should run from a result directory.
 die "Need database: src_body.xdb" if (not (-e "src_body.xdb"));
 
+my $result_dir = getcwd();
+
+# make sure the annotation file exists.
+open(ANNOT, ">> annots.list");
+print ANNOT "\n";
+close(ANNOT);
+
 # fork a manager process.
 defined(my $pid = fork) or die;
 if (!$pid) {
@@ -69,6 +83,17 @@ sleep(1);
 my $log_data = `cat fetch.manager.log`;
 $log_data =~ /Listening on ([\.\:0-9]*)/ or die;
 my $address = $1;
+
+# write the configuration file for the wrapper scripts.
+open(CONFIG, "> $wrap_dir/xgill.config");
+print CONFIG "$build_dir\n";
+print CONFIG "$result_dir/build_fetch.log\n";
+print CONFIG "$address\n";
+print CONFIG "-fplugin-arg-xgill-annfile=$result_dir/annots.list -fplugin-arg-xgill-annforce\n";
+close(CONFIG);
+
+# update the PATH so that commands to add annotations will see the wrappers.
+$ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
 
 # fork the worker processes.
 for (my $ind = 0; $ind < $worker_count; $ind++) {
@@ -140,10 +165,60 @@ sub run_fetch_loop {
         print "Processing $ext...\n";
 
         if ($hook ne "") {
-            # not handled yet.
+            # append to the annotation file. because of the fetch delay there
+            # shouldn't be contention between multiple workers for this append.
+            open(ANNOT, ">> annots.list");
+
+            print ANNOT "$name\n";
+            print ANNOT "$mail\n";
+            print ANNOT "$hook\n";
+            print ANNOT "$text\n";
+            print ANNOT "$trust\n\n";
+
+            close(ANNOT);
+
+            # break up and reanalyze all functions in the hook.
+            my @hook_list = split(/\$/, $hook);
+            for my $hook_entry (@hook_list) {
+                $hook_entry =~ /.*? (.*)/;
+                my $func = $1;
+                my $func_body = `xdbfind src_body.xdb '$func'`;
+
+                # get the command for reanalyzing this function. if the
+                # function has a body then use the command for building it.
+                # otherwise find a caller and use the command for building
+                # that caller. this might miss functions without bodies that
+                # are called indirectly. fix?
+
+                my $command = "";
+                if ($func_body =~ /\ncommand: (.*?)\n/) {
+                    $command = $1;
+                }
+                else {
+                    my $callers = `xdbfind body_caller.xdb '$func'`;
+                    if ($callers =~ /\n  (.*?):\d+ -> /) {
+                        my $caller = $1;
+                        my $caller_body = `xdbfind src_body.xdb '$caller'`;
+                        if ($caller_body =~ /\ncommand: (.*?)\n/) {
+                            $command = $1;
+                        }
+                    }
+                }
+                next if ($command eq "");
+
+                $command =~ /(.*?): (.*)/;
+                my $command_dir = $1;
+                my $command_run = $2;
+
+                print "Running: $command\n";
+
+                chdir $command_dir;
+                system("$command_run");
+                chdir $result_dir;
+            }
         }
 
-        my $res = system("$xcheck '$report' -xml-out=$ext.xml");
+        my $res = system("$xcheck '$report' -xml-out=$ext.xml -remote=$address");
         my $message;
         my $html = "";
 

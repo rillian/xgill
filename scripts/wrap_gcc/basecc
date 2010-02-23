@@ -51,7 +51,7 @@ if (-e "$wrapdir/xgill.config") {
     $basedir = <CONFIG>; chomp $basedir;
     $logfile = <CONFIG>; chomp $logfile;
     $remote = <CONFIG>; chomp $remote;
-    $annfile = <CONFIG>; chomp $annfile;
+    $extra = <CONFIG>; chomp $extra;
     close(CONFIG);
 }
 
@@ -67,8 +67,7 @@ $xgillargs .= " -fplugin-arg-xgill-gcc=$gccdir/gcc";
 $xgillargs .= " -fplugin-arg-xgill-basedir=$basedir" if ($basedir ne "");
 $xgillargs .= " -fplugin-arg-xgill-remote=$remote" if ($remote ne "");
 $xgillargs .= " -fplugin-arg-xgill-log=$logfile" if ($logfile ne "");
-$xgillargs .= " -fplugin-arg-xgill-annfile=$annfile"
-  if ($annfile ne "" && -e $annfile);
+$xgillargs .= " $extra";
 
 # original arguments to pass onto cc.
 my $args;
@@ -102,7 +101,7 @@ chomp $cwd;
 # get the command for the plugin and store in the environment.
 # this is an end run around the restrictions on what can be passed as
 # an argument to a gcc plugin (can't mix quotes, can't use '=').
-$ENV{'XGILL_COMMAND'} = "$cwd: $gccdir/$ccname $args";
+$ENV{'XGILL_COMMAND'} = "$cwd: $ccname $args";
 
 if ($logfile ne "") {
     open(OUT,">> $logfile");
