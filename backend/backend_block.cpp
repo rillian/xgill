@@ -981,7 +981,7 @@ void FinishBlockBackend()
 bool BlockQueryAnnot(Transaction *t, const Vector<TOperand*> &arguments,
                      TOperand **result)
 {
-  BACKEND_ARG_COUNT(3);
+  BACKEND_ARG_COUNT(4);
   BACKEND_ARG_STRING(0, db_name, db_length);
   BACKEND_ARG_STRING(1, var_name, var_length);
   BACKEND_ARG_STRING(2, annot_name, annot_length);

@@ -60,7 +60,10 @@ my $xmemlocal = "xmemlocal -timeout=20";
 my $xinfer = "xinfer -timeout=60";
 my $xcheck = "xcheck -timeout=30";
 
-# output directory to do a diff against. leave as "" for no diffing.
+# optional file with annotations from the web interface.
+my $ann_file = "";
+
+# optional output directory to do a diff against.
 my $old_dir = "";
 die "Need old directory: $old_dir\n" if ($old_dir ne "" && not -d $old_dir);
 
@@ -162,6 +165,7 @@ sub run_build
         print CONFIG "$build_dir\n";
         print CONFIG "$result_dir/build_xgill.log\n";
         print CONFIG "$address\n";
+        print CONFIG "$ann_file\n";
         close(CONFIG);
 
         # update the PATH so that the build will see the wrappers.

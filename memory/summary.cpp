@@ -390,8 +390,38 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
     }
   }
 
-  // add assumptions from invariants on values accessed by the block,
-  // and from the summaries of any callees.
+  // add assumptions from points within the block.
+
+  for (size_t pind = 0; pind < cfg->GetPointAnnotationCount(); pind++) {
+    PointAnnotation pann = cfg->GetPointAnnotation(pind);
+    if (end_point && pann.point >= end_point)
+      continue;
+
+    BlockCFG *annot_cfg = GetAnnotationCFG(pann.annot);
+    if (!annot_cfg) continue;
+
+    Assert(annot_cfg->GetAnnotationKind() != AK_AssertRuntime);
+
+    if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
+      // get the annotation bit in terms of block entry.
+      Bit *point_bit = NULL;
+      mcfg->TranslateBit(TRK_Point, pann.point, bit, &point_bit);
+      point_bit->MoveRef(&point_bit, assume_list);
+
+      annot_cfg->IncRef(assume_list);
+
+      AssumeInfo info;
+      info.annot = annot_cfg;
+      info.point = pann.point;
+      info.bit = point_bit;
+      assume_list->PushBack(info);
+    }
+
+    annot_cfg->DecRef();
+  }
+
+  // add assumptions from annotation edges within the block, invariants
+  // on values accessed by the block, and from the summaries of any callees.
 
   for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
     PEdge *edge = cfg->GetEdge(eind);
@@ -405,41 +435,28 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
 
     if (PEdgeAnnotation *nedge = edge->IfAnnotation()) {
       // add an assumption for this annotation.
+      BlockCFG *annot_cfg = GetAnnotationCFG(nedge->GetAnnotationId());
+      if (!annot_cfg) continue;
 
-      BlockCFG *annot_cfg = NULL;
-      for (size_t aind = 0; annot_list && aind < annot_list->Size(); aind++) {
-        BlockCFG *test_cfg = annot_list->At(aind);
-        if (test_cfg->GetId() == nedge->GetAnnotationId()) {
-          annot_cfg = test_cfg;
-          break;
-        }
-      }
-
-      if (!annot_cfg) {
-        logout << "ERROR: Could not find annotation CFG: "
-               << nedge->GetAnnotationId() << endl;
-        continue;
-      }
+      Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
 
       // don't incorporate AssertRuntimes, these are not assumed.
-      if (annot_cfg->GetAnnotationKind() == AK_AssertRuntime)
-        continue;
+      if (bit && annot_cfg->GetAnnotationKind() != AK_AssertRuntime) {
+        // get the annotation bit in terms of block entry.
+        Bit *point_bit = NULL;
+        mcfg->TranslateBit(TRK_Point, point, bit, &point_bit);
+        point_bit->MoveRef(&point_bit, assume_list);
 
-      // get the annotation bit in terms of block entry.
-      Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
-      if (!bit) continue;
+        annot_cfg->IncRef(assume_list);
 
-      Bit *point_bit = NULL;
-      mcfg->TranslateBit(TRK_Point, point, bit, &point_bit);
-      point_bit->MoveRef(&point_bit, assume_list);
+        AssumeInfo info;
+        info.annot = annot_cfg;
+        info.point = point;
+        info.bit = point_bit;
+        assume_list->PushBack(info);
+      }
 
-      annot_cfg->IncRef(assume_list);
-
-      AssumeInfo info;
-      info.annot = annot_cfg;
-      info.point = point;
-      info.bit = point_bit;
-      assume_list->PushBack(info);
+      annot_cfg->DecRef();
     }
 
     if (BlockId *callee = edge->GetDirectCallee()) {

@@ -45,11 +45,13 @@ my $ccname = shift or die "USAGE: basecc ccname ccarg*\n";
 my $basedir = "";
 my $logfile = "";
 my $remote = "";
+my $annfile = "";
 if (-e "$wrapdir/xgill.config") {
     open(CONFIG, "< $wrapdir/xgill.config");
-   $basedir = <CONFIG>; chomp $basedir;
+    $basedir = <CONFIG>; chomp $basedir;
     $logfile = <CONFIG>; chomp $logfile;
     $remote = <CONFIG>; chomp $remote;
+    $annfile = <CONFIG>; chomp $annfile;
     close(CONFIG);
 }
 
@@ -65,6 +67,8 @@ $xgillargs .= " -fplugin-arg-xgill-gcc=$gccdir/gcc";
 $xgillargs .= " -fplugin-arg-xgill-basedir=$basedir" if ($basedir ne "");
 $xgillargs .= " -fplugin-arg-xgill-remote=$remote" if ($remote ne "");
 $xgillargs .= " -fplugin-arg-xgill-log=$logfile" if ($logfile ne "");
+$xgillargs .= " -fplugin-arg-xgill-annfile=$annfile"
+  if ($annfile ne "" && -e $annfile);
 
 # original arguments to pass onto cc.
 my $args;

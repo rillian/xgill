@@ -117,7 +117,7 @@ static BlockId *g_annotation_id = NULL;
 static bool g_has_annotation = false;
 
 // whether to force writes of annotations.
-static bool g_force_annotation_writes = true;
+static bool g_force_annotation_writes = false;
 
 struct AssociateKey {
   String *kind;
@@ -1123,6 +1123,63 @@ static void ProcessWriteList(Transaction *t)
   g_data_buf.Reset();
 }
 
+// modify the specified list of CFGs with any point annotations for
+// the function they represent. return true if any CFGs changed as a result.
+bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
+{
+  Variable *function = split_cfgs[0]->GetId()->BaseVar();
+
+  Vector<ReadAnnotationInfo> *entries =
+    g_read_annotations.Lookup(function->GetName());
+  if (!entries) return false;
+
+  bool changed = false;
+
+  for (size_t ind = 0; ind < entries->Size(); ind++) {
+    const ReadAnnotationInfo &info = entries->At(ind);
+
+    // only loop invariants add point annotations currently.
+    if (strncmp(info.where->Value(), "loop", 4))
+      continue;
+
+    AnnotationKind kind = info.trusted ? AK_Assume : AK_Assert;
+
+    // compute the name of the annotation. this must align with the names
+    // generated when the annotation CFG was constructed.
+    Buffer name_buf;
+    BufferOutStream out(&name_buf);
+    out << AnnotationKindString(kind) << ":(" << info.text->Value() << ")";
+
+    function->IncRef();
+    String *annot_name = String::Make(out.Base());
+    BlockId *annot = BlockId::Make(B_AnnotationFunc, function, annot_name);
+
+    // add point annotations for this loop invariant at entry to the loop,
+    // and immediately after every summary edge for the loop.
+    for (size_t cind = 0; cind < split_cfgs.Size(); cind++) {
+      BlockCFG *cfg = split_cfgs[cind];
+
+      if (cfg->GetId()->WriteLoop() == info.where) {
+        annot->IncRef();
+        cfg->AddPointAnnotation(cfg->GetEntryPoint(), annot);
+        changed = true;
+      }
+
+      for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
+        PEdgeLoop *edge = cfg->GetEdge(eind)->IfLoop();
+
+        if (edge && edge->GetLoopId()->WriteLoop() == info.where) {
+          annot->IncRef();
+          cfg->AddPointAnnotation(edge->GetTarget(), annot);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
 // do the writing if we are processing an annotation CFG.
 static void WriteProcessedAnnotation()
 {
@@ -1223,66 +1280,17 @@ static void WriteForceAnnotations()
     if (g_drop_cfgs.Contains(cfg))
       continue;
 
-    Variable *function = cfg->GetId()->BaseVar();
-
-    Vector<ReadAnnotationInfo> *entries =
-      g_read_annotations.Lookup(function->GetName());
-    if (!entries) continue;
-
     // do loop splitting.
     Vector<BlockCFG*> split_cfgs;
     SplitLoops(cfg, &split_cfgs);
 
-    // add any point annotations to the split CFGs.
-    bool changed = false;
-
-    for (size_t ind = 0; ind < entries->Size(); ind++) {
-      const ReadAnnotationInfo &info = entries->At(ind);
-
-      // only loop invariants add point annotations currently.
-      if (strncmp(info.where->Value(), "loop", 4))
-        continue;
-
-      AnnotationKind kind = info.trusted ? AK_Assume : AK_Assert;
-
-      // compute the name of the annotation. this must align with the names
-      // generated when the annotation CFG was constructed.
-      Buffer name_buf;
-      BufferOutStream name_out(&name_buf);
-      name_out << AnnotationKindString(kind) << ":(" << info.text << ")";
-
-      function->IncRef();
-      String *annot_name = String::Make(name_out.Base());
-      BlockId *annot = BlockId::Make(B_AnnotationFunc, function, annot_name);
-
-      // add point annotations for this loop invariant at entry to the loop,
-      // and immediately after every summary edge for the loop.
-      for (size_t cind = 0; cind < split_cfgs.Size(); cind++) {
-        BlockCFG *cfg = split_cfgs[cind];
-
-        if (cfg->GetId()->Loop() == info.where) {
-          annot->IncRef();
-          cfg->AddPointAnnotation(cfg->GetEntryPoint(), annot);
-        }
-
-        for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
-          PEdgeLoop *edge = cfg->GetEdge(eind)->IfLoop();
-
-          if (edge && edge->GetLoopId()->Loop() == info.where) {
-            annot->IncRef();
-            cfg->AddPointAnnotation(edge->GetTarget(), annot);
-          }
-        }
-      }
-    }
-
-    if (!changed) {
+    if (!AddPointAnnotations(split_cfgs)) {
       // did not add any point annotations to the CFG.
       continue;
     }
 
     TOperandString *key_data =
-      new TOperandString(t, function->GetName()->Value());
+      new TOperandString(t, cfg->GetId()->Function()->Value());
 
     static Buffer scratch_buf;
     for (size_t cind = 0; cind < split_cfgs.Size(); cind++)
@@ -1361,9 +1369,10 @@ extern "C" void XIL_WriteGenerated()
   for (size_t ind = 0; ind < g_write_blocks.Size(); ind++) {
     BlockCFG *cfg = g_write_blocks[ind];
 
-    // do loop splitting.
+    // do loop splitting, and add any point annotations.
     Vector<BlockCFG*> split_cfgs;
     SplitLoops(cfg, &split_cfgs);
+    AddPointAnnotations(split_cfgs);
 
     // remember the direct callees of this function.
     Vector<Variable*> callees;

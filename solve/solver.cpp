@@ -603,7 +603,8 @@ void Solver::AddConstraint(FrameId frame, Bit *bit)
   PushAssert(expr);
 
   if (m_verbose) {
-    logout << "SOLVER: Constraint: " << frame << ": " << bit << endl;
+    logout << "SOLVER: Constraint: " << frame << ": " << bit
+           << " [" << bit->Hash() << "]" << endl;
     m_base->PrintRawData(expr, true);
     logout << endl;
   }

@@ -80,6 +80,10 @@ extern Cache_Annotation  CompAnnotCache;
 // NULL if the CFG was not found.
 BlockCFG* GetBlockCFG(BlockId *id);
 
+// gets a reference on the annotation CFG for id, loading it if necessary.
+// NULL if the CFG was not found, and emits a warning.
+BlockCFG* GetAnnotationCFG(BlockId *id);
+
 // add entries to the CFG cache without doing an explicit lookup.
 // does *not* consume references on the CFGs.
 void BlockCFGCacheAddListWithRefs(const Vector<BlockCFG*> &cfgs);

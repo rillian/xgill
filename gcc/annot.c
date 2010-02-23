@@ -135,8 +135,8 @@ struct XIL_AnnotationState
   // this and decl will be specified.
   tree type;
 
-  // whether to add declarations of all local variables in scope.
-  bool add_locals;
+  // NULL-terminated array of local variables to add to the generated file.
+  struct XIL_LocalData **locals;
 
   // name of the annotation.
   const char *name;
@@ -1459,25 +1459,22 @@ void WriteAnnotationFile(FILE *file)
     fprintf(file, ";\n");
   }
 
-  if (state->add_locals) {
+  if (state->locals) {
     // add any local variables in scope to the annotation.
+    int ind = 0;
+    for (; state->locals[ind]; ind++) {
+      struct XIL_LocalData *local = state->locals[ind];
 
-    struct XIL_ScopeEnv *scope = xil_active_scope;
-    while (scope) {
-      struct XIL_LocalData *local = scope->locals;
-      while (local) {
-        tree type = TREE_TYPE(local->decl);
-        XIL_Var xil_decl = XIL_TranslateVar(local->decl);
-        const char *local_full_name = XIL_GetVarName(xil_decl);
-        const char *local_name = IDENTIFIER_POINTER(DECL_NAME(local->decl));
+      tree type = TREE_TYPE(local->decl);
+      XIL_Var xil_decl = XIL_TranslateVar(local->decl);
+      const char *local_full_name = XIL_GetVarName(xil_decl);
+      const char *local_name = IDENTIFIER_POINTER(DECL_NAME(local->decl));
 
-        fprintf(file, "__attribute__((annot_local(\"%s\"))) extern\n",
-                local_full_name);
-        XIL_PrintDeclaration(file, type, local_name);
-        fprintf(file, ";\n");
-        local = local->scope_next;
-      }
-      scope = scope->parent;
+      fprintf(file, "__attribute__((annot_local(\"%s\"))) extern\n",
+              local_full_name);
+      XIL_PrintDeclaration(file, type, local_name);
+      fprintf(file, ";\n");
+      local = local->scope_next;
     }
   }
 
@@ -1671,17 +1668,45 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
     if (TREE_CODE(result_type) != VOID_TYPE)
       XIL_ScanDefineType(result_type);
 
+// maximum number of locals we will consider for a function.
+#define MAX_LOCALS 500
+
     // also look at local vars for intermediate assertions.
-    if (point) {
-      state->add_locals = true;
-      struct XIL_ScopeEnv *scope = xil_active_scope;
-      while (scope) {
-        struct XIL_LocalData *local = scope->locals;
-        while (local) {
-          XIL_ScanDefineType(TREE_TYPE(local->decl));
-          local = local->scope_next;
+    if (point || all_locals) {
+      state->locals = calloc(MAX_LOCALS + 1, sizeof(struct XIL_LocalData*));
+      int ind = 0;
+
+      if (point) {
+        // get all local variables in scope.
+        struct XIL_ScopeEnv *scope = xil_active_scope;
+        while (scope) {
+          struct XIL_LocalData *local = scope->locals;
+          while (local) {
+            if (ind == MAX_LOCALS)
+              break;
+
+            state->locals[ind++] = local;
+            XIL_ScanDefineType(TREE_TYPE(local->decl));
+            local = local->scope_next;
+          }
+          scope = scope->parent;
         }
-        scope = scope->parent;
+      }
+      else {
+        // get all local variables for the entire function. this is only used
+        // for web interface annotations; it would be nice to fix this so
+        // that we don't get confused if multiple locals share the same name,
+        // but I don't see an easy way of doing so.
+
+        struct XIL_LocalData *local = xil_active_env.locals;
+        while (local) {
+          if (ind == MAX_LOCALS)
+            break;
+
+          state->locals[ind++] = local;
+          XIL_ScanDefineType(TREE_TYPE(local->decl));
+          local = local->block_next;
+        }
       }
     }
   }

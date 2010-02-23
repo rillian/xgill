@@ -122,15 +122,10 @@ const char* BlockId::LoopName() const
   return loop_buf;
 }
 
-bool BlockId::HasWriteLoop() const
-{
-  Assert(m_kind == B_Loop);
-  return (m_write_loop != NULL);
-}
-
 void BlockId::SetWriteLoop(String *name)
 {
-  Assert(!HasWriteLoop());
+  Assert(m_kind == B_Loop);
+  Assert(!m_write_loop);
   name->MoveRef(NULL, this);
   m_write_loop = name;
 }

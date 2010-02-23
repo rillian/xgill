@@ -1099,7 +1099,7 @@ static void FillLoopNames(BlockCFG *cfg, const char *prefix,
     // check for a duplicate. there can be multiple summary edges for
     // a loop if we reduced some irreducible loops or if there are
     // isomorphic points in the outer body of a nested loop.
-    if (loop->HasWriteLoop())
+    if (loop->WriteLoop() != NULL)
       continue;
 
     char name_buf[100];

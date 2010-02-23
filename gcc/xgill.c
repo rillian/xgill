@@ -568,6 +568,8 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     param_decl->decl = decl;
     if (last) last->next = param_decl;
     else xil_pending_param_decls = param_decl;
+
+    return;
   }
 
   // check for typedefs on structures, and assign the structure a name
@@ -591,6 +593,10 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
   }
 
   if (!is_global && TREE_CODE(decl) != FUNCTION_DECL)
+    return;
+
+  // only processing the output function for annotations.
+  if (xil_has_annotation)
     return;
 
   XIL_Var var = XIL_TranslateVar(decl);
@@ -622,10 +628,6 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
   xil_pending_param_decls = NULL;
 
   if (!is_global)
-    return;
-
-  // only processing the output function for annotations.
-  if (xil_has_annotation)
     return;
 
   // check if this is a global variable we want to skip. these are introduced

@@ -117,6 +117,36 @@ BlockCFG* GetBlockCFG(BlockId *id)
   return cfg;
 }
 
+BlockCFG* GetAnnotationCFG(BlockId *id)
+{
+  Cache_Annotation *cache = NULL;
+
+  switch (id->Kind()) {
+  case B_AnnotationFunc: cache = &BodyAnnotCache; break;
+  case B_AnnotationInit: cache = &InitAnnotCache; break;
+  case B_AnnotationComp: cache = &CompAnnotCache; break;
+  default: Assert(false);
+  }
+
+  Vector<BlockCFG*> *annot_list = cache->Lookup(id->Function());
+
+  BlockCFG *annot_cfg = NULL;
+  for (size_t aind = 0; annot_list && aind < annot_list->Size(); aind++) {
+    BlockCFG *test_cfg = annot_list->At(aind);
+    if (test_cfg->GetId() == id) {
+      annot_cfg = test_cfg;
+      annot_cfg->IncRef();
+      break;
+    }
+  }
+
+  cache->Release(id->Function());
+
+  if (!annot_cfg)
+    logout << "ERROR: Could not find annotation CFG: " << id << endl;
+  return annot_cfg;
+}
+
 void BlockCFGCacheAddListWithRefs(const Vector<BlockCFG*> &cfgs)
 {
   for (size_t ind = 0; ind < cfgs.Size(); ind++) {

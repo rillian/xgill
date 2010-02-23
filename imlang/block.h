@@ -88,7 +88,7 @@ class BlockId : public HashObject
   // to set the real name of a loop ID after it has been initially constructed
   // (loops can't get their full name until after loop splitting has finished).
   // this write name is used instead of the loop name when serializing.
-  bool HasWriteLoop() const;
+  String* WriteLoop() const { return m_write_loop; }
   void SetWriteLoop(String *name);
 
   // inherited methods
