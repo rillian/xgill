@@ -268,7 +268,6 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
         entries->PushBack(FileData());
         file->MoveRef(NULL, &file_table);
 
-        Assert(line == 1);
         cur_data = &entries->Back();
         cur_data->contents = new Buffer();
         cur_data->cur_line = 1;
@@ -276,29 +275,29 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
       else {
         file->DecRef();
         Assert(entries->Size() == 1);
-
-        // insert enough newlines so that we've caught up with the # line.
         cur_data = &entries->Back();
-        while ((long) cur_data->cur_line < line) {
-          cur_data->contents->Append("\n", 1);
-          cur_data->cur_line++;
-        }
+      }
 
-        // in some cases the # line directive will actually rewind the
-        // apparent line to an earlier line, e.g.:
-        // # 250 "foo.c"
-        // something
-        // else
-        // # 250 "foo.c"
-        // finally
-        // in this case we'll replace the earlier newlines with spaces,
-        // getting the string 'something else finally' at line 250.
-        char *last_pos = (char*) cur_data->contents->pos - 1;
-        while ((long) cur_data->cur_line > line) {
-          while (*last_pos != '\n') last_pos--;
-          *last_pos = ' ';
-          cur_data->cur_line--;
-        }
+      // insert enough newlines so that we've caught up with the # line.
+      while ((long) cur_data->cur_line < line) {
+        cur_data->contents->Append("\n", 1);
+        cur_data->cur_line++;
+      }
+
+      // in some cases the # line directive will actually rewind the
+      // apparent line to an earlier line, e.g.:
+      // # 250 "foo.c"
+      // something
+      // else
+      // # 250 "foo.c"
+      // finally
+      // in this case we'll replace the earlier newlines with spaces,
+      // getting the string 'something else finally' at line 250.
+      char *last_pos = (char*) cur_data->contents->pos - 1;
+      while ((long) cur_data->cur_line > line) {
+        while (*last_pos != '\n') last_pos--;
+        *last_pos = ' ';
+        cur_data->cur_line--;
       }
 
       pos = end_line + 1;

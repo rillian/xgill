@@ -45,7 +45,7 @@ my $ccname = shift or die "USAGE: basecc ccname ccarg*\n";
 my $basedir = "";
 my $logfile = "";
 my $remote = "";
-my $annfile = "";
+my $extra = "";
 if (-e "$wrapdir/xgill.config") {
     open(CONFIG, "< $wrapdir/xgill.config");
     $basedir = <CONFIG>; chomp $basedir;
