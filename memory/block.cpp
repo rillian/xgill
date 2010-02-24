@@ -1327,10 +1327,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     TranslateExp(kind, point, target, &target_res);
 
     if (kind == TRK_Callee || kind == TRK_CalleeExit) {
-      // this had better be a loop invocation.
-      Assert(!m_cfg->PointEdgeIsCall(point));
-
-      // perform a callee translation to remove the Initial.
+      // get the values at the call/loop point, remove the initial.
       TranslateExpVal(point, value_kind, target_res, true, false, res);
     }
     else if (kind == TRK_Point) {

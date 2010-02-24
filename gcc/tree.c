@@ -1496,10 +1496,28 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     left_env.result_lval = &xil_left;
     XIL_TranslateTree(&left_env, left);
 
-    MAKE_ENV(right_env, env->point, post_edges);
-    right_env.result_assign = xil_left;
-    right_env.result_assign_type = xil_type;
-    XIL_TranslateTree(&right_env, right);
+    // check if we are assigning to an __initial variable for an annotation.
+    if (xil_has_annotation && TREE_CODE(left) == VAR_DECL &&
+        !strcmp(IDENTIFIER_POINTER(DECL_NAME(left)), "__initial")) {
+      XIL_Exp xil_value;
+      MAKE_ENV(right_env, env->point, post_edges);
+      right_env.result_lval = &xil_value;
+      XIL_TranslateTree(&right_env, right);
+
+      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+      XIL_Exp value_init = XIL_ExpInitial(xil_value);
+      XIL_CFGEdgeAssign(*env->point, after_point,
+                        xil_type, xil_left, value_init);
+
+      *env->point = after_point;
+    }
+    else {
+      // standard assignment otherwise.
+      MAKE_ENV(right_env, env->point, post_edges);
+      right_env.result_assign = xil_left;
+      right_env.result_assign_type = xil_type;
+      XIL_TranslateTree(&right_env, right);
+    }
 
     XIL_ConnectPostPoint(env->point, post_local);
 
