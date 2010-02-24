@@ -1031,6 +1031,8 @@ bool BlockWriteAnnot(Transaction *t, const Vector<TOperand*> &arguments,
   Assert(arguments[0]->Kind() == TO_String);
   TOperandString *list = (TOperandString*) arguments[0];
 
+  LoadDatabases();
+
   static Buffer data_buf;
   TOperandString::Uncompress(list, &data_buf);
   Buffer read_buf(data_buf.base, data_buf.pos - data_buf.base);
@@ -1149,6 +1151,8 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_COUNT(1);
   Assert(arguments[0]->Kind() == TO_String);
   TOperandString *list = (TOperandString*) arguments[0];
+
+  LoadDatabases();
 
   static Buffer data_buf;
   TOperandString::Uncompress(list, &data_buf);

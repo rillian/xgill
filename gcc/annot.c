@@ -14,7 +14,7 @@
 
 // define this to keep output files for annotations we failed to process.
 // for debugging. this also makes the names of the output files deterministic.
-// #define ANNOTATION_DEBUG
+//#define ANNOTATION_DEBUG
 
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
@@ -1178,6 +1178,31 @@ void XIL_PrintFunctionType(FILE *file, tree type, bool function_pointer,
     fprintf(file, " const");
 }
 
+// print declarations for a function parameter. there is always an argN
+// declaration, and a declaration using the actual name if it has one.
+void XIL_PrintParameter(FILE *file, tree decl, int index)
+{
+  tree type = TREE_TYPE(decl);
+
+  const char *param_name = NULL;
+  char *index_name = malloc(20);
+  sprintf(index_name, "arg%d", index);
+
+  if (DECL_NAME(decl)) {
+    param_name = IDENTIFIER_POINTER(DECL_NAME(decl));
+    fprintf(file, "__attribute__((annot_param(%d))) extern\n", index);
+    XIL_PrintDeclaration(file, type, param_name);
+    fprintf(file, ";\n");
+  }
+  else {
+    param_name = index_name;
+  }
+
+  fprintf(file, "__attribute__((annot_param(%d),annot_source(\"%s\"))) extern\n", index, param_name);
+  XIL_PrintDeclaration(file, type, index_name);
+  fprintf(file, ";\n");
+}
+
 void XIL_PrintAnnotationHeader(FILE *file)
 {
   const char *name = NULL;
@@ -1409,15 +1434,7 @@ void WriteAnnotationFile(FILE *file)
     if (!param) {
       struct XIL_ParamDecl *param_decl = xil_pending_param_decls;
       while (param_decl) {
-        tree type = TREE_TYPE(param_decl->decl);
-        if (DECL_NAME(param_decl->decl)) {
-          fprintf(file, "__attribute__((annot_param(%d))) extern\n",
-                  param_index);
-          const char *param_name =
-            IDENTIFIER_POINTER(DECL_NAME(param_decl->decl));
-          XIL_PrintDeclaration(file, type, param_name);
-          fprintf(file, ";\n");
-        }
+        XIL_PrintParameter(file, param_decl->decl, param_index);
         param_decl = param_decl->next;
         param_index++;
       }
@@ -1429,13 +1446,7 @@ void WriteAnnotationFile(FILE *file)
       param = TREE_CHAIN(param);
 
     while (param) {
-      tree type = TREE_TYPE(param);
-      if (DECL_NAME(param)) {
-        fprintf(file, "__attribute__((annot_param(%d))) extern\n", param_index);
-        const char *param_name = IDENTIFIER_POINTER(DECL_NAME(param));
-        XIL_PrintDeclaration(file, type, param_name);
-        fprintf(file, ";\n");
-      }
+      XIL_PrintParameter(file, param, param_index);
       param = TREE_CHAIN(param);
       param_index++;
     }
