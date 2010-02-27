@@ -52,11 +52,14 @@ static Xdb *g_annot_body_xdb = NULL;
 static Xdb *g_annot_init_xdb = NULL;
 static Xdb *g_annot_comp_xdb = NULL;
 
-// whether we are doing an incremental build.
-static bool g_incremental = false;
-
-// whether we've written out any function bodies.
+// whether we've written out any function bodies, initializers or types.
 static bool g_have_body = false;
+
+// whether we are doing an incremental build. this will be set whenever there
+// is existing worklist information, including when generating new indirect
+// call edges during the memory analysis (in this case, no function bodies
+// will be written out).
+static bool g_incremental = false;
 
 typedef HashSet<String*,String> StringSet;
 typedef HashTable<String*,String*,String> StringMap;
@@ -195,6 +198,8 @@ KeyAnnotationInfo* GetAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
 // remove any annotations associate with key for hash/xdb.
 void RemoveAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
 {
+  Assert(g_have_body);
+
   if (!g_incremental) {
     // only remove annotations when doing an incremental build.
     // otherwise we can spuriously remove annotations if there is no manager.
@@ -388,8 +393,10 @@ EscapeEdgeSet* CombineEscapeEdge(Buffer *buf)
 void WriteEscapeEdges(bool forward, String *key,
                       Vector<EscapeEdgeSet*> &eset_list)
 {
-  // set the versions for the new edges.
-  if (g_incremental) {
+  // set the versions for the new edges. only do this if we're doing an
+  // incremental build; if the build is not incremental the versions are zero,
+  // and if we're not in the initial build then the versions are correct.
+  if (g_incremental && g_have_body) {
     for (size_t ind = 0; ind < eset_list.Size(); ind++) {
       EscapeEdgeSet *eset = eset_list[ind];
       for (size_t eind = 0; eind < eset->GetEdgeCount(); eind++) {
@@ -453,8 +460,8 @@ EscapeAccessSet* CombineEscapeAccess(Buffer *buf)
 void WriteEscapeAccesses(String *key,
                          Vector<EscapeAccessSet*> &aset_list)
 {
-  // set the versions for the new accesses.
-  if (g_incremental) {
+  // set the versions for the new accesses, as for escape edges.
+  if (g_incremental && g_have_body) {
     for (size_t ind = 0; ind < aset_list.Size(); ind++) {
       EscapeAccessSet *aset = aset_list[ind];
       for (size_t aind = 0; aind < aset->GetAccessCount(); aind++) {
@@ -515,8 +522,8 @@ CallEdgeSet* CombineCallEdge(Buffer *buf)
 // write out a set of call edges, and consume references from a call edge hash.
 void WriteCallEdges(bool callers, CallEdgeSet *cset)
 {
-  // set the versions for the new edges.
-  if (g_incremental) {
+  // set the versions for the new edges, as for escape edges.
+  if (g_incremental && g_have_body) {
     for (size_t ind = 0; ind < cset->GetEdgeCount(); ind++) {
       BlockId *id = cset->GetEdge(ind).where.id;
       if (id->Kind() != B_Initializer) {
@@ -664,7 +671,7 @@ void WriteWorklistFunctions(OutStream &out, const Vector<String*> &functions)
 // write out the worklist file for an initial build.
 void WriteWorklistInitial()
 {
-  Assert(!g_incremental);
+  Assert(g_have_body && !g_incremental);
 
   BackendStringHash *callgraph_hash =
     GetNamedHash((const uint8_t*) CALLGRAPH_EDGES);
@@ -745,7 +752,7 @@ void WriteWorklistInitial()
 // write out the worklist file for an incremental build.
 void WriteWorklistIncremental()
 {
-  Assert(g_incremental);
+  Assert(g_have_body && g_incremental);
 
   // read and store the contents of the old worklist file.
   Buffer worklist_buf;
@@ -1164,6 +1171,8 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
     switch (PeekOpenTag(&read_buf)) {
 
     case TAG_CompositeCSU: {
+      g_have_body = true;
+
       CompositeCSU *csu = CompositeCSU::Read(&read_buf);
       CompositeCSU::Write(&write_buf, csu);
 
@@ -1180,11 +1189,11 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
     }
 
     case TAG_UInt32: {
+      g_have_body = true;
+
       uint32_t count = 0;
       Try(ReadUInt32(&read_buf, &count));
       Assert(count);
-
-      g_have_body = true;
 
       // the count indicates the number of CFGs for the next function/global.
       Vector<BlockCFG*> function_cfgs;

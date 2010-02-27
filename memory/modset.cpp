@@ -531,6 +531,11 @@ class ModsetIncludeVisitor : public ExpVisitor
       excluded = exp;
       return;
     }
+
+    if (exp->IsClobber() || exp->IsVal()) {
+      excluded = exp;
+      return;
+    }
   }
 };
 

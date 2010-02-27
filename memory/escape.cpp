@@ -1013,7 +1013,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
         }
       }
 
-      BlockPPoint where(cfg->GetId(), cfg->GetEntryPoint());
+      BlockPPoint where(cfg->GetId(), cfg->GetEntryPoint(), cfg->GetVersion());
 
       Assert(func_var);
       if (this_type) {
@@ -1028,7 +1028,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
     PEdge *edge = cfg->GetEdge(eind);
 
     // get the identifier for the source of this edge.
-    BlockPPoint where(id, edge->GetSource());
+    BlockPPoint where(id, edge->GetSource(), cfg->GetVersion());
 
     switch (edge->Kind()) {
     case EGK_Skip:
@@ -1105,7 +1105,7 @@ void EscapeProcessCFG(BlockCFG *cfg)
 
 void EscapeProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 {
-  BlockPPoint where(cfg->GetId(), edge->GetSource());
+  BlockPPoint where(cfg->GetId(), edge->GetSource(), cfg->GetVersion());
   TypeFunction *type = edge->GetType();
 
   Exp *return_val = edge->GetReturnValue();

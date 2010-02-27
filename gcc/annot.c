@@ -1259,16 +1259,12 @@ void WriteAnnotationFile(FILE *file)
   fprintf(file,
 "typedef struct __bound__ __bound__;\n"
 "long __ubound(__bound__*);\n"
-"#define ubound(X) "
-  "({ typeof((X)[0]) *__bval = (X); __ubound((__bound__*)(__bval)); })\n"
+"#define ubound(X) __ubound((__bound__*)(X))\n"
 "long __lbound(struct __bound__*);\n"
-"#define lbound(X) "
-  "({ typeof((X)[0]) *__bval = (X); __lbound((__bound__*)(__bval)); })\n"
+"#define lbound(X) __lbound((__bound__*)(X))\n"
 "long __zterm(struct __bound__*);\n"
-"#define zterm(X) "
-  "({ typeof((X)[0]) *__bval = (X); __zterm((__bound__*)(__bval)); })\n"
-"#define initial(X) "
-  "({ typeof(X) __initial = (X); __initial; })\n"
+"#define zterm(X) __zterm((__bound__*)(__bval))\n"
+"#define initial(X) ({ typeof(X) __initial = (X); __initial; })\n"
   );
 
   // add any enum definitions. enum definitions have to go before declarations

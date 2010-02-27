@@ -300,6 +300,9 @@ int main(int argc, const char **argv)
     return 1;
   }
 
+  AnalysisPrepare();
+
+  // use a different handler for termination signals.
   signal(SIGINT, termination_handler);
   signal(SIGTERM, termination_handler);
 

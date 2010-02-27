@@ -224,7 +224,7 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 {
   Assert(callee->IsGlobal());
 
-  BlockPPoint where(cfg->GetId(), edge->GetSource());
+  BlockPPoint where(cfg->GetId(), edge->GetSource(), cfg->GetVersion());
   Variable *caller = where.id->BaseVar();
 
   // add the caller edge to the cache.

@@ -608,6 +608,11 @@ void RunAnalysis(const Vector<const char*> &functions)
 
   t->Clear();
 
+  if (!functions.Empty()) {
+    delete t;
+    return;
+  }
+
   // compute memory for global variables.
 
   t->PushAction(
