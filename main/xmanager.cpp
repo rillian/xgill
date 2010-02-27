@@ -293,6 +293,8 @@ int main(int argc, const char **argv)
   memory_limit.Enable();
 #endif
 
+  modset_wait.Enable();
+
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);
   if (!parsed || !unspecified.Empty()) {

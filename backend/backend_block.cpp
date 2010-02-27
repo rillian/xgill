@@ -32,6 +32,9 @@ NAMESPACE_XGILL_BEGIN
 // number of stages to use when writing out the callgraph worklist.
 #define CALLGRAPH_STAGES 5
 
+ConfigOption modset_wait(CK_UInt, "modset-wait", "0",
+  "seconds to wait for modset results before timing out");
+
 BACKEND_IMPL_BEGIN
 
 /////////////////////////////////////////////////////////////////////
@@ -918,9 +921,12 @@ static Vector<Vector<String*>*> g_stage_worklist;
 // is in the WORKLIST_FUNC_NEXT hash.
 static Vector<String*> g_overflow_worklist;
 
-// counters for the process/write barriers.
-static size_t g_barrier_process = 0;
-static size_t g_barrier_write = 0;
+// any modsets to write out at the end of the stage.
+static HashTable<String*,Buffer*,String> g_pending_modsets;
+
+// the names of any modsets we are waiting to receive before starting the
+// next stage. the value is the time at which the wait will timeout.
+static HashTable<String*,uint64_t,String> g_wait_modsets;
 
 /////////////////////////////////////////////////////////////////////
 // Backend data cleanup
@@ -1557,8 +1563,7 @@ bool BlockCurrentStage(Transaction *t, const Vector<TOperand*> &arguments,
 bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
                       TOperand **result)
 {
-  BACKEND_ARG_COUNT(1);
-  BACKEND_ARG_BOOLEAN(0, add_barrier_process);
+  BACKEND_ARG_COUNT(0);
 
   Vector<String*> *worklist = (g_stage < g_stage_worklist.Size())
     ? g_stage_worklist[g_stage]
@@ -1566,28 +1571,61 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
 
   if (!worklist->Empty()) {
     String *function = worklist->Back();
+    worklist->PopBack();
+
     const char *new_function = t->CloneString(function->Value());
 
-    worklist->PopBack();
-    function->DecRef();
+    if (modset_wait.IsSpecified()) {
+      uint64_t expires =
+        GetCurrentTime() + (modset_wait.UIntValue() * 1000000);
 
-    if (add_barrier_process)
-      g_barrier_process++;
+      function->MoveRef(NULL, &g_wait_modsets);
+      g_wait_modsets.Insert(function, expires);
+    }
+    else {
+      function->DecRef();
+    }
 
     *result = new TOperandString(t, new_function);
     return true;
   }
 
   // the current stage is exhausted, either block or advance to the next stage
-  // depending on whether the barriers are clear. either way we don't return
-  // a function, the worker will have to pop the worklist again.
+  // depending on whether we are waiting for a modset result. either way
+  // we don't return a function, the worker will have to do another pop.
 
   *result = new TOperandString(t, "");
 
-  if (g_barrier_process != 0 || g_barrier_write != 0)
-    return true;
+  // check for a modset result we are waiting on which hasn't timed out.
+  uint64_t time = GetCurrentTime();
+  HashIterate(g_wait_modsets) {
+    if (g_wait_modsets.ItValueSingle() >= time)
+      return true;
+  }
 
-  // flush the escape backend between stages.
+  // clear any modset results which timed out.
+  HashIterate(g_wait_modsets)
+    g_wait_modsets.ItKey()->DecRef(&g_wait_modsets);
+  g_wait_modsets.Clear();
+
+  // flush any pending modsets before advancing the stage.
+  if (!g_pending_modsets.IsEmpty()) {
+    Xdb *modset_xdb = GetDatabase(MODSET_DATABASE, true);
+    HashIterate(g_pending_modsets) {
+      String *key = g_pending_modsets.ItKey();
+      Buffer *buf = g_pending_modsets.ItValueSingle();
+
+      Buffer key_buf((const uint8_t*) key->Value(), strlen(key->Value()) + 1);
+      Buffer write_buf(buf->base, buf->pos - buf->base);
+      modset_xdb->Replace(&key_buf, &write_buf);
+
+      key->DecRef(&g_pending_modsets);
+      delete buf;
+    }
+    g_pending_modsets.Clear();
+  }
+
+  // flush any callgraph edges before advancing the stage.
   FlushEscape();
 
   g_stage++;
@@ -1611,49 +1649,25 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
   return true;
 }
 
-bool BlockHaveBarrierProcess(Transaction *t,
-                             const Vector<TOperand*> &arguments,
-                             TOperand **result)
+bool BlockWriteModset(Transaction *t, const Vector<TOperand*> &arguments,
+                      TOperand **result)
 {
-  BACKEND_ARG_COUNT(0);
+  BACKEND_ARG_COUNT(2);
+  BACKEND_ARG_STRING(0, name, name_length);
+  BACKEND_ARG_DATA(1, modset_data, modset_length);
 
-  *result = new TOperandBoolean(t, g_barrier_process != 0);
-  return true;
-}
+  String *key = String::Make((const char*) name);
 
-bool BlockHaveBarrierWrite(Transaction *t,
-                           const Vector<TOperand*> &arguments,
-                           TOperand **result)
-{
-  BACKEND_ARG_COUNT(0);
+  if (g_pending_modsets.Lookup(key)) {
+    key->DecRef();
+    BACKEND_FAIL(arguments[0]);
+  }
+  key->MoveRef(NULL, &g_pending_modsets);
 
-  *result = new TOperandBoolean(t, g_barrier_write != 0);
-  return true;
-}
+  Buffer *buf = new Buffer();
+  buf->Append(modset_data, modset_length);
 
-bool BlockShiftBarrierProcess(Transaction *t,
-                              const Vector<TOperand*> &arguments,
-                              TOperand **result)
-{
-  BACKEND_ARG_COUNT(0);
-
-  if (g_barrier_process == 0)
-    BACKEND_FAIL(NULL);
-
-  g_barrier_process--;
-  g_barrier_write++;
-  return true;
-}
-
-bool BlockDropBarrierWrite(Transaction *t, const Vector<TOperand*> &arguments,
-                           TOperand **result)
-{
-  BACKEND_ARG_COUNT(0);
-
-  if (g_barrier_write == 0)
-    BACKEND_FAIL(NULL);
-
-  g_barrier_write--;
+  g_pending_modsets.Insert(key, buf);
   return true;
 }
 
@@ -1677,10 +1691,7 @@ static void start_Block()
   BACKEND_REGISTER(BlockSeedWorklist);
   BACKEND_REGISTER(BlockCurrentStage);
   BACKEND_REGISTER(BlockPopWorklist);
-  BACKEND_REGISTER(BlockHaveBarrierProcess);
-  BACKEND_REGISTER(BlockHaveBarrierWrite);
-  BACKEND_REGISTER(BlockShiftBarrierProcess);
-  BACKEND_REGISTER(BlockDropBarrierWrite);
+  BACKEND_REGISTER(BlockWriteModset);
 }
 
 static void finish_Block()
@@ -1778,35 +1789,17 @@ TAction* BlockCurrentStage(Transaction *t, size_t var_result)
   return call;
 }
 
-TAction* BlockPopWorklist(Transaction *t, bool add_barrier_process,
-                          size_t var_result)
+TAction* BlockPopWorklist(Transaction *t, size_t var_result)
 {
   BACKEND_CALL(BlockPopWorklist, var_result);
-  call->PushArgument(new TOperandBoolean(t, add_barrier_process));
   return call;
 }
 
-TAction* BlockHaveBarrierProcess(Transaction *t, size_t var_result)
+TAction* BlockWriteModset(Transaction *t, TOperand *key, TOperand *modset_data)
 {
-  BACKEND_CALL(BlockHaveBarrierProcess, var_result);
-  return call;
-}
-
-TAction* BlockHaveBarrierWrite(Transaction *t, size_t var_result)
-{
-  BACKEND_CALL(BlockHaveBarrierWrite, var_result);
-  return call;
-}
-
-TAction* BlockShiftBarrierProcess(Transaction *t)
-{
-  BACKEND_CALL(BlockShiftBarrierProcess, 0);
-  return call;
-}
-
-TAction* BlockDropBarrierWrite(Transaction *t)
-{
-  BACKEND_CALL(BlockDropBarrierWrite, 0);
+  BACKEND_CALL(BlockWriteModset, 0);
+  call->PushArgument(key);
+  call->PushArgument(modset_data);
   return call;
 }
 

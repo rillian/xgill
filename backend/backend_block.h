@@ -26,8 +26,8 @@
 
 NAMESPACE_XGILL_BEGIN
 
-// files to mark as changed if we are doing an incremental build.
-extern ConfigOption option_incremental_files;
+// configuration option for the timeout to use when waiting for modsets.
+extern ConfigOption modset_wait;
 
 // hash for adding items to process in the next stage, see functions below.
 #define BLOCK_WORKLIST_NEXT "worklist_next"
@@ -94,34 +94,16 @@ TAction* BlockSeedWorklist(Transaction *t, TOperandList *functions);
 // BLOCK_WORKLIST_NEXT hash during the previous stage will be processed.
 TAction* BlockCurrentStage(Transaction *t, size_t var_result);
 
-// two barriers are used to manage the transition from one stage to the next.
-//
-// - the process barrier is a count of the number of workers that have
-// processed at least one function but have not finished with processing
-// all functions in the stage yet. no worker should write out the results
-// of the stage until the process barrier is clear.
-//
-// - the write barrier is a count of the number of workers that have
-// finished with processing the stage but have not finished writing out their
-// results yet. the next stage can't start until the write barrier is clear.
-
 // pop a function from the worklist and store its name in var_result.
-// the string will be empty if the worklist for the current stage is drained.
-// if add_barrier_process is true and a function was popped then the process
-// barrier will be incremented. if the worklist is empty and both barriers
-// are clear, advances the stage.
-TAction* BlockPopWorklist(Transaction *t, bool add_barrier_process,
-                          size_t var_result);
+// the string will be empty if the worklist for the current stage is drained,
+// advances the stage if necessary.
+TAction* BlockPopWorklist(Transaction *t, size_t var_result);
 
-// returns whether the process/write barriers are non-zero.
-TAction* BlockHaveBarrierProcess(Transaction *t, size_t var_result);
-TAction* BlockHaveBarrierWrite(Transaction *t, size_t var_result);
-
-// shifts a count on the process barrier to a count on the write barrier.
-TAction* BlockShiftBarrierProcess(Transaction *t);
-
-// drops a count on the write barrier.
-TAction* BlockDropBarrierWrite(Transaction *t);
+// writes out a modset result for a worklist item. modsets are special as the
+// newly written modset will not be seen when doing lookups until the start
+// of the next stage.
+TAction* BlockWriteModset(Transaction *t, TOperand *key,
+                          TOperand *modset_data);
 
 NAMESPACE_END(Backend)
 

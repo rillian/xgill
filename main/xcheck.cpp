@@ -102,7 +102,7 @@ void DoFetchTransaction(Transaction *t, size_t stage_result,
   }
   else {
     t->PushAction(Backend::BlockCurrentStage(t, stage_result));
-    t->PushAction(Backend::BlockPopWorklist(t, false, body_key_var));
+    t->PushAction(Backend::BlockPopWorklist(t, body_key_var));
   }
 
   t->PushAction(Backend::StringIsEmpty(t, body_key, key_empty_var));

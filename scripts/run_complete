@@ -201,9 +201,13 @@ sub run_pass
     my ($name, $command) = @_;
     my $log_file = "$result_dir/manager.$name.log";
 
+    # extra commands to pass to the manager.
+    my $manager_extra = "";
+    $manager_extra .= "-modset-wait=10" if ($name eq "xmemlocal");
+
     # fork off a manager process for the analysis.
     defined(my $pid = fork) or die;
-    exec("xmanager > $log_file 2>&1") if (!$pid);
+    exec("xmanager $manager_extra > $log_file 2>&1") if (!$pid);
 
     my $address = get_manager_address($log_file);
 
