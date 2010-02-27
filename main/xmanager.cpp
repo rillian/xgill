@@ -303,6 +303,9 @@ int main(int argc, const char **argv)
   signal(SIGINT, termination_handler);
   signal(SIGTERM, termination_handler);
 
+  // xmanager failures are unrecoverable.
+  g_pause_assertions = true;
+
   int ret;
 
   event_init();

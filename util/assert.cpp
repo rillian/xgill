@@ -18,6 +18,8 @@
 
 #include "assert.h"
 
+bool g_pause_assertions = false;
+
 void Breakpoint(void *v)
 {
   // don't do anything here. just 'break Breakpoint' in gdb.

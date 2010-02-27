@@ -21,6 +21,7 @@
 #include "alloc.h"
 #include "ostream.h"
 #include <stdio.h>
+#include <unistd.h>
 
 // namespace definitions
 
@@ -33,12 +34,20 @@
 
 // assertion definitions
 
+// flag indicating whether to pause instead of abort at a failed assertion.
+// pausing will keep the process from terminating and allow a stack trace
+// to be extracted via gdb. this is off by default, and should only be used
+// in cases where an assertion failure is unrecoverable for the whole system.
+extern bool g_pause_assertions;
+
 __attribute__((noreturn))
 inline void AssertFail(const char *file, int line, const char *func,
                        const char *msg)
 {
   logout << file << ": " << line << ": " << func
          << ": Assertion '" << msg << "' failed." << endl << flush;
+  if (g_pause_assertions)
+    pause();
   abort();
 }
 

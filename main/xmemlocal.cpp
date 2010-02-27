@@ -702,6 +702,9 @@ int main(int argc, const char **argv)
 
   // Solver::CheckSimplifications();
 
+  // xmemlocal failures are unrecoverable, may lose arbitrary callgraph edges.
+  g_pause_assertions = true;
+
   ResetAllocs();
   AnalysisPrepare();
 
