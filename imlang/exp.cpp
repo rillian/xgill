@@ -89,6 +89,16 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareValues(nexp0->GetIndex(), nexp1->GetIndex());
     break;
   }
+  case EK_Clobber: {
+    const ExpClobber *nexp0 = exp0->AsClobber();
+    const ExpClobber *nexp1 = exp1->AsClobber();
+    TryCompareObjects(nexp0->GetCallee(), nexp1->GetCallee(), Exp);
+    TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
+    TryCompareObjects(nexp0->GetOverwrite(), nexp1->GetOverwrite(), Exp);
+    TryCompareValues(nexp0->GetPoint(), nexp1->GetPoint());
+    TryCompareObjects(nexp0->GetLocation(), nexp1->GetLocation(), Location);
+    break;
+  }
 
   case EK_Int: {
     const ExpInt *nexp0 = exp0->AsInt();
@@ -117,16 +127,6 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     break;
   }
 
-  case EK_Clobber: {
-    const ExpClobber *nexp0 = exp0->AsClobber();
-    const ExpClobber *nexp1 = exp1->AsClobber();
-    TryCompareObjects(nexp0->GetCallee(), nexp1->GetCallee(), Exp);
-    TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
-    TryCompareObjects(nexp0->GetOverwrite(), nexp1->GetOverwrite(), Exp);
-    TryCompareValues(nexp0->GetPoint(), nexp1->GetPoint());
-    TryCompareObjects(nexp0->GetLocation(), nexp1->GetLocation(), Location);
-    break;
-  }
   case EK_Exit: {
     const ExpExit *nexp0 = exp0->AsExit();
     const ExpExit *nexp1 = exp1->AsExit();
@@ -141,7 +141,6 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
     break;
   }
-
   case EK_Val: {
     const ExpVal *nexp0 = exp0->AsVal();
     const ExpVal *nexp1 = exp1->AsVal();
@@ -149,12 +148,6 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareObjects(nexp0->GetValueKind(), nexp1->GetValueKind(), Exp);
     TryCompareValues(nexp0->GetPoint(), nexp1->GetPoint());
     TryCompareValues((int)nexp0->IsRelative(), (int)nexp1->IsRelative());
-    break;
-  }
-  case EK_Guard: {
-    const ExpGuard *nexp0 = exp0->AsGuard();
-    const ExpGuard *nexp1 = exp1->AsGuard();
-    TryCompareValues(nexp0->GetPoint(), nexp1->GetPoint());
     break;
   }
   case EK_Frame: {
@@ -165,6 +158,12 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     break;
   }
 
+  case EK_NullTest: {
+    const ExpNullTest *nexp0 = exp0->AsNullTest();
+    const ExpNullTest *nexp1 = exp1->AsNullTest();
+    TryCompareObjects(nexp0->GetTarget(), nexp1->GetTarget(), Exp);
+    break;
+  }
   case EK_Bound: {
     const ExpBound *nexp0 = exp0->AsBound();
     const ExpBound *nexp1 = exp1->AsBound();
@@ -207,20 +206,19 @@ Exp* Exp::Copy(const Exp *exp)
     COPY_EXP(Index);
     COPY_EXP(String);
     COPY_EXP(VPtr);
+    COPY_EXP(Clobber);
 
     COPY_EXP(Int);
     COPY_EXP(Float);
     COPY_EXP(Unop);
     COPY_EXP(Binop);
 
-    COPY_EXP(Clobber);
     COPY_EXP(Exit);
     COPY_EXP(Initial);
-
     COPY_EXP(Val);
-    COPY_EXP(Guard);
     COPY_EXP(Frame);
 
+    COPY_EXP(NullTest);
     COPY_EXP(Bound);
     COPY_EXP(Terminate);
 
@@ -289,6 +287,17 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     WriteTagUInt32(buf, TAG_Index, nexp->GetIndex());
     break;
   }
+  case EK_Clobber: {
+    const ExpClobber *nexp = exp->AsClobber();
+    Exp::Write(buf, nexp->GetCallee());
+    Exp::Write(buf, nexp->GetOverwrite());
+    if (nexp->GetValueKind())
+      Exp::Write(buf, nexp->GetValueKind());
+    WriteTagUInt32(buf, TAG_Index, nexp->GetPoint());
+    if (nexp->GetLocation())
+      Location::Write(buf, nexp->GetLocation());
+    break;
+  }
 
   case EK_Int: {
     const ExpInt *nexp = exp->AsInt();
@@ -320,17 +329,6 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     break;
   }
 
-  case EK_Clobber: {
-    const ExpClobber *nexp = exp->AsClobber();
-    Exp::Write(buf, nexp->GetCallee());
-    Exp::Write(buf, nexp->GetOverwrite());
-    if (nexp->GetValueKind())
-      Exp::Write(buf, nexp->GetValueKind());
-    WriteTagUInt32(buf, TAG_Index, nexp->GetPoint());
-    if (nexp->GetLocation())
-      Location::Write(buf, nexp->GetLocation());
-    break;
-  }
   case EK_Exit: {
     const ExpExit *nexp = exp->AsExit();
     Exp::Write(buf, nexp->GetTarget());
@@ -345,7 +343,6 @@ void Exp::Write(Buffer *buf, const Exp *exp)
       Exp::Write(buf, nexp->GetValueKind());
     break;
   }
-
   case EK_Val: {
     const ExpVal *nexp = exp->AsVal();
     Exp::Write(buf, nexp->GetLvalue());
@@ -355,14 +352,14 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     WriteTagEmpty(buf, nexp->IsRelative() ? TAG_True : TAG_False);
     break;
   }
-  case EK_Guard: {
-    const ExpGuard *nexp = exp->AsGuard();
-    WriteTagUInt32(buf, TAG_Index, nexp->GetPoint());
-    break;
-  }
   case EK_Frame:
     Assert(false);
 
+  case EK_NullTest: {
+    const ExpNullTest *nexp = exp->AsNullTest();
+    Exp::Write(buf, nexp->GetTarget());
+    break;
+  }
   case EK_Bound: {
     const ExpBound *nexp = exp->AsBound();
     WriteTagUInt32(buf, TAG_OpCode, nexp->GetBoundKind());
@@ -519,6 +516,9 @@ Exp* Exp::Read(Buffer *buf)
   case EK_VPtr:
     res = MakeVPtr(exp0, point);
     break;
+  case EK_Clobber:
+    res = MakeClobber(exp0, exp2, exp1, (PPoint) point, loc);
+    break;
 
   case EK_Int:
     Try(str_len > 0 && str[str_len - 1] == 0);
@@ -535,26 +535,22 @@ Exp* Exp::Read(Buffer *buf)
     res = MakeBinop((BinopKind)opcode, exp0, exp1, type, bits, sign);
     break;
 
-  case EK_Clobber:
-    res = MakeClobber(exp0, exp2, exp1, (PPoint) point, loc);
-    break;
   case EK_Exit:
     res = MakeExit(exp0, exp1);
     break;
   case EK_Initial:
     res = MakeInitial(exp0, exp1);
     break;
-
   case EK_Val:
     Assert(flag_true != flag_false);
     res = MakeVal(exp0, exp1, (PPoint) point, flag_true);
     break;
-  case EK_Guard:
-    res = MakeGuard((PPoint) point);
-    break;
   case EK_Frame:
     Assert(false);
 
+  case EK_NullTest:
+    res = MakeNullTest(exp0);
+    break;
   case EK_Bound:
     res = MakeBound((BoundKind)opcode, exp0, type);
     break;
@@ -862,6 +858,13 @@ Exp* Exp::MakeVPtr(Exp *target, uint32_t vtable_index)
 {
   ExpVPtr xexp(target, vtable_index);
   return g_table.Lookup(xexp);
+}
+
+ExpClobber* Exp::MakeClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
+                             PPoint point, Location *location)
+{
+  ExpClobber xexp(callee, value_kind, overwrite, point, location);
+  return g_table.Lookup(xexp)->AsClobber();
 }
 
 ExpInt* Exp::MakeIntMpz(const mpz_t value, size_t bits, bool sign)
@@ -1301,6 +1304,25 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
          i.b_kind == B_LessEqual || i.b_kind == B_LessEqualP)) {
       Exp *new_exp = MakeInt(1);
       return SimplifyExp(exp, new_exp);
+    }
+
+    // input:  exp !=p n
+    // output: !null(exp)
+
+    if (i.b_kind == B_NotEqualP && ri.has_value) {
+      li.exp->IncRef();
+      Exp *null_exp = MakeNullTest(li.exp);
+      Exp *new_exp = MakeUnop(U_LogicalNot, null_exp);
+      return SimplifyExp(exp, new_exp, false);
+    }
+
+    // input:  exp ==p n
+    // output: null(exp)
+
+    if (i.b_kind == B_EqualP && ri.has_value) {
+      li.exp->IncRef();
+      Exp *new_exp = MakeNullTest(li.exp);
+      return SimplifyExp(exp, new_exp, false);
     }
 
     // input:  exp0 +/- -exp1
@@ -1789,13 +1811,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
   return exp;
 }
 
-ExpClobber* Exp::MakeClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
-                             PPoint point, Location *location)
-{
-  ExpClobber xexp(callee, value_kind, overwrite, point, location);
-  return g_table.Lookup(xexp)->AsClobber();
-}
-
 ExpExit* Exp::MakeExit(Exp *target, Exp *value_kind)
 {
   ExpExit xexp(target, value_kind);
@@ -1812,12 +1827,6 @@ ExpVal* Exp::MakeVal(Exp *lval, Exp *value_kind, PPoint point, bool relative)
 {
   ExpVal xexp(lval, value_kind, point, relative);
   return g_table.Lookup(xexp)->AsVal();
-}
-
-ExpGuard* Exp::MakeGuard(PPoint point)
-{
-  ExpGuard xexp(point);
-  return g_table.Lookup(xexp)->AsGuard();
 }
 
 ExpFrame* Exp::MakeFrame(Exp *value, FrameId frame_id)
@@ -1853,6 +1862,32 @@ Exp* ScaleBoundIndex(Type *stride_type, Type *index_type, Exp *index)
   }
 
   return NULL;
+}
+
+Exp* Exp::MakeNullTest(Exp *target)
+{
+  switch (target->Kind()) {
+    // kinds of expressions which are never NULL.
+  case EK_Var:
+  case EK_Fld:
+  case EK_Rfld:
+  case EK_Index:
+  case EK_String:
+  case EK_VPtr:
+    target->DecRef();
+    return MakeInt(0);
+
+    // constant integers are always treated as NULL (this is a loose
+    // definition of NULL).
+  case EK_Int:
+    target->DecRef();
+    return MakeInt(1);
+
+  default: break;
+  }
+
+  ExpNullTest xexp(target);
+  return g_table.Lookup(xexp);
 }
 
 Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
@@ -3250,6 +3285,78 @@ void ExpVPtr::DecMoveChildRefs(ORef ov, ORef nv)
 }
 
 /////////////////////////////////////////////////////////////////////
+// ExpClobber
+/////////////////////////////////////////////////////////////////////
+
+static inline Type* GetValueType(Exp *lval, Exp *value_kind)
+{
+  if (value_kind) {
+    // terminator positions do not have types.
+    return NULL;
+  }
+  else {
+    Type *lval_type = lval->GetType();
+    if (lval_type && lval_type->IsPointer())
+      return lval_type->AsPointer()->GetTargetType();
+    return NULL;
+  }
+}
+
+ExpClobber::ExpClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
+                       PPoint point, Location *location)
+  : Exp(EK_Clobber), m_callee(callee),
+    m_value_kind(value_kind), m_overwrite(overwrite),
+    m_point(point), m_location(location)
+{
+  Assert(m_callee);
+  Assert(m_overwrite);
+  Assert(m_point);
+
+  m_hash = Hash32(m_hash, m_callee->Hash());
+  m_hash = Hash32(m_hash, m_overwrite->Hash());
+  if (m_value_kind)
+    m_hash = Hash32(m_hash, m_value_kind->Hash());
+  m_hash = Hash32(m_hash, m_point);
+  if (m_location)
+    m_hash = Hash32(m_hash, m_location->Hash());
+}
+
+Type* ExpClobber::GetType() const
+{
+  return GetValueType(m_overwrite, m_value_kind);
+}
+
+Exp* ExpClobber::GetLvalTarget() const
+{
+  return m_overwrite;
+}
+
+void ExpClobber::Print(OutStream &out) const
+{
+  out << "cval(" << m_callee;
+
+  if (m_value_kind)
+    out << ",v" << m_value_kind;
+
+  out << ",p" << m_point;
+
+  if (m_location)
+    out << "," << m_location->Line();
+
+  out << ")";
+}
+
+void ExpClobber::DecMoveChildRefs(ORef ov, ORef nv)
+{
+  m_callee->DecMoveRef(ov, nv);
+  m_overwrite->DecMoveRef(ov, nv);
+  if (m_value_kind)
+    m_value_kind->DecMoveRef(ov, nv);
+  if (m_location)
+    m_location->DecMoveRef(ov, nv);
+}
+
+/////////////////////////////////////////////////////////////////////
 // ExpInt
 /////////////////////////////////////////////////////////////////////
 
@@ -3556,78 +3663,6 @@ void ExpBinop::DecMoveChildRefs(ORef ov, ORef nv)
 }
 
 /////////////////////////////////////////////////////////////////////
-// ExpClobber
-/////////////////////////////////////////////////////////////////////
-
-static inline Type* GetValueType(Exp *lval, Exp *value_kind)
-{
-  if (value_kind) {
-    // terminator positions do not have types.
-    return NULL;
-  }
-  else {
-    Type *lval_type = lval->GetType();
-    if (lval_type && lval_type->IsPointer())
-      return lval_type->AsPointer()->GetTargetType();
-    return NULL;
-  }
-}
-
-ExpClobber::ExpClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
-                       PPoint point, Location *location)
-  : Exp(EK_Clobber), m_callee(callee),
-    m_value_kind(value_kind), m_overwrite(overwrite),
-    m_point(point), m_location(location)
-{
-  Assert(m_callee);
-  Assert(m_overwrite);
-  Assert(m_point);
-
-  m_hash = Hash32(m_hash, m_callee->Hash());
-  m_hash = Hash32(m_hash, m_overwrite->Hash());
-  if (m_value_kind)
-    m_hash = Hash32(m_hash, m_value_kind->Hash());
-  m_hash = Hash32(m_hash, m_point);
-  if (m_location)
-    m_hash = Hash32(m_hash, m_location->Hash());
-}
-
-Type* ExpClobber::GetType() const
-{
-  return GetValueType(m_overwrite, m_value_kind);
-}
-
-Exp* ExpClobber::GetLvalTarget() const
-{
-  return m_overwrite;
-}
-
-void ExpClobber::Print(OutStream &out) const
-{
-  out << "cval(" << m_callee;
-
-  if (m_value_kind)
-    out << ",v" << m_value_kind;
-
-  out << ",p" << m_point;
-
-  if (m_location)
-    out << "," << m_location->Line();
-
-  out << ")";
-}
-
-void ExpClobber::DecMoveChildRefs(ORef ov, ORef nv)
-{
-  m_callee->DecMoveRef(ov, nv);
-  m_overwrite->DecMoveRef(ov, nv);
-  if (m_value_kind)
-    m_value_kind->DecMoveRef(ov, nv);
-  if (m_location)
-    m_location->DecMoveRef(ov, nv);
-}
-
-/////////////////////////////////////////////////////////////////////
 // ExpExit
 /////////////////////////////////////////////////////////////////////
 
@@ -3802,23 +3837,6 @@ void ExpVal::DecMoveChildRefs(ORef ov, ORef nv)
 }
 
 /////////////////////////////////////////////////////////////////////
-// ExpGuard
-/////////////////////////////////////////////////////////////////////
-
-ExpGuard::ExpGuard(PPoint point)
-  : Exp(EK_Guard, 0, true), m_point(point)
-{
-  Assert(m_point);
-
-  m_hash = Hash32(m_hash, m_point);
-}
-
-void ExpGuard::Print(OutStream &out) const
-{
-  out << "guard(" << m_point << ")";
-}
-
-/////////////////////////////////////////////////////////////////////
 // ExpFrame
 /////////////////////////////////////////////////////////////////////
 
@@ -3840,6 +3858,94 @@ void ExpFrame::Print(OutStream &out) const
 void ExpFrame::DecMoveChildRefs(ORef ov, ORef nv)
 {
   m_value->DecMoveRef(ov, nv);
+}
+
+/////////////////////////////////////////////////////////////////////
+// ExpNullTest
+/////////////////////////////////////////////////////////////////////
+
+ExpNullTest::ExpNullTest(Exp *target)
+  : Exp(EK_NullTest), m_target(target)
+{
+  m_hash = Hash32(m_hash, m_target->Hash());
+}
+
+Exp* ExpNullTest::GetLvalTarget() const
+{
+  return m_target;
+}
+
+Exp* ExpNullTest::ReplaceLvalTarget(Exp *new_target)
+{
+  return MakeNullTest(new_target);
+}
+
+void ExpNullTest::DoVisit(ExpVisitor *visitor)
+{
+  Assert(m_target);
+  Exp::DoVisit(visitor);
+
+  if (visitor->IsFinished())
+    return;
+
+  if (visitor->LvalRecurse()) {
+    bool old_found_term = visitor->SetFoundTerm(true);
+    m_target->DoVisit(visitor);
+    visitor->SetFoundTerm(old_found_term);
+  }
+}
+
+Exp* ExpNullTest::DoMap(ExpMapper *mapper)
+{
+  if (!mapper->LvalRecurse())
+    return Exp::DoMap(mapper);
+  Assert(m_target);
+
+  Exp *new_this = NULL;
+  Exp *new_target = m_target->DoMap(mapper);
+  if (new_target)
+    new_this = MakeNullTest(new_target);
+  return BaseMap(new_this, mapper);
+}
+
+void ExpNullTest::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
+{
+  if (!mapper->LvalRecurse())
+    return Exp::DoMultiMap(mapper, res);
+  Assert(m_target);
+
+  BaseMultiMap(mapper, res);
+
+  Vector<Exp*> target_res;
+  m_target->DoMultiMap(mapper, &target_res);
+
+  for (size_t ind = 0; ind < target_res.Size(); ind++) {
+    target_res[ind]->IncRef();
+    Exp *new_this = MakeNullTest(target_res[ind]);
+    ExpAddResult(new_this, res);
+
+    if (LimitRevertResult(mapper, res, this))
+      break;
+  }
+
+  DecRefVector<Exp>(target_res, &target_res);
+}
+
+void ExpNullTest::Print(OutStream &out) const
+{
+  out << "null(" << m_target << ")";
+}
+
+void ExpNullTest::PrintUI(OutStream &out, bool parens) const
+{
+  out << "null(";
+  m_target->PrintUIRval(out, false);
+  out << ")";
+}
+
+void ExpNullTest::DecMoveChildRefs(ORef ov, ORef nv)
+{
+  m_target->DecMoveRef(ov, nv);
 }
 
 /////////////////////////////////////////////////////////////////////

@@ -404,7 +404,7 @@ class BaseCompareVisitor : public ExpVisitor
   void VisitCompare(Exp *test, BinopKind kind,
                     Exp *left, Exp *right, Type *stride_type)
   {
-    if (left->IsLvalue())
+    if (left->IsLvalue() || left->IsBound() || left->IsTerminate())
       AddCompare(compares, test, kind, left, right, stride_type);
 
     if (ExpIndex *nleft = left->IfIndex()) {

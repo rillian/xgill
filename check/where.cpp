@@ -221,44 +221,12 @@ Where* WherePrecondition::Make(BlockMemory *mcfg, Bit *bit)
 {
   Assert(bit);
   bool is_function = (mcfg->GetId()->Kind() == B_Function);
-  Bit *new_bit = TranslateCallerBit(is_function, bit);
 
   Where *res = NULL;
-  if (new_bit) {
-    res = new WherePrecondition(mcfg, new_bit);
-    new_bit->DecRef();
-  }
-
+  if (UseCallerBit(bit, is_function))
+    res = new WherePrecondition(mcfg, bit);
   return res;
 }
-
-// visitor to determine whether a condition references only data preserved
-// by a loop body.
-class PreservedSufficientVisitor : public ExpVisitor
-{
- public:
-  BlockMemory *mcfg;
-  bool preserved;
-
-  PreservedSufficientVisitor(BlockMemory *_mcfg)
-    : ExpVisitor(VISK_Leaf), mcfg(_mcfg), preserved(true)
-  {}
-
-  void Visit(Exp *exp)
-  {
-    if (exp->IsRvalue())
-      return;
-    if (exp->IsFrame())
-      return;
-
-    if (exp->IsLvalue()) {
-      if (mcfg->IsExpPreserved(exp))
-        return;
-    }
-
-    preserved = false;
-  }
-};
 
 WherePrecondition::WherePrecondition(BlockMemory *mcfg, Bit *bit)
   : Where(WK_Precondition, bit),
@@ -268,10 +236,7 @@ WherePrecondition::WherePrecondition(BlockMemory *mcfg, Bit *bit)
 
   if (bit && m_mcfg->GetId()->Kind() == B_Loop) {
     // see if all terms in the bit are loop invariant.
-    PreservedSufficientVisitor visitor(m_mcfg);
-    bit->DoVisit(&visitor, true);
-
-    if (visitor.preserved)
+    if (m_mcfg->IsBitPreserved(bit))
       m_ignore_unroll = true;
   }
 }

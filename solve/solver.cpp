@@ -1556,7 +1556,7 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
     }
   }
 
-  if (exp->IsLvalue()) {
+  if (exp->IsLvalue() || exp->IsNullTest()) {
     // can get here only if we never saw the lvalue so never assigned a value
     // to it. just use the default value of 0.
     return false;
@@ -1925,12 +1925,13 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
       }
     }
     else {
-      // absolute bound/terminate. fall through to the lvalue case and
-      // make a declaration for this expression.
+      // absolute bound/terminate. make a declaration for this expression.
+      SlvDecl decl = GetDeclaration(state, exp, NULL);
+      return m_base->GetDeclarationExpr(decl);
     }
   }
 
-  if (exp->IsLvalue()) {
+  if (exp->IsLvalue() || exp->IsNullTest()) {
     // make a variable declaration for the lvalue.
     bool exists;
     SlvDecl decl = GetDeclaration(state, exp, &exists);

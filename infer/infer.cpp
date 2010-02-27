@@ -125,9 +125,6 @@ class BufferScanVisitor : public ExpVisitor
 
   void Visit(Exp *lval)
   {
-    if (!lval->IsLvalue())
-      return;
-
     // buffer which is being accessed.
     Exp *base = NULL;
 

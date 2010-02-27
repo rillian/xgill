@@ -43,12 +43,19 @@ enum BinopKind {
 
 };
 
+// integral properties of a memory address.
 enum BoundKind {
   BND_Invalid = 0,
 
   BND_Lower = 1,
   BND_Upper = 2,
   BND_Offset = 3,
+};
+
+// boolean properties of a memory address.
+enum PointerKind {
+
+
 };
 
 // get the string representation of an operation. these return NULL

@@ -352,11 +352,7 @@ public:
 
   void Visit(Exp *exp)
   {
-    if (exp->IsRvalue())
-      return;
-
-    switch (exp->Kind()) {
-    case EK_Var: {
+    if (exp->IsVar()) {
       Variable *var = exp->AsVar()->GetVariable();
       BlockId *id = var->GetId();
 
@@ -380,15 +376,7 @@ public:
       return;
     }
 
-    case EK_Fld:
-    case EK_Drf:
-    case EK_Rfld:
-    case EK_Index:
-    case EK_Bound:
-    case EK_Terminate:
-      return;
-
-    case EK_Initial:
+    if (exp->IsInitial()) {
       // initial expressions can only appear in assertions and postconditions.
       switch (kind) {
       case AK_Postcondition:
@@ -402,10 +390,6 @@ public:
         break;
       }
       exp->GetLvalTarget()->DoVisit(this);
-      return;
-
-    default:
-      exclude = exp;
       return;
     }
   }
@@ -1475,11 +1459,10 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     break;
   }
 
+  case EK_NullTest:
   case EK_Bound: {
-    ExpBound *nexp = exp->AsBound();
-    BoundKind bound = nexp->GetBoundKind();
-    Exp *target = nexp->GetTarget();
-    Type *stride_type = nexp->GetStrideType();
+    Exp *target = exp->GetLvalTarget();
+    Assert(target);
 
     GuardExpVector target_res;
     TranslateExp(kind, point, target, &target_res);
@@ -1487,9 +1470,8 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     for (size_t tind = 0; tind < target_res.Size(); tind++) {
       const GuardExp &gt = target_res[tind];
       gt.IncRef();
-      stride_type->IncRef();
 
-      Exp *new_exp = Exp::MakeBound(bound, gt.exp, stride_type);
+      Exp *new_exp = exp->ReplaceLvalTarget(gt.exp);
       res->PushBack(GuardExp(new_exp, gt.guard));
     }
 
@@ -1963,6 +1945,17 @@ bool BlockMemory::IsExpPreserved(Exp *exp)
 
   PreservedBlockVisitor visitor(this);
   exp->DoVisit(&visitor);
+
+  return visitor.preserved;
+}
+
+bool BlockMemory::IsBitPreserved(Bit *bit)
+{
+  Assert(m_cfg);
+  Assert(m_computed);
+
+  PreservedBlockVisitor visitor(this);
+  bit->DoVisit(&visitor);
 
   return visitor.preserved;
 }

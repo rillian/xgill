@@ -24,12 +24,11 @@ NAMESPACE_XGILL_BEGIN
 // Caller functions
 /////////////////////////////////////////////////////////////////////
 
-// whether the specified trace can be expanded in its callers.
-// is_function indicates whether this is for a function vs. loop.
+// determine whether an expression can be expanded in its callers.
 class ExternalVisitor : public ExpVisitor
 {
 public:
-  bool is_function;  // whether this is for a function.
+  bool is_function;  // whether this is for a function vs. loop.
   bool exclude;
 
   ExternalVisitor(bool _is_function)
@@ -38,12 +37,7 @@ public:
 
   void Visit(Exp *exp)
   {
-    if (exp->IsRvalue())
-      return;
-
-    switch (exp->Kind()) {
-
-    case EK_Var: {
+    if (exp->IsVar()) {
       Variable *var = exp->AsVar()->GetVariable();
 
       if (var->IsGlobal())
@@ -67,22 +61,14 @@ public:
       return;
     }
 
-    case EK_Fld:
-    case EK_Drf:
-    case EK_Rfld:
-    case EK_Index:
-    case EK_Bound:
-    case EK_Terminate:
-    case EK_Frame:
+    if (exp->IsClobber()) {
+      exclude = true;
       return;
+    }
 
-    case EK_Initial:
+    if (exp->IsInitial() && is_function) {
       if (is_function)
         exclude = true;
-      return;
-
-    default:
-      exclude = true;
       return;
     }
   }
@@ -100,35 +86,6 @@ bool UseCallerBit(Bit *bit, bool is_function)
   ExternalVisitor visitor(is_function);
   bit->DoVisit(&visitor);
   return !visitor.exclude;
-}
-
-class CallerMapper : public ExpMapper
-{
- public:
-  bool is_function;
-  CallerMapper(bool _is_function)
-    : ExpMapper(VISK_Leaf, WIDK_Drop), is_function(_is_function)
-  {}
-
-  Exp* Map(Exp *exp, Exp*)
-  {
-    if (exp == NULL)
-      return NULL;
-    if (exp->IsRvalue())
-      return exp;
-
-    if (UseCallerExp(exp, is_function))
-      return exp;
-
-    exp->DecRef();
-    return NULL;
-  }
-};
-
-Bit* TranslateCallerBit(bool is_function, Bit *bit)
-{
-  CallerMapper mapper(is_function);
-  return bit->DoMap(&mapper);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -189,11 +146,14 @@ class CalleeMapper : public ExpMapper
   {
     if (exp == NULL)
       goto exit;
-    if (exp->IsRvalue())
-      return exp;
-    if (!exp->IsLvalue())
-      goto exit;
 
+    // don't map expressions built on an ExpFrame.
+    if (Exp *target = exp->GetLvalTarget()) {
+      if (target->IsFrame())
+        goto exit;
+    }
+
+    // handle the results of lvalues clobbered by the callee.
     if (ExpClobber *nexp = exp->IfClobber()) {
       PPoint clobber_point = nexp->GetPoint();
 
@@ -259,15 +219,9 @@ class CalleeMapper : public ExpMapper
       return res;
     }
 
-    // use the existing exp unchanged for other types of values.
-    // watch out for the case where the expression is built on an ExpFrame.
-
-    if (Exp *target = exp->GetLvalTarget()) {
-      if (target->IsFrame())
-        goto exit;
-    }
-
-    return exp;
+    // other expressions can be handled as is.
+    if (exp->IsLvalue() || exp->IsRvalue())
+      return exp;
 
   exit:
     // we don't have a callee representation of the expression.
@@ -289,16 +243,13 @@ class CalleeMapper : public ExpMapper
       }
     }
 
-    if (old->IsLvalue()) {
-      old->IncRef();
-      return Exp::MakeFrame(old, caller_frame_id);
-    }
-    else if (old->IsFrame()) {
+    if (old->IsFrame()) {
       old->IncRef();
       return old;
     }
 
-    return NULL;
+    old->IncRef();
+    return Exp::MakeFrame(old, caller_frame_id);
   }
 };
 
@@ -371,76 +322,51 @@ class HeapMapper : public ExpMapper
   bool use_exit;
 
   HeapMapper(Exp *_old_lval, Exp *_new_lval, bool _use_exit)
-    : ExpMapper(VISK_Leaf, WIDK_Drop),
+    : ExpMapper(VISK_All, WIDK_Drop),
       old_lval(_old_lval), new_lval(_new_lval), use_exit(_use_exit)
   {}
 
-  // gets the converted expression for old in the scope of new_base.
-  Exp* ConvertExp(Exp *old)
+  Exp* Map(Exp *exp, Exp *old)
   {
     if (old == old_lval) {
+      if (exp != NULL)
+        exp->DecRef();
       new_lval->IncRef();
       return new_lval;
     }
 
-    // global variables are the same in all scopes.
-    if (ExpVar *nold = old->IfVar()) {
-      if (nold->GetVariable()->IsGlobal()) {
-        old->IncRef();
-        return old;
-      }
-    }
-
-    if (ExpDrf *nold = old->IfDrf()) {
-      Exp *new_target = ConvertExp(nold->GetTarget());
-
-      if (new_target) {
-        if (use_exit)
-          return Exp::MakeExit(new_target, NULL);
-        else
-          return Exp::MakeDrf(new_target);
-      }
-    }
-
-    if (ExpBound *nold = old->IfBound()) {
-      Exp *new_target = ConvertExp(nold->GetTarget());
-      if (new_target)
-        return old->ReplaceLvalTarget(new_target);
-    }
-
-    if (ExpTerminate *nold = old->IfTerminate()) {
-      Exp *new_target = ConvertExp(nold->GetTarget());
-      if (new_target) {
-        if (use_exit) {
-          Exp *kind = old->ReplaceLvalTarget(NULL);
-          return Exp::MakeExit(new_target, kind);
-        }
-        else {
-          return old->ReplaceLvalTarget(new_target);
-        }
-      }
-    }
-
-    if (ExpFld *nold = old->IfFld()) {
-      Exp *new_target = ConvertExp(nold->GetTarget());
-      if (new_target)
-        return old->ReplaceLvalTarget(new_target);
-    }
-
-    return NULL;
-  }
-
-  Exp* Map(Exp *exp, Exp*)
-  {
     if (exp == NULL)
       return NULL;
-    if (exp->IsRvalue())
+
+    // global variables are the same in all scopes.
+    if (ExpVar *nexp = exp->IfVar()) {
+      if (nexp->GetVariable()->IsGlobal())
+        return exp;
+    }
+
+    if (use_exit) {
+      if (ExpDrf *nexp = exp->IfDrf()) {
+        Exp *target = nexp->GetTarget();
+        target->IncRef();
+        exp->DecRef();
+
+        return Exp::MakeExit(target, NULL);
+      }
+
+      if (ExpTerminate *nexp = exp->IfTerminate()) {
+        Exp *target = nexp->GetTarget();
+        target->IncRef();
+        exp->DecRef();
+
+        Exp *kind = exp->ReplaceLvalTarget(NULL);
+        return Exp::MakeExit(target, kind);
+      }
+    }
+
+    if (exp->IsLvalue() || exp->IsRvalue())
       return exp;
 
-    Exp *res = ConvertExp(exp);
-
-    exp->DecRef();
-    return res;
+    return NULL;
   }
 };
 

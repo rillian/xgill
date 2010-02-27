@@ -53,7 +53,7 @@ enum ExpKind {
   EK_Invalid = 0,
   EK_Empty = 1,
 
-  // program lvalues. these can be produced by the frontend.
+  // program lvalues.
   EK_Var = 10,
   EK_Drf = 11,
   EK_Fld = 12,
@@ -61,26 +61,26 @@ enum ExpKind {
   EK_Index = 14,
   EK_String = 15,
   EK_VPtr = 16,
+  EK_Clobber = 17,
 
-  // program rvalues. these can be produced by the frontend.
+  // program rvalues.
   EK_Int = 20,
   EK_Float = 21,
   EK_Unop = 22,
   EK_Binop = 23,
 
-  // lvalue modifiers.
-  EK_Clobber = 40,
-  EK_Exit = 41,
-  EK_Initial = 42,
+  // expression modifiers.
+  EK_Exit = 31,
+  EK_Initial = 32,
+  EK_Val = 33,
+  EK_Frame = 34,
 
-  // rvalue modifiers.
-  EK_Val = 30,
-  EK_Guard = 31,
-  EK_Frame = 32,
+  // immutable properties.
+  EK_NullTest = 40,
+  EK_Bound = 41,
 
-  // analysis values. these are internal to later analyses.
-  EK_Bound = 50,
-  EK_Terminate = 51,
+  // mutable properties.
+  EK_Terminate = 50
 };
 
 class ExpEmpty;
@@ -92,20 +92,19 @@ class ExpRfld;
 class ExpIndex;
 class ExpString;
 class ExpVPtr;
+class ExpClobber;
 
 class ExpInt;
 class ExpFloat;
 class ExpUnop;
 class ExpBinop;
 
-class ExpVal;
-class ExpGuard;
-class ExpFrame;
-
-class ExpClobber;
 class ExpExit;
 class ExpInitial;
+class ExpVal;
+class ExpFrame;
 
+class ExpNullTest;
 class ExpBound;
 class ExpTerminate;
 
@@ -135,6 +134,8 @@ class Exp : public HashObject
   static Exp* MakeString(TypeArray *type, DataString *str);
   static Exp* MakeString(String *str);
   static Exp* MakeVPtr(Exp *target, uint32_t vtable_index);
+  static ExpClobber* MakeClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
+                                 PPoint point, Location *location);
 
   // combine construction of a variable and its expression.
   static Exp* MakeVar(BlockId *id, VarKind kind,
@@ -155,19 +156,15 @@ class Exp : public HashObject
                         Type *stride_type = NULL,
                         size_t bits = 0, bool sign = true);
 
-  // lvalue modifier constructors.
-  static ExpClobber* MakeClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
-                                 PPoint point, Location *location);
+  // modifier constructors.
   static ExpExit* MakeExit(Exp *target, Exp *value_kind);
   static ExpInitial* MakeInitial(Exp *target, Exp *value_kind);
-
-  // rvalue modifier constructors.
   static ExpVal* MakeVal(Exp *lval, Exp *value_kind, PPoint point,
                          bool relative);
-  static ExpGuard* MakeGuard(PPoint point);
   static ExpFrame* MakeFrame(Exp *value, FrameId frame_id);
 
-  // analysis value constructors.
+  // property constructors.
+  static Exp* MakeNullTest(Exp *target);
   static Exp* MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type);
   static Exp* MakeTerminate(Exp *target, Type *stride_type,
                             Exp *terminate_test, ExpInt *terminate_int);
@@ -234,20 +231,19 @@ class Exp : public HashObject
   DOWNCAST_TYPE(Exp, EK_, Index)
   DOWNCAST_TYPE(Exp, EK_, String)
   DOWNCAST_TYPE(Exp, EK_, VPtr)
+  DOWNCAST_TYPE(Exp, EK_, Clobber)
 
   DOWNCAST_TYPE(Exp, EK_, Int)
   DOWNCAST_TYPE(Exp, EK_, Float)
   DOWNCAST_TYPE(Exp, EK_, Unop)
   DOWNCAST_TYPE(Exp, EK_, Binop)
 
-  DOWNCAST_TYPE(Exp, EK_, Clobber)
   DOWNCAST_TYPE(Exp, EK_, Exit)
   DOWNCAST_TYPE(Exp, EK_, Initial)
-
   DOWNCAST_TYPE(Exp, EK_, Val)
-  DOWNCAST_TYPE(Exp, EK_, Guard)
   DOWNCAST_TYPE(Exp, EK_, Frame)
 
+  DOWNCAST_TYPE(Exp, EK_, NullTest)
   DOWNCAST_TYPE(Exp, EK_, Bound)
   DOWNCAST_TYPE(Exp, EK_, Terminate)
 
@@ -265,12 +261,6 @@ class Exp : public HashObject
     case EK_String:
     case EK_VPtr:
     case EK_Clobber:
-    case EK_Exit:
-    case EK_Initial:
-      return true;
-    // analysis expressions which behave like lvalues.
-    case EK_Bound:
-    case EK_Terminate:
       return true;
     default:
       return false;
@@ -286,6 +276,11 @@ class Exp : public HashObject
     case EK_Float:
     case EK_Unop:
     case EK_Binop:
+      return true;
+    // properties are considered to be rvalues.
+    case EK_NullTest:
+    case EK_Bound:
+    case EK_Terminate:
       return true;
     default:
       return false;
@@ -565,6 +560,46 @@ class ExpVPtr : public Exp
   friend class Exp;
 };
 
+class ExpClobber : public Exp
+{
+ public:
+  // get the callee lvalue whose value at callee exit is indicated
+  // by this expression. this is equivalent to EExit(target, value_kind)
+  // within the callee's scope.
+  Exp* GetCallee() const { return m_callee; }
+
+  // get the kind of value being computed for the callee lvalue.
+  Exp* GetValueKind() const { return m_value_kind; }
+
+  // get the caller lvalue which was overwritten. this is the lvalue target,
+  // which cannot be replaced with ReplaceLvalTarget.
+  Exp* GetOverwrite() const { return m_overwrite; }
+
+  // get the point where the callee was invoked.
+  PPoint GetPoint() const { return m_point; }
+
+  // get the location of the call/loop point, if known.
+  Location* GetLocation() const { return m_location; }
+
+  // inherited methods
+  Type* GetType() const;
+  Exp* GetLvalTarget() const;
+  void Print(OutStream &out) const;
+  void DecMoveChildRefs(ORef ov, ORef nv);
+
+ private:
+  Exp *m_callee;
+  Exp *m_value_kind;
+  Exp *m_overwrite;
+  PPoint m_point;
+
+  Location *m_location;
+
+  ExpClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
+             PPoint point, Location *location);
+  friend class Exp;
+};
+
 class ExpInt : public Exp
 {
  public:
@@ -691,46 +726,6 @@ class ExpBinop : public Exp
   friend class Exp;
 };
 
-class ExpClobber : public Exp
-{
- public:
-  // get the callee lvalue whose value at callee exit is indicated
-  // by this expression. this is equivalent to EExit(target, value_kind)
-  // within the callee's scope.
-  Exp* GetCallee() const { return m_callee; }
-
-  // get the kind of value being computed for the callee lvalue.
-  Exp* GetValueKind() const { return m_value_kind; }
-
-  // get the caller lvalue which was overwritten. this is the lvalue target,
-  // which cannot be replaced with ReplaceLvalTarget.
-  Exp* GetOverwrite() const { return m_overwrite; }
-
-  // get the point where the callee was invoked.
-  PPoint GetPoint() const { return m_point; }
-
-  // get the location of the call/loop point, if known.
-  Location* GetLocation() const { return m_location; }
-
-  // inherited methods
-  Type* GetType() const;
-  Exp* GetLvalTarget() const;
-  void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
-
- private:
-  Exp *m_callee;
-  Exp *m_value_kind;
-  Exp *m_overwrite;
-  PPoint m_point;
-
-  Location *m_location;
-
-  ExpClobber(Exp *callee, Exp *value_kind, Exp *overwrite,
-             PPoint point, Location *location);
-  friend class Exp;
-};
-
 class ExpExit : public Exp
 {
  public:
@@ -814,25 +809,7 @@ class ExpVal : public Exp
   friend class Exp;
 };
 
-// uninterpreted condition under which a point is executed.
-// if necessary this can be expanded to the exact condition it represents.
-class ExpGuard : public Exp
-{
- public:
-  // get the point whose execution condition is being guarded.
-  PPoint GetPoint() const { return m_point; }
-
-  // inherited methods
-  void Print(OutStream &out) const;
-
- private:
-  PPoint m_point;
-
-  ExpGuard(PPoint point);
-  friend class Exp;
-};
-
-// note: this expression cannot be serialized.
+// expression within a particular checker frame. this exp is not serialized.
 class ExpFrame : public Exp
 {
  public:
@@ -851,6 +828,29 @@ class ExpFrame : public Exp
   FrameId m_frame_id;
 
   ExpFrame(Exp *value, FrameId frame_id);
+  friend class Exp;
+};
+
+class ExpNullTest : public Exp
+{
+ public:
+  // return the pointer being tested against NULL.
+  Exp* GetTarget() const { return m_target; }
+
+  // inherited methods.
+  Exp* GetLvalTarget() const;
+  Exp* ReplaceLvalTarget(Exp *new_target);
+  void DoVisit(ExpVisitor *visitor);
+  Exp* DoMap(ExpMapper *mapper);
+  void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
+  void Print(OutStream &out) const;
+  void PrintUI(OutStream &out, bool parens) const;
+  void DecMoveChildRefs(ORef ov, ORef nv);
+
+ private:
+  Exp *m_target;
+
+  ExpNullTest(Exp *target);
   friend class Exp;
 };
 

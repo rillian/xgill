@@ -471,15 +471,7 @@ class ModsetIncludeVisitor : public ExpVisitor
 
   void Visit(Exp *exp)
   {
-    if (exp->IsRvalue())
-      return;
-    if (!exp->IsLvalue()) {
-      excluded = exp;
-      return;
-    }
-
-    switch (exp->Kind()) {
-    case EK_Var: {
+    if (exp->IsVar()) {
       Variable *root = exp->AsVar()->GetVariable();
 
       // allow global exps when the assign was not generated from a call.
@@ -510,10 +502,10 @@ class ModsetIncludeVisitor : public ExpVisitor
           excluded = exp;
       }
 
-      break;
+      return;
     }
 
-    case EK_Drf: {
+    if (exp->IsDrf()) {
       if (!FoundLval())
         return;
 
@@ -524,27 +516,20 @@ class ModsetIncludeVisitor : public ExpVisitor
           excluded = exp;
       }
 
-      break;
+      return;
     }
 
-    case EK_Index: {
+    if (exp->IsIndex() && !rvalue) {
       // indexes are allowed only for assignment rvalues.
-      if (!rvalue)
-        excluded = exp;
-      break;
+      excluded = exp;
+      return;
     }
 
-    case EK_Fld: {
+    if (exp->IsFld() && exp->FieldCount() > 6) {
       // limit on the number of fields in expressions. this cuts off infinite
       // recursion during modset computation when the program does funny casts.
-      if (exp->FieldCount() > 6)
-        excluded = exp;
-      break;
-    }
-
-    default:
       excluded = exp;
-      break;
+      return;
     }
   }
 };

@@ -215,7 +215,7 @@ enum _enum_XIL_UnopKind {
 typedef enum _enum_XIL_UnopKind XIL_UnopKind;
 
 #define XIL_ITERATE_BINOP(MACRO)                \
-  /* arith x arith -> arith */                  \
+    /* arith x arith -> arith */                \
   MACRO(Plus, 1)                                \
   MACRO(Minus, 2)                               \
   MACRO(Mult, 3)                                \

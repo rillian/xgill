@@ -203,15 +203,6 @@ void GetImplySufficient(CheckerFrame *frame, Vector<Bit*> *imply_list)
 // equality based sufficient conditions
 /////////////////////////////////////////////////////////////////////
 
-static inline Exp* MatchLval(Exp *exp)
-{
-  if (exp->IsLvalue())
-    return exp;
-  if (ExpBound *nexp = exp->IfBound())
-    return nexp->GetTarget();
-  return NULL;
-}
-
 Exp* MatchEquality(Exp *base, const BaseCompare &equality)
 {
   Exp *source = equality.source;
@@ -287,7 +278,7 @@ class EqualityMapper : public ExpMultiMapper
     // appearing in the input formula.
     bool handle_exp = false;
 
-    if (exp->IsLvalue())
+    if (exp->IsLvalue() || exp->IsBound() || exp->IsTerminate())
       handle_exp = true;
     else if (ExpBinop *nexp = exp->IfBinop()) {
       switch (nexp->GetBinopKind()) {

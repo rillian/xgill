@@ -94,29 +94,14 @@ public:
     if (exp == NULL)
       return NULL;
 
-    if (exp->IsRvalue())
-      return exp;
-
-    switch (exp->Kind()) {
-
-    case EK_Var:
-    case EK_Fld:
-    case EK_Drf:
-    case EK_Rfld:
-    case EK_Index:
-    case EK_VPtr:
-    case EK_Bound:
-    case EK_Terminate:
-      return exp;
-
-    case EK_Clobber: {
-      ExpClobber *nexp = exp->AsClobber();
-
+    if (ExpClobber *nexp = exp->IfClobber()) {
       Exp *target = nexp->GetOverwrite();
       Exp *new_target = target->DoMap(this);
 
-      if (!new_target)
+      if (!new_target) {
+        exp->DecRef();
         return NULL;
+      }
 
       Exp *new_exp = NULL;
       if (Exp *kind = nexp->GetValueKind())
@@ -128,10 +113,11 @@ public:
       return new_exp;
     }
 
-    default:
-      exp->DecRef();
-      return NULL;
-    }
+    if (exp->IsLvalue() || exp->IsRvalue())
+      return exp;
+
+    exp->DecRef();
+    return NULL;
   }
 };
 

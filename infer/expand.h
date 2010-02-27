@@ -31,9 +31,6 @@ NAMESPACE_XGILL_BEGIN
 bool UseCallerExp(Exp *exp, bool is_function);
 bool UseCallerBit(Bit *bit, bool is_function);
 
-// if possible get a bit composed of caller lvals which is equivalent to bit.
-Bit* TranslateCallerBit(bool is_function, Bit *bit);
-
 // whether exp should be expanded in some callee. if so, returns the point
 // where the exp should be expanded.
 PPoint UseCalleeExp(Exp *exp);

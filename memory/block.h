@@ -521,8 +521,9 @@ class BlockMemory : public HashObject
   bool IsLvalClobbered(Exp *lval, Exp *kind, PEdge *edge,
                        Exp **inner, Bit **guard);
 
-  // get whether the value of exp changes from entry to exit of this block.
+  // get whether the value of exp/bit changes from entry to exit of this block.
   bool IsExpPreserved(Exp *exp);
+  bool IsBitPreserved(Bit *bit);
 
   // get the condition where writing to update can change lval.
   // handle the builtin case where identical lvalues always alias.
