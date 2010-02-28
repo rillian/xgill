@@ -18,6 +18,8 @@
 
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/resource.h>
+
 #include <imlang/block.h>
 #include <imlang/storage.h>
 #include <memory/block.h>
@@ -27,7 +29,6 @@
 #include <backend/backend_compound.h>
 #include <util/config.h>
 #include <util/monitor.h>
-
 #include <solve/solver.h>
 
 NAMESPACE_XGILL_USING
@@ -341,6 +342,14 @@ void RunAnalysis(const Vector<const char*> &functions)
       PrintAllocs();
     }
 
+    // currently memory usage for xmemlocal can balloon (not sure what's
+    // causing this). There's no real way to get memory usage on Linux
+    // (getrusage is broken) so just die every so often. TODO: fix this.
+    if (g_print_counter == 5000) {
+      logout << "Restarting process, function threshold reached." << endl;
+      AnalysisFinish(1);
+    }
+
     size_t stage_result = t->MakeVariable(true);
     size_t body_data_result = t->MakeVariable(true);
     size_t modset_data_result = t->MakeVariable(true);
@@ -356,8 +365,8 @@ void RunAnalysis(const Vector<const char*> &functions)
 
       if (g_stage_limit > 0) {
         if (new_stage >= g_stage_limit) {
-          cout << "Finished functions [#" << new_stage
-               << "]: hit pass limit" << endl;
+          logout << "Finished functions [#" << new_stage
+                 << "]: hit pass limit" << endl;
           break;
         }
       }
@@ -367,13 +376,13 @@ void RunAnalysis(const Vector<const char*> &functions)
       // or has become so small there's not enough work for this process.
       if (new_stage > g_stage_count && !current_stage_processed &&
           !t->Lookup(body_data_result, false)) {
-        cout << "Finished functions [#" << new_stage
-             << "]: exhausted worklist" << endl;
+        logout << "Finished functions [#" << new_stage
+               << "]: exhausted worklist" << endl;
         break;
       }
 
       if (IsAnalysisRemote())
-        cout << "New stage [#" << new_stage << "]" << endl;
+        logout << "New stage [#" << new_stage << "]" << endl;
 
       current_stage = new_stage;
       current_stage_processed = false;
@@ -455,8 +464,8 @@ void RunAnalysis(const Vector<const char*> &functions)
             Backend::HashInsertKey(t, WORKLIST_FUNC_NEXT, caller_key));
           t->PushAction(caller_iter);
 
-          cout << "ModsetChanged [#" << current_stage << "]: "
-               << function->Value() << endl;
+          logout << "ModsetChanged [#" << current_stage << "]: "
+                 << function->Value() << endl;
         }
       }
       else if (current_stage == g_stage_count) {

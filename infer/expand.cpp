@@ -61,7 +61,7 @@ public:
       return;
     }
 
-    if (exp->IsClobber()) {
+    if (exp->IsClobber() || exp->IsVal()) {
       exclude = true;
       return;
     }
@@ -288,7 +288,7 @@ Bit* TranslateCalleeBit(BlockMemory *mcfg, PPoint point, Bit *bit,
 
 bool UseHeapExp(Exp *exp, TypeCSU **pcsu, Exp **pcsu_lval)
 {
-  if (exp->IsBound() || exp->IsTerminate())
+  if (exp->IsBound() || exp->IsTerminate() || exp->IsNullTest())
     exp = exp->GetLvalTarget();
 
   if (Exp *target = ExpDereference(exp)) {
@@ -363,9 +363,16 @@ class HeapMapper : public ExpMapper
       }
     }
 
-    if (exp->IsLvalue() || exp->IsRvalue())
+    if (exp->IsClobber()) {
+      exp->DecRef();
+      return NULL;
+    }
+
+    if (exp->IsRvalue() || exp->IsDrf() ||
+        exp->IsFld() || exp->IsRfld() || exp->IsIndex())
       return exp;
 
+    exp->DecRef();
     return NULL;
   }
 };

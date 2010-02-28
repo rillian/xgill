@@ -418,6 +418,12 @@ bool Solver::Solver::IsBoolean(Exp *exp)
   return false;
 }
 
+static bool IsTermExp(Exp *exp)
+{
+  return exp->IsLvalue() || exp->IsInitial()
+      || exp->IsExit() || exp->IsNullTest();
+}
+
 bool IsNonNegative(Exp *exp)
 {
   // all expressions are treated as nonnegative except those explicitly
@@ -1556,7 +1562,7 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
     }
   }
 
-  if (exp->IsLvalue() || exp->IsNullTest()) {
+  if (IsTermExp(exp)) {
     // can get here only if we never saw the lvalue so never assigned a value
     // to it. just use the default value of 0.
     return false;
@@ -1931,7 +1937,7 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
     }
   }
 
-  if (exp->IsLvalue() || exp->IsNullTest()) {
+  if (IsTermExp(exp)) {
     // make a variable declaration for the lvalue.
     bool exists;
     SlvDecl decl = GetDeclaration(state, exp, &exists);

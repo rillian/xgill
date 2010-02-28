@@ -1597,11 +1597,14 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
   *result = new TOperandString(t, "");
 
   // check for a modset result we are waiting on which hasn't timed out.
+  bool waiting = false;
   uint64_t time = GetCurrentTime();
   HashIterate(g_wait_modsets) {
     if (g_wait_modsets.ItValueSingle() >= time)
-      return true;
+      waiting = true;
   }
+  if (waiting)
+    return true;
 
   // clear any modset results which timed out.
   HashIterate(g_wait_modsets)

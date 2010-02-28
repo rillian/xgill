@@ -478,10 +478,27 @@ void WherePostcondition::GetCalleeBits(CheckerFrame *callee_frame,
 // WhereInvariant
 /////////////////////////////////////////////////////////////////////
 
+// visitor to check that an invariant contains only lvalues we can find
+// the possible updates for.
+class CheckInvariantVisitor : public ExpVisitor
+{
+public:
+  bool exclude;
+  CheckInvariantVisitor() : ExpVisitor(VISK_Lval), exclude(false) {}
+
+  void Visit(Exp *exp)
+  {
+    if (exp->DerefCount() > 1)
+      exclude = true;
+  }
+};
+
 Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
 {
   Assert(bit);
   Bit *new_bit;
+
+  cout << "HUH " << csu << " " << lval << " " << bit << endl;
 
   if (csu) {
     Variable *this_var = Variable::Make(NULL, VK_This, NULL, 0, NULL);
@@ -496,7 +513,12 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
 
   Where *res = NULL;
   if (new_bit) {
-    res = new WhereInvariant(csu, new_bit);
+    // additionally visit it to make sure we can find all lvalues.
+    CheckInvariantVisitor visitor;
+    new_bit->DoVisit(&visitor);
+
+    if (!visitor.exclude)
+      res = new WhereInvariant(csu, new_bit);
     new_bit->DecRef();
   }
 

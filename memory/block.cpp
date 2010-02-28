@@ -392,6 +392,9 @@ public:
       exp->GetLvalTarget()->DoVisit(this);
       return;
     }
+
+    if (exp->IsVal() || exp->IsClobber())
+      exclude = exp;
   }
 };
 
