@@ -328,8 +328,9 @@ bool XIL_IsAnonymousCxx(tree decl);
 bool XIL_IsSelfTypeDecl(tree decl);
 
 // return whether field is a potential base class field of its container type:
-// it does not have a name, but is not an anonymous structure.
-bool XIL_IsBaseField(tree field);
+// it does not have a name, but is not an anonymous structure. offset_zero
+// will be set to indicate whether the field is at offset zero.
+bool XIL_IsBaseField(tree field, bool *offset_zero);
 
 // return whether decl is a destructor function decl. we need to fixup the
 // names for these.

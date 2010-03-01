@@ -421,6 +421,45 @@ void XIL_TranslateComparison(struct XIL_TreeEnv *env, tree node)
   XIL_ProcessResult(env, result);
 }
 
+// if super represents a supertype at offset zero within type, return the value
+// of node with the implicit field accesses to get from type to super.
+XIL_Exp XIL_CoerceSuperType(struct XIL_TreeEnv *env,
+                            tree type, tree super, tree node)
+{ 
+  if (TREE_CODE(type) != RECORD_TYPE || TREE_CODE(super) != RECORD_TYPE)
+    return NULL;
+
+  tree decl = TYPE_FIELDS(type);
+  while (decl) {
+    bool offset_zero;
+    if (TREE_CODE(decl) == FIELD_DECL && XIL_IsBaseField(decl, &offset_zero)) {
+      tree field_type = TREE_TYPE(decl);
+
+      // check if type directly inherits from super.
+      if (TYPE_FIELDS(field_type) == TYPE_FIELDS(super)) {
+        XIL_Exp xil_node = NULL;
+        MAKE_ENV(node_env, env->point, env->post_edges);
+        node_env.result_rval = &xil_node;
+        XIL_TranslateTree(&node_env, node);
+
+        XIL_Field field = XIL_TranslateField(decl);
+        return XIL_ExpFld(xil_node, field);
+      }
+
+      // check if type transitively inherits from super.
+      XIL_Exp chain = XIL_CoerceSuperType(env, field_type, super, node);
+      if (chain) {
+        XIL_Field field = XIL_TranslateField(decl);
+        return XIL_ExpFld(chain, field);
+      }
+    }
+
+    decl = TREE_CHAIN(decl);
+  }
+
+  return NULL;
+}
+
 void XIL_TranslateUnary(struct XIL_TreeEnv *env, tree node)
 {
   tree right = TREE_OPERAND(node, 0);
@@ -430,8 +469,26 @@ void XIL_TranslateUnary(struct XIL_TreeEnv *env, tree node)
   bool pass_env = false;
 
   switch (TREE_CODE(node)) {
-  case NOP_EXPR:
-    // this is a widening coercion, don't generate a U_Coerce for it.
+
+  case NOP_EXPR: {
+    // widening coercion or type cast. watch for coercions to supertypes.
+    tree type = TREE_TYPE(right); 
+    tree super = TREE_TYPE(node);
+
+    if (TREE_CODE(type) == POINTER_TYPE &&
+        TREE_CODE(TREE_TYPE(type)) == RECORD_TYPE &&
+        TREE_CODE(super) == POINTER_TYPE &&
+        TREE_CODE(TREE_TYPE(super)) == RECORD_TYPE) {
+      XIL_Exp result =
+        XIL_CoerceSuperType(env, TREE_TYPE(type), TREE_TYPE(super), right);
+      if (result) {
+        XIL_ProcessResult(env, result);
+        return;
+      }
+    }
+    pass_env = true;
+  }
+
   case FLOAT_EXPR:
   case FIX_TRUNC_EXPR:
     // coercions on floating point values. ignore.

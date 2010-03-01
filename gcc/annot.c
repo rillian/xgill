@@ -956,7 +956,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
   tree field = TYPE_FIELDS(type);
   bool has_base = false;
   while (c_dialect_cxx() && field) {
-    if (XIL_IsBaseField(field)) {
+    if (XIL_IsBaseField(field, NULL)) {
       struct XIL_AnnotationDecl *info =
         XIL_GetDecl(TYPE_NAME(TREE_TYPE(field)));
       gcc_assert(info);
@@ -979,7 +979,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
   // and struct/union/enum definitions.
   field = TYPE_FIELDS(type);
   while (field) {
-    if (XIL_IsBaseField(field)) {
+    if (XIL_IsBaseField(field, NULL)) {
       field = TREE_CHAIN(field);
       continue;
     }
