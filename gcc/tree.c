@@ -291,16 +291,8 @@ void XIL_TranslateReference(struct XIL_TreeEnv *env, tree node)
     XIL_TranslateTree(&structure_env, structure);
 
     tree field = TREE_OPERAND(node, 1);
-
-    // skip this field access if it is a base class field.
-    bool *skip_field = (bool*) XIL_Associate(XIL_AscGlobal, "BaseClass", field);
-    if (*skip_field) {
-      XIL_Exp result = XIL_ExpDrf(xil_structure);
-      XIL_ProcessResult(env, result);
-      return;
-    }
-
     XIL_Field xil_field = XIL_TranslateField(field);
+
     XIL_Exp lval_field = XIL_ExpFld(xil_structure, xil_field);
     XIL_Exp result = XIL_ExpDrf(lval_field);
     XIL_ProcessResult(env, result);
@@ -699,15 +691,6 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
   XIL_ProcessResult(env, result);
 }
 
-// get the signature for an allocation function: void* func(size_t);
-XIL_Type XIL_AllocateSignature()
-{
-  XIL_Type void_type = XIL_TypeVoid();
-  XIL_Type void_ptr = XIL_TypePointer(void_type, xil_pointer_width);
-  XIL_Type size_type = XIL_TypeInt(xil_pointer_width, 0);
-  return XIL_TypeFunction(void_ptr, NULL, 0, &size_type, 1);
-}
-
 void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
 {
   XIL_Location loc = XIL_TryUpdateLocation(*env->point, node);
@@ -774,7 +757,13 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
         size_env.result_rval = &xil_size;
         XIL_TranslateTree(&size_env, size);
 
-        XIL_Type alloca_type = XIL_AllocateSignature();
+        // get the signature for an allocation function: void* func(size_t);
+        XIL_Type void_type = XIL_TypeVoid();
+        XIL_Type void_ptr = XIL_TypePointer(void_type, xil_pointer_width);
+        XIL_Type size_type = XIL_TypeInt(xil_pointer_width, 0);
+        XIL_Type alloca_type =
+          XIL_TypeFunction(void_ptr, NULL, 0, &size_type, 1);
+
         XIL_Var alloca_func = XIL_VarFunc("__xil_alloca", "__xil_alloca");
         XIL_Exp alloca_exp = XIL_ExpVar(alloca_func);
 
@@ -1311,6 +1300,55 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
   return true;
 }
 
+// get the virtual function field for an obj_type_ref on a type.
+static XIL_Field XIL_GetVTableField(tree type, tree node)
+{
+  static XIL_Field error_field = NULL;
+  if (!error_field)
+    error_field = XIL_MakeField("error", "error", "error", XIL_TypeError(), 0);
+
+  TREE_CHECK(node, OBJ_TYPE_REF);
+
+  // get the vtable index we'll use to determine the function field.
+  int vtable_index = 0;
+
+  tree walker = TREE_OPERAND(node, 0);
+  if (TREE_CODE(walker) != INDIRECT_REF) {
+    TREE_UNEXPECTED(node);
+    return error_field;
+  }
+  walker = TREE_OPERAND(walker, 0);
+  if (TREE_CODE(walker) == NON_LVALUE_EXPR)
+    walker = TREE_OPERAND(walker, 0);
+
+  if (TREE_CODE(walker) == POINTER_PLUS_EXPR) {
+    // non-zero offset into the vtable. the amount we are adding
+    // by should be a multiple of the pointer width.
+    tree offset = TREE_OPERAND(walker, 1);
+    walker = TREE_OPERAND(walker, 0);
+    if (TREE_CODE(offset) != INTEGER_CST) {
+      TREE_UNEXPECTED(node);
+      return error_field;
+    }
+    vtable_index = TREE_UINT(offset) / xil_pointer_width;
+    if (vtable_index * xil_pointer_width != TREE_UINT(offset)) {
+      TREE_UNEXPECTED(node);
+      return error_field;
+    }
+  }
+
+  // find the original function field this vtable index corresponds to.
+  struct XIL_VirtualFunction *virt = XIL_GetFunctionFields(type);
+
+  for (; virt; virt = virt->next) {
+    if (virt->index == vtable_index)
+      return virt->field;
+  }
+
+  TREE_UNEXPECTED(node);
+  return error_field;
+}
+
 void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
 {
   XIL_Location loc = XIL_TryUpdateLocation(*env->point, node);
@@ -1418,67 +1456,11 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
       return;
     }
 
-    // check if we are filling in a class vtable. these will appear as
-    // assignments to some _vptr field of a global variable (which we don't
-    // see with finish_decl). we don't model the global variable, so just
-    // make assignments to VPtr values of the object being constructed.
-    tree vptr_initial = NULL;
-    int vptr_start = 0;
-
+    // ignore assignments through the vtable field of a type.
     if (TREE_CODE(left) == COMPONENT_REF) {
       tree left_field = TREE_OPERAND(left, 1);
-      if (TREE_CODE(left_field) == FIELD_DECL) {
-        tree idnode = DECL_NAME(left_field);
-        if (idnode && TREE_CODE(idnode) == IDENTIFIER_NODE) {
-          const char *name = IDENTIFIER_POINTER(idnode);
-          if (!strncmp(name,"_vptr.",6)) {
-            if (TREE_CODE(right) != POINTER_PLUS_EXPR)
-              TREE_UNEXPECTED_RESULT(env, right);
-            tree right_addr = TREE_OPERAND(right,0);
-            tree right_offset = TREE_OPERAND(right,1);
-            if (TREE_CODE(right_addr) != ADDR_EXPR)
-              TREE_UNEXPECTED_RESULT(env, right);
-            if (TREE_CODE(right_offset) != INTEGER_CST)
-              TREE_UNEXPECTED_RESULT(env, right);
-            vptr_start = TREE_UINT(right_offset) / xil_pointer_width;
-            tree vtable_decl = TREE_OPERAND(right_addr,0);
-            if (TREE_CODE(vtable_decl) != VAR_DECL)
-              TREE_UNEXPECTED_RESULT(env, right);
-            vptr_initial = DECL_INITIAL(vtable_decl);
-            if (!vptr_initial || TREE_CODE(vptr_initial) != CONSTRUCTOR)
-              TREE_UNEXPECTED_RESULT(env, right);
-          }
-        }
-      }
-    }
-
-    if (vptr_initial) {
-      int ind, nelts = CONSTRUCTOR_NELTS(vptr_initial);
-
-      tree base = TREE_OPERAND(left, 0);
-      XIL_Exp xil_base = NULL;
-
-      MAKE_ENV(base_env, env->point, NULL);
-      base_env.result_lval = &xil_base;
-      XIL_TranslateTree(&base_env, base);
-
-      for (ind = vptr_start; ind < nelts; ind++) {
-        tree value = CONSTRUCTOR_ELT(vptr_initial, ind)->value;
-        XIL_Exp xil_value = NULL;
-
-        MAKE_ENV(value_env, env->point, NULL);
-        value_env.result_rval = &xil_value;
-        XIL_TranslateTree(&value_env, value);
-
-        XIL_Exp xil_base_vptr = XIL_ExpVPtr(xil_base, ind - vptr_start);
-
-        XIL_PPoint after_point = XIL_CFGAddPoint(loc);
-        XIL_CFGEdgeAssign(*env->point, after_point, XIL_TypeVoid(),
-                          xil_base_vptr, xil_value);
-        *env->point = after_point;
-      }
-
-      return;
+      if (DECL_VIRTUAL_P(left_field))
+        return;
     }
 
     tree type = TREE_TYPE(node);
@@ -1886,12 +1868,11 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
 
   case CALL_EXPR:
   case AGGR_INIT_EXPR: {
-    tree function = TREE_OPERAND(node, 1);
-    XIL_Exp xil_function = NULL;
-
     // check for special annotation functions being called.
     if (XIL_TranslateAnnotationCall(env, node))
       return;
+
+    tree function = TREE_OPERAND(node, 1);
 
     // get the signature of the function. the function expression should be
     // of function pointer type.
@@ -1903,10 +1884,6 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
         TREE_CODE(function_type) != METHOD_TYPE)
       TREE_UNEXPECTED_RESULT(env, node);
     XIL_Type xil_function_type = XIL_TranslateType(function_type);
-
-    MAKE_ENV(function_env, env->point, NULL);
-    function_env.result_rval = &xil_function;
-    XIL_TranslateTree(&function_env, function);
 
     // lvalue to hold the call result, if there is one.
     XIL_Exp result_lval = NULL;
@@ -1998,6 +1975,8 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
       args[ind] = xil_arg;
     }
 
+    XIL_Exp xil_function = NULL;
+
     // if the call's type is a method, the first arg is the instance object.
     // fixup the arguments we just constructed.
     if (TREE_CODE(function_type) == METHOD_TYPE) {
@@ -2010,17 +1989,37 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
         args[ind] = args[ind + 1];
       arg_count--;
 
-      // make the function relative to the instance object.
-      xil_function = XIL_CFGInstanceFunction(instance_object, xil_function);
-      if (!xil_function) {
+      if (TREE_CODE(function) == OBJ_TYPE_REF) {
+        // virtual call. get the type of the instance object and figure out
+        // which field is being invoked.
+        tree ptr_type = TREE_TYPE(TREE_OPERAND(node, arg_start));
+        XIL_Field field = XIL_GetVTableField(TREE_TYPE(ptr_type), function);
+        XIL_Exp empty = XIL_ExpEmpty();
+        XIL_Exp empty_fld = XIL_ExpFld(empty, field);
+        xil_function = XIL_ExpDrf(empty_fld);
+      }
+      else if (TREE_CODE(function) == ADDR_EXPR) {
+        // direct member call, no special treatment needed for the function.
+        MAKE_ENV(function_env, env->point, NULL);
+        function_env.result_rval = &xil_function;
+        XIL_TranslateTree(&function_env, function);
+      }
+      else if (TREE_CODE(function) == COND_EXPR) {
         // COND_EXPR method calls seem to come up just with pointer-to-member.
         if (TREE_CODE(function) == COND_EXPR)
           TREE_UNHANDLED_RESULT(env, node);
-
+      }
+      else {
         // otherwise couldn't figure out the relation between the instance
         // object and the function pointer.
-        TREE_UNEXPECTED_RESULT(env, node);
+        TREE_UNEXPECTED_RESULT(env, function);
       }
+    }
+    else {
+      // direct or indirect call without an instance object.
+      MAKE_ENV(function_env, env->point, NULL);
+      function_env.result_rval = &xil_function;
+      XIL_TranslateTree(&function_env, function);
     }
 
     XIL_PPoint after_point = XIL_CFGAddPoint(loc);
@@ -2113,62 +2112,6 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     MAKE_ENV(operand_env, env->point, NULL);
     XIL_TranslateTree(&operand_env, operand);
 
-    return;
-  }
-
-  case OBJ_TYPE_REF: {
-    // check if this is a virtual call invocation (not handling fetches
-    // of other kinds of type information).
-    int vtable_index = 0;
-
-    tree walker = TREE_OPERAND(node, 0);
-    if (TREE_CODE(walker) != INDIRECT_REF)
-      TREE_UNEXPECTED_RESULT(env, node);
-    walker = TREE_OPERAND(walker, 0);
-    if (TREE_CODE(walker) == NON_LVALUE_EXPR)
-      walker = TREE_OPERAND(walker, 0);
-
-    if (TREE_CODE(walker) == POINTER_PLUS_EXPR) {
-      // non-zero offset into the vtable. the amount we are adding
-      // by should be a multiple of the pointer width.
-      tree offset = TREE_OPERAND(walker, 1);
-      walker = TREE_OPERAND(walker, 0);
-      if (TREE_CODE(offset) != INTEGER_CST)
-        TREE_UNEXPECTED_RESULT(env, node);
-      vtable_index = TREE_UINT(offset) / xil_pointer_width;
-      if (vtable_index * xil_pointer_width != TREE_UINT(offset))
-        TREE_UNEXPECTED_RESULT(env, node);
-    }
-
-    tree base = NULL;
-
-    // sometimes there is an explicit vtable field access, sometimes
-    // there isn't. the vtable is at offset zero so it doesn't really matter.
-    if (TREE_CODE(walker) == COMPONENT_REF) {
-      base = TREE_OPERAND(walker, 0);
-      tree field = TREE_OPERAND(walker, 1);
-      if (TREE_CODE(field) != FIELD_DECL)
-        TREE_UNEXPECTED_RESULT(env, node);
-      tree idnode = DECL_NAME(field);
-      if (!idnode || TREE_CODE(idnode) != IDENTIFIER_NODE)
-        TREE_UNEXPECTED_RESULT(env, node);
-      const char *name = IDENTIFIER_POINTER(idnode);
-      if (strncmp(name,"_vptr.",6))
-        TREE_UNEXPECTED_RESULT(env, node);
-    }
-    else if (TREE_CODE(walker) == ADDR_EXPR) {
-      base = TREE_OPERAND(walker, 0);
-    }
-
-    XIL_Exp xil_base = NULL;
-    MAKE_ENV(base_env, env->point, NULL);
-    base_env.result_lval = &xil_base;
-    XIL_TranslateTree(&base_env, base);
-
-    XIL_Exp xil_base_vptr = XIL_ExpVPtr(xil_base, vtable_index);
-    XIL_Exp result = XIL_ExpDrf(xil_base_vptr);
-
-    XIL_ProcessResult(env, result);
     return;
   }
 

@@ -167,9 +167,8 @@ void XIL_CSUSetWidth(int width);
 void XIL_CSUSetCommand(const char *command);
 void XIL_CSUSetBeginLocation(XIL_Location begin_loc);
 void XIL_CSUSetEndLocation(XIL_Location end_loc);
-void XIL_CSUAddBaseClass(const char *base_class);
 void XIL_CSUAddDataField(XIL_Field field, int offset);
-void XIL_CSUAddFunctionField(XIL_Field field, XIL_Var function);
+void XIL_CSUAddFunctionField(XIL_Field field, XIL_Field base, XIL_Var func);
 
 /////////////////////////////////////////////////////////////////////
 // Variables
@@ -265,13 +264,13 @@ typedef enum _enum_XIL_BinopKind XIL_BinopKind;
 // Expressions
 /////////////////////////////////////////////////////////////////////
 
+XIL_Exp XIL_ExpEmpty();
 XIL_Exp XIL_ExpVar(XIL_Var var);
 XIL_Exp XIL_ExpDrf(XIL_Exp target);
 XIL_Exp XIL_ExpFld(XIL_Exp target, XIL_Field field);
 XIL_Exp XIL_ExpRfld(XIL_Exp target, XIL_Field field);
 XIL_Exp XIL_ExpIndex(XIL_Exp target, XIL_Type element_type, XIL_Exp index);
 XIL_Exp XIL_ExpString(XIL_Type type, void *data, int data_length);
-XIL_Exp XIL_ExpVPtr(XIL_Exp target, int vtable_index);
 XIL_Exp XIL_ExpInt(long value);
 XIL_Exp XIL_ExpIntStr(const char *value);
 XIL_Exp XIL_ExpFloat(const char *value);
@@ -312,10 +311,6 @@ void XIL_CFGSetPointLocation(XIL_PPoint point, XIL_Location loc);
 void XIL_CFGSetEntryPoint(XIL_PPoint point);
 void XIL_CFGSetExitPoint(XIL_PPoint point);
 void XIL_CFGAddLoopHead(XIL_PPoint point, XIL_Location end_loc);
-
-// fixup the function so that it is relative to instance, NULL if it is not
-// an absolute function or a field/vptr offset from instance.
-XIL_Exp XIL_CFGInstanceFunction(XIL_Exp instance, XIL_Exp func);
 
 void XIL_CFGEdgeSkip(XIL_PPoint source, XIL_PPoint target);
 void XIL_CFGEdgeAssume(XIL_PPoint source, XIL_PPoint target,

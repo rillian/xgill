@@ -292,18 +292,23 @@ struct DataField
 // information about a virtual instance function field of a type.
 struct FunctionField
 {
-  // name of this field.
+  // name of this field. if this was inherited from a base class then
+  // the CSU of the field will be the original base the function
+  // was declared for.
   Field *field;
+
+  // if this was inherited from a base class, the field representing that base.
+  Field *base;
 
   // the actual function invoked when using the field on this class.
   // NULL if the field is pure virtual in this class.
   Variable *function;
 
   FunctionField()
-    : field(NULL), function(NULL) {}
+    : field(NULL), base(NULL), function(NULL) {}
 
-  FunctionField(Field *_field, Variable *_function)
-    : field(_field), function(_function) {}
+  FunctionField(Field *_field, Field *_base, Variable *_function)
+    : field(_field), base(_base), function(_function) {}
 };
 
 enum CSUKind {
@@ -345,15 +350,6 @@ class CompositeCSU : public HashObject
   Location* GetBeginLocation() const { return m_begin_location; }
   Location* GetEndLocation() const { return m_end_location; }
 
-  // get the base classes of this CSU.
-  size_t GetBaseClassCount() const {
-    return m_base_classes ? m_base_classes->Size() : 0;
-  }
-  String* GetBaseClass(size_t ind) const {
-    Assert(m_base_classes);
-    return m_base_classes->At(ind);
-  }
-
   // get the data fields in this CSU.
   size_t GetFieldCount() const {
     return m_data_fields ? m_data_fields->Size() : 0;
@@ -363,9 +359,7 @@ class CompositeCSU : public HashObject
     return m_data_fields->At(ind);
   }
 
-  // get the virtual instance function fields in this CSU. this information
-  // may or may not be available, depending on the frontend used. if it is not
-  // available then virtual function accesses are through VPtr expressions.
+  // get the virtual instance function fields in this CSU.
   size_t GetFunctionFieldCount() const {
     return m_function_fields ? m_function_fields->Size() : 0;
   }
@@ -394,7 +388,7 @@ class CompositeCSU : public HashObject
   void AddField(Field *field, size_t offset);
 
   // add a virtual function field to this CSU.
-  void AddFunctionField(Field *field, Variable *function);
+  void AddFunctionField(Field *field, Field *base, Variable *function);
 
   // inherited methods
   void Print(OutStream &out) const;
@@ -412,7 +406,6 @@ class CompositeCSU : public HashObject
   Location *m_begin_location;
   Location *m_end_location;
 
-  Vector<String*> *m_base_classes;
   Vector<DataField> *m_data_fields;
   Vector<FunctionField> *m_function_fields;
 
@@ -421,7 +414,7 @@ class CompositeCSU : public HashObject
 };
 
 // information about a CSU field. this only describes non-static fields
-// and virtual functions; static variables, static functions, and non-virtual
+// and virtual functions; static fields, static functions, and non-virtual
 // functions are all represented as global variables/functions.
 class Field : public HashObject
 {

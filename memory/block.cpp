@@ -1161,25 +1161,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     break;
   }
 
-  case EK_VPtr: {
-    ExpVPtr *nexp = exp->AsVPtr();
-    Exp *target = nexp->GetTarget();
-    uint32_t index = nexp->GetIndex();
-
-    GuardExpVector target_res;
-    TranslateExp(kind, point, target, &target_res);
-
-    for (size_t pind = 0; pind < target_res.Size(); pind++) {
-      const GuardExp &pgt = target_res[pind];
-      pgt.IncRef();
-
-      Exp *new_exp = Exp::MakeVPtr(pgt.exp, index);
-      res->PushBack(GuardExp(new_exp, pgt.guard));
-    }
-
-    break;
-  }
-
   case EK_String: {
     exp->IncRef();
     Bit *guard = Bit::MakeConstant(true);

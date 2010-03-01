@@ -82,13 +82,6 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareObjects(nexp0->GetString(), nexp1->GetString(), DataString);
     break;
   }
-  case EK_VPtr: {
-    const ExpVPtr *nexp0 = exp0->AsVPtr();
-    const ExpVPtr *nexp1 = exp1->AsVPtr();
-    TryCompareObjects(nexp0->GetTarget(), nexp1->GetTarget(), Exp);
-    TryCompareValues(nexp0->GetIndex(), nexp1->GetIndex());
-    break;
-  }
   case EK_Clobber: {
     const ExpClobber *nexp0 = exp0->AsClobber();
     const ExpClobber *nexp1 = exp1->AsClobber();
@@ -205,7 +198,6 @@ Exp* Exp::Copy(const Exp *exp)
     COPY_EXP(Rfld);
     COPY_EXP(Index);
     COPY_EXP(String);
-    COPY_EXP(VPtr);
     COPY_EXP(Clobber);
 
     COPY_EXP(Int);
@@ -279,12 +271,6 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     Assert(type);
     Type::Write(buf, type);
     DataString::Write(buf, nexp->GetString());
-    break;
-  }
-  case EK_VPtr: {
-    const ExpVPtr *nexp = exp->AsVPtr();
-    Exp::Write(buf, nexp->GetTarget());
-    WriteTagUInt32(buf, TAG_Index, nexp->GetIndex());
     break;
   }
   case EK_Clobber: {
@@ -512,9 +498,6 @@ Exp* Exp::Read(Buffer *buf)
     break;
   case EK_String:
     res = MakeString(type->AsArray(), DataString::Make(str, str_len));
-    break;
-  case EK_VPtr:
-    res = MakeVPtr(exp0, point);
     break;
   case EK_Clobber:
     res = MakeClobber(exp0, exp2, exp1, (PPoint) point, loc);
@@ -851,12 +834,6 @@ Exp* Exp::MakeString(String *str)
   str->DecRef();
 
   ExpString xexp(type, nstr);
-  return g_table.Lookup(xexp);
-}
-
-Exp* Exp::MakeVPtr(Exp *target, uint32_t vtable_index)
-{
-  ExpVPtr xexp(target, vtable_index);
   return g_table.Lookup(xexp);
 }
 
@@ -1873,7 +1850,6 @@ Exp* Exp::MakeNullTest(Exp *target)
   case EK_Rfld:
   case EK_Index:
   case EK_String:
-  case EK_VPtr:
     target->DecRef();
     return MakeInt(0);
 
@@ -2244,16 +2220,6 @@ void Exp::GetSubExprs(Exp *exp,
     }
     break;
   }
-  case EK_VPtr: {
-    ExpVPtr *nexp = exp->AsVPtr();
-    GetSubExprs(nexp->GetTarget(), subexprs, remainders);
-    if (remainders) {
-      uint32_t index = nexp->GetIndex();
-      for (size_t rind = 0; rind < remainders->Size(); rind++)
-        remainders->At(rind) = MakeVPtr(remainders->At(rind), index);
-    }
-    break;
-  }
   default:
     break;
   }
@@ -2333,14 +2299,6 @@ Exp* Exp::Compose(Exp *exp, Exp *offset)
     index->IncRef();
 
     return MakeIndex(ntarget, element_type, index);
-  }
-
-  case EK_VPtr: {
-    ExpVPtr *noffset = offset->AsVPtr();
-    Exp *ntarget = Compose(exp, noffset->GetTarget());
-
-    uint32_t index = noffset->GetIndex();
-    return MakeVPtr(ntarget, index);
   }
 
   default:
@@ -3189,99 +3147,6 @@ void ExpString::DecMoveChildRefs(ORef ov, ORef nv)
 {
   m_type->DecMoveRef(ov, nv);
   m_str->DecMoveRef(ov, nv);
-}
-
-/////////////////////////////////////////////////////////////////////
-// ExpVPtr
-/////////////////////////////////////////////////////////////////////
-
-ExpVPtr::ExpVPtr(Exp *target, uint32_t vtable_index)
-  : Exp(EK_VPtr), m_target(target), m_vtable_index(vtable_index)
-{
-  Assert(m_target);
-
-  m_hash = Hash32(m_hash, m_target->Hash());
-  m_hash = Hash32(m_hash, m_vtable_index);
-}
-
-Exp* ExpVPtr::GetLvalTarget() const
-{
-  return m_target;
-}
-
-Exp* ExpVPtr::ReplaceLvalTarget(Exp *new_target)
-{
-  return MakeVPtr(new_target, m_vtable_index);
-}
-
-void ExpVPtr::DoVisit(ExpVisitor *visitor)
-{
-  Exp::DoVisit(visitor);
-
-  if (visitor->IsFinished())
-    return;
-
-  if (visitor->LvalRecurse()) {
-    bool old_found_term = visitor->SetFoundTerm(true);
-    m_target->DoVisit(visitor);
-    visitor->SetFoundTerm(old_found_term);
-  }
-}
-
-Exp* ExpVPtr::DoMap(ExpMapper *mapper)
-{
-  if (!mapper->LvalRecurse())
-    return Exp::DoMap(mapper);
-
-  Exp *new_this = NULL;
-  Exp *new_target = m_target->DoMap(mapper);
-  if (new_target)
-    new_this = MakeVPtr(new_target, m_vtable_index);
-  return BaseMap(new_this, mapper);
-}
-
-void ExpVPtr::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
-{
-  if (!mapper->LvalRecurse())
-    return Exp::DoMultiMap(mapper, res);
-
-  BaseMultiMap(mapper, res);
-
-  Vector<Exp*> target_res;
-  m_target->DoMultiMap(mapper, &target_res);
-
-  for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
-    Exp *new_this = MakeVPtr(target_res[ind], m_vtable_index);
-    ExpAddResult(new_this, res);
-
-    if (LimitRevertResult(mapper, res, this))
-      break;
-  }
-
-  DecRefVector<Exp>(target_res, &target_res);
-}
-
-void ExpVPtr::Print(OutStream &out) const
-{
-  out << m_target << ".vtable" << m_vtable_index;
-}
-
-void ExpVPtr::PrintUI(OutStream &out, bool parens) const
-{
-  if (ExpDrf *ntarget = m_target->IfDrf()) {
-    ntarget->GetTarget()->PrintUI(out, true);
-    out << "->vtable" << m_vtable_index;
-  }
-  else {
-    m_target->PrintUI(out, true);
-    out << ".vtable" << m_vtable_index;
-  }
-}
-
-void ExpVPtr::DecMoveChildRefs(ORef ov, ORef nv)
-{
-  m_target->DecMoveRef(ov, nv);
 }
 
 /////////////////////////////////////////////////////////////////////

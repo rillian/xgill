@@ -526,14 +526,6 @@ extern "C" void XIL_CSUSetEndLocation(XIL_Location end_loc)
   csu->SetEndLocation(new_end_loc);
 }
 
-extern "C" void XIL_CSUAddBaseClass(const char *base_class)
-{
-  CompositeCSU *csu = g_active_csus.Back();
-
-  String *new_base_class = String::Make(base_class);
-  csu->AddBaseClass(new_base_class);
-}
-
 extern "C" void XIL_CSUAddDataField(XIL_Field field, int offset)
 {
   CompositeCSU *csu = g_active_csus.Back();
@@ -542,13 +534,15 @@ extern "C" void XIL_CSUAddDataField(XIL_Field field, int offset)
   csu->AddField(new_field, (size_t) offset);
 }
 
-extern "C" void XIL_CSUAddFunctionField(XIL_Field field, XIL_Var function)
+extern "C" void XIL_CSUAddFunctionField(XIL_Field field, XIL_Field base,
+                                        XIL_Var func)
 {
   CompositeCSU *csu = g_active_csus.Back();
 
   GET_OBJECT(Field, field);
-  GET_OBJECT(Variable, function);
-  csu->AddFunctionField(new_field, new_function);
+  GET_OBJECT(Field, base);
+  GET_OBJECT(Variable, func);
+  csu->AddFunctionField(new_field, new_base, new_func);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -640,6 +634,11 @@ extern "C" const char* XIL_GetVarName(XIL_Var var)
 // Expressions
 /////////////////////////////////////////////////////////////////////
 
+extern "C" XIL_Exp XIL_ExpEmpty()
+{
+  return (XIL_Exp) Exp::MakeEmpty();
+}
+
 extern "C" XIL_Exp XIL_ExpVar(XIL_Var var)
 {
   GET_OBJECT(Variable, var);
@@ -681,12 +680,6 @@ extern "C" XIL_Exp XIL_ExpString(XIL_Type type, void *data, int data_length)
   GET_OBJECT(Type, type);
   DataString *new_data = DataString::Make((uint8_t*) data, data_length);
   return (XIL_Exp) Exp::MakeString(new_type->AsArray(), new_data);
-}
-
-extern "C" XIL_Exp XIL_ExpVPtr(XIL_Exp target, int vtable_index)
-{
-  GET_OBJECT(Exp, target);
-  return (XIL_Exp) Exp::MakeVPtr(new_target, (uint32_t) vtable_index);
 }
 
 extern "C" XIL_Exp XIL_ExpInt(long value)
@@ -924,21 +917,6 @@ void XIL_CFGEdgeAssign(XIL_PPoint source, XIL_PPoint target,
   PEdge *edge = PEdge::MakeAssign((PPoint) source, (PPoint) target,
                                   new_type, new_left_side, new_right_side);
   g_active_cfg->AddEdge(edge);
-}
-
-extern "C" XIL_Exp XIL_CFGInstanceFunction(XIL_Exp instance, XIL_Exp func)
-{
-  GET_OBJECT(Exp, instance);
-  GET_OBJECT(Exp, func);
-
-  // if there is an instance object the function should be relative to it.
-  // this isn't the case for the function we are passed though, fix it up.
-  if (new_instance)
-    new_func = ExpReplaceExp(new_func, new_instance, Exp::MakeEmpty());
-
-  if (new_func->IsVar() || new_func->IsRelative())
-    return (XIL_Exp) new_func;
-  return NULL;
 }
 
 extern "C"

@@ -135,6 +135,33 @@ static inline bool XIL_TreeResultUsed(struct XIL_TreeEnv *env)
       || env->result_lval != NULL || env->result_rval != NULL;
 }
 
+// information about a virtual function for a CSU.
+struct XIL_VirtualFunction
+{
+  // if the function was inherited from a base, indicates the direct base
+  // which was inherited from.
+  XIL_Field base;
+
+  // field added for the function. if the function was inherited from a base
+  // class then this indicates the original base the function was declared for.
+  XIL_Field field;
+
+  // declaration of the function. if the function is overridden this indicates
+  // the active declaration, not the original declaration.
+  tree decl;
+
+  // index into the vtable for this function. -1 for functions not in the
+  // vtable, i.e. those inherited from the second or later base and which
+  // were not overridden by this class.
+  int index;
+
+  // link in the list of virtual functions on the CSU.
+  struct XIL_VirtualFunction *next;
+};
+
+// get the list of function fields for the specified type, making it if needed.
+struct XIL_VirtualFunction* XIL_GetFunctionFields(tree type);
+
 // information about a local variable within a function. we need to keep around
 // all the local variables in a function to watch for duplicate names.
 struct XIL_LocalData
@@ -442,7 +469,8 @@ void generate_TranslateTree(struct XIL_TreeEnv *env, tree node);
 
 // get a small unsigned integer constant from a tree.
 #define TREE_UINT(TREE)                                 \
-  ({ TREE_CHECK(TREE, INTEGER_CST);                     \
+  ({ gcc_assert(TREE);                                  \
+     TREE_CHECK(TREE, INTEGER_CST);                     \
      gcc_assert(TREE_INT_CST_HIGH(TREE) == 0);          \
      TREE_INT_CST_LOW(TREE); })
 

@@ -270,7 +270,6 @@ class SanitizeMapper : public ExpMapper
     case EK_Drf:
     case EK_Fld:
     case EK_Rfld:
-    case EK_VPtr:
       return exp;
 
     default:

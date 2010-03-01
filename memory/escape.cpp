@@ -505,20 +505,21 @@ static CompositeCSU* LookupCSU(String *name)
     return csu;
   }
   else {
-    return CompositeCSUCache.Lookup(name);
+    CompositeCSU *csu = CompositeCSUCache.Lookup(name);
+    if (!csu)
+      CompositeCSUCache.Release(name);
+    return csu;
   }
 }
 
 // release a CSU reference acquired via LookupCSU.
 static void ReleaseCSU(String *name, CompositeCSU *csu)
 {
-  if (g_local_csus) {
-    if (csu)
-      csu->DecRef();
-  }
-  else {
+  Assert(csu);
+  if (g_local_csus)
+    csu->DecRef();
+  else
     CompositeCSUCache.Release(name);
-  }
 }
 
 // transforms Drf(E) into Drf(Fld(E)). gets a reference on the result.
@@ -572,21 +573,20 @@ static void ProcessEdge(BlockPPoint where, bool forward,
       source->GetValue()->IsDrf() && target->GetValue()->IsDrf()) {
     String *csu_name = type->AsCSU()->GetCSUName();
     CompositeCSU *csu = LookupCSU(csu_name);
+    if (!csu) return;
 
-    if (csu != NULL) {
-      for (size_t find = 0; find < csu->GetFieldCount(); find++) {
-        const DataField &df = csu->GetField(find);
+    for (size_t find = 0; find < csu->GetFieldCount(); find++) {
+      const DataField &df = csu->GetField(find);
 
-        Trace *new_source = TraceAddField(source, df.field);
-        Trace *new_target = TraceAddField(target, df.field);
+      Trace *new_source = TraceAddField(source, df.field);
+      Trace *new_target = TraceAddField(target, df.field);
 
-        ProcessEdge(where, forward,
-                    new_source, new_target, df.field->GetType(),
-                    move_caller, move_callee);
+      ProcessEdge(where, forward,
+                  new_source, new_target, df.field->GetType(),
+                  move_caller, move_callee);
 
-        new_source->DecRef();
-        new_target->DecRef();
-      }
+      new_source->DecRef();
+      new_target->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -722,15 +722,14 @@ static void ProcessRead(BlockPPoint where, Exp *read_exp, Type *type)
 
     String *csu_name = type->AsCSU()->GetCSUName();
     CompositeCSU *csu = LookupCSU(csu_name);
+    if (!csu) return;
 
-    if (csu != NULL) {
-      for (size_t find = 0; find < csu->GetFieldCount(); find++) {
-        const DataField &df = csu->GetField(find);
+    for (size_t find = 0; find < csu->GetFieldCount(); find++) {
+      const DataField &df = csu->GetField(find);
 
-        Exp *new_exp = AddField(read_exp, df.field);
-        ProcessRead(where, new_exp, df.field->GetType());
-        new_exp->DecRef();
-      }
+      Exp *new_exp = AddField(read_exp, df.field);
+      ProcessRead(where, new_exp, df.field->GetType());
+      new_exp->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -748,18 +747,17 @@ static void ProcessWrite(BlockPPoint where, Exp *lval_exp, Type *type)
   if (type != NULL && type->Kind() == YK_CSU) {
     String *csu_name = type->AsCSU()->GetCSUName();
     CompositeCSU *csu = LookupCSU(csu_name);
+    if (!csu) return;
 
-    if (csu != NULL) {
-      for (size_t find = 0; find < csu->GetFieldCount(); find++) {
-        const DataField &df = csu->GetField(find);
+    for (size_t find = 0; find < csu->GetFieldCount(); find++) {
+      const DataField &df = csu->GetField(find);
 
-        lval_exp->IncRef();
-        df.field->IncRef();
-        Exp *new_exp = Exp::MakeFld(lval_exp, df.field);
+      lval_exp->IncRef();
+      df.field->IncRef();
+      Exp *new_exp = Exp::MakeFld(lval_exp, df.field);
 
-        ProcessWrite(where, new_exp, df.field->GetType());
-        new_exp->DecRef();
-      }
+      ProcessWrite(where, new_exp, df.field->GetType());
+      new_exp->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -774,14 +772,20 @@ static void ProcessWrite(BlockPPoint where, Exp *lval_exp, Type *type)
 
 // add edges for any base classes of type to encode the class hierarchy.
 // if Foo inherits from Bar, add an edge from (Foo,empty) to (Bar,empty).
+// these edges are only added if Foo inherits any virtual methods from Bar.
 static void ProcessBaseClasses(TypeCSU *type)
 {
   String *csu_name = type->GetCSUName();
   CompositeCSU *csu = LookupCSU(csu_name);
+  if (!csu) return;
 
-  if (csu) {
-    for (size_t ind = 0; ind < csu->GetBaseClassCount(); ind++) {
-      String *base = csu->GetBaseClass(ind);
+  Vector<Field*> processed;
+
+  for (size_t ind = 0; ind < csu->GetFunctionFieldCount(); ind++) {
+    const FunctionField &ff = csu->GetFunctionField(ind);
+    if (ff.base && !processed.Contains(ff.base)) {
+      processed.PushBack(ff.base);
+      String *base_name = ff.base->GetType()->AsCSU()->GetCSUName();
 
       // use a special ID for the base class edges, as this may be called
       // repeatedly for the same subclass.
@@ -793,11 +797,14 @@ static void ProcessBaseClasses(TypeCSU *type)
       Exp *empty = Exp::MakeEmpty();
       empty->IncRef();
 
-      csu_name->IncRef();
-      base->IncRef();
+      ff.base->IncRef();
+      Exp *base_fld = Exp::MakeFld(empty, ff.base);
 
-      Trace *sub_loc = Trace::MakeComp(empty, csu_name);
-      Trace *super_loc = Trace::MakeComp(empty, base);
+      csu_name->IncRef();
+      base_name->IncRef();
+
+      Trace *sub_loc = Trace::MakeComp(base_fld, csu_name);
+      Trace *super_loc = Trace::MakeComp(empty, base_name);
 
       ProcessEdge(where, true, sub_loc, super_loc, NULL, false, false);
       ProcessEdge(where, false, super_loc, sub_loc, NULL, false, false);
@@ -809,77 +816,6 @@ static void ProcessBaseClasses(TypeCSU *type)
   }
 
   ReleaseCSU(csu_name, csu);
-}
-
-// functions for encoding virtual methods on a class. these may be represented
-// as either fields or vtable entries, depending on the frontend, and we want
-// to handle them in more or less the same way.
-// if Foo has a virtual method Bar at field Fld at vtable index N, we will end
-// up with one of the following edges:
-//     Bar to (Foo,*Fld)
-//     Bar to (Foo,*vptrN)
-
-// add edges for the specified instance function on type, which may or may
-// not be virtual (nothing is done in the non-virtual case).
-static void ProcessMaybeVirtualFunction(BlockPPoint where,
-                                        TypeCSU *type, Variable *function)
-{
-  String *csu_name = type->GetCSUName();
-  CompositeCSU *csu = LookupCSU(csu_name);
-
-  if (csu) {
-    for (size_t find = 0; find < csu->GetFunctionFieldCount(); find++) {
-      const FunctionField &ff = csu->GetFunctionField(find);
-      if (ff.function != function)
-        continue;
-
-      ff.field->IncRef();
-
-      Exp *empty = Exp::MakeEmpty();
-      Exp *fld_exp = Exp::MakeFld(empty, ff.field);
-      Exp *drf_exp = Exp::MakeDrf(fld_exp);
-
-      csu_name->IncRef();
-      Trace *left_loc = Trace::MakeComp(drf_exp, csu_name);
-
-      function->IncRef();
-      Exp *func_exp = Exp::MakeVar(function);
-
-      Trace *right_loc = Trace::MakeGlob(func_exp);
-
-      ProcessEdge(where, true, right_loc, left_loc, NULL, false, false);
-      ProcessEdge(where, false, left_loc, right_loc, NULL, false, false);
-
-      left_loc->DecRef();
-      right_loc->DecRef();
-    }
-  }
-
-  ReleaseCSU(csu_name, csu);
-}
-
-// add edges for an explicit vtable assignment for function within type.
-static void ProcessVPtrAssign(BlockPPoint where, TypeCSU *type,
-                              Variable *function, uint32_t index)
-{
-  Exp *empty = Exp::MakeEmpty();
-  Exp *vptr_exp = Exp::MakeVPtr(empty, index);
-  Exp *drf_exp = Exp::MakeDrf(vptr_exp);
-
-  String *csu_name = type->GetCSUName();
-  csu_name->IncRef();
-  Trace *left_loc = Trace::MakeComp(drf_exp, csu_name);
-
-  function->IncRef();
-  Exp *func_exp = Exp::MakeVar(function);
-
-  Trace *right_loc = Trace::MakeGlob(func_exp);
-
-  ProcessEdge(where, true, right_loc, left_loc, NULL, false, false);
-  ProcessEdge(where, false, left_loc, right_loc, NULL, false, false);
-
-  left_loc->DecRef();
-  right_loc->DecRef();
 }
 
 // fill in edges with data resulting from an assignment
@@ -1016,10 +952,8 @@ void EscapeProcessCFG(BlockCFG *cfg)
       BlockPPoint where(cfg->GetId(), cfg->GetEntryPoint(), cfg->GetVersion());
 
       Assert(func_var);
-      if (this_type) {
+      if (this_type)
         ProcessBaseClasses(this_type);
-        ProcessMaybeVirtualFunction(where, this_type, func_var);
-      }
     }
   }
 
@@ -1044,22 +978,9 @@ void EscapeProcessCFG(BlockCFG *cfg)
       Exp *left_side = nedge->GetLeftSide();
       Exp *right_side = nedge->GetRightSide();
 
-      // special case assignments to vptr entries. these will only appear
-      // in constructors, but there may be assignments to vtables of subfields
-      // of the base type in case of multiple inheritance.
-      if (ExpVPtr *nleft = left_side->IfVPtr()) {
-        if (ExpVar *nright = right_side->IfVar()) {
-          TypeCSU *object_type = nleft->GetTarget()->GetType()->AsCSU();
-          Variable *function = nright->GetVariable();
-          ProcessVPtrAssign(where, object_type, function, nleft->GetIndex());
-        }
-      }
-      else {
-        // standard assignment otherwise.
-        ProcessWrite(where, left_side, type);
-        ProcessRead(where, right_side, type);
-        ProcessAssign(where, left_side, right_side, type);
-      }
+      ProcessWrite(where, left_side, type);
+      ProcessRead(where, right_side, type);
+      ProcessAssign(where, left_side, right_side, type);
 
       break;
     }
@@ -1302,46 +1223,6 @@ void EscapeStatus::RecursiveEscape(Trace *source, const EscapeStackEdge &prev)
 
   cache.Release(strip_trace);
   strip_trace->DecRef();
-
-  // for types we need to consider subclass/superclass relationships.
-  // we've encoded these as escape edges with empty offsets.
-  if (new_source->Kind() == TK_Comp) {
-    Exp *empty = Exp::MakeEmpty();
-    String *csu_name = new_source->GetCSUName();
-    csu_name->IncRef();
-    Trace *class_source = Trace::MakeComp(empty, csu_name);
-
-    eset = cache.Lookup(class_source);
-
-    if (eset != NULL) {
-      for (size_t eind = 0; eind < eset->GetEdgeCount(); eind++) {
-        const EscapeEdge &edge = eset->GetEdge(eind);
-        Assert(edge.target->Kind() == TK_Comp);
-        Assert(edge.target->GetValue()->IsEmpty());
-
-        String *csu_target = edge.target->GetCSUName();
-        csu_target->IncRef();
-
-        Exp *value = new_source->GetValue();
-        value->IncRef();
-
-        Trace *new_target = Trace::MakeComp(value, csu_target);
-        EscapeStackEdge next(new_source, edge);
-        m_stack.PushBack(next);
-
-        RecursiveEscape(new_target, next);
-        new_target->DecRef();
-
-        m_stack.PopBack();
-
-        if (m_cutoff_reached)
-          break;
-      }
-    }
-
-    cache.Release(class_source);
-    class_source->DecRef();
-  }
 }
 
 void EscapeStatus::PrintEscapeStack()

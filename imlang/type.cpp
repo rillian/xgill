@@ -585,12 +585,6 @@ void CompositeCSU::Write(Buffer *buf, const CompositeCSU *csu)
 
   WriteTagUInt32(buf, TAG_Width, csu->GetWidth());
 
-  for (size_t ind = 0; ind < csu->GetBaseClassCount(); ind++) {
-    WriteOpenTag(buf, TAG_CSUBaseClass);
-    String::Write(buf, csu->GetBaseClass(ind));
-    WriteCloseTag(buf, TAG_CSUBaseClass);
-  }
-
   for (size_t ind = 0; ind < csu->GetFieldCount(); ind++) {
     const DataField &df = csu->GetField(ind);
     WriteOpenTag(buf, TAG_DataField);
@@ -603,6 +597,8 @@ void CompositeCSU::Write(Buffer *buf, const CompositeCSU *csu)
     const FunctionField &ff = csu->GetFunctionField(ind);
     WriteOpenTag(buf, TAG_FunctionField);
     Field::Write(buf, ff.field);
+    if (ff.base)
+      Field::Write(buf, ff.base);
     if (ff.function)
       Variable::Write(buf, ff.function);
     WriteCloseTag(buf, TAG_FunctionField);
@@ -666,18 +662,6 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
         res->SetEndLocation(loc);
       break;
     }
-    case TAG_CSUBaseClass: {
-      Try(res);
-      Try(ReadOpenTag(buf, TAG_CSUBaseClass));
-      String *base_class = String::Read(buf);
-      Try(ReadCloseTag(buf, TAG_CSUBaseClass));
-
-      if (drop_info)
-        base_class->DecRef();
-      else
-        res->AddBaseClass(base_class);
-      break;
-    }
     case TAG_DataField: {
       Try(res);
       Try(ReadOpenTag(buf, TAG_DataField));
@@ -696,6 +680,9 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
       Try(res);
       Try(ReadOpenTag(buf, TAG_FunctionField));
       Field *field = Field::Read(buf);
+      Field *base = NULL;
+      if (PeekOpenTag(buf) == TAG_Field)
+        base = Field::Read(buf);
       Variable *function = NULL;
       if (PeekOpenTag(buf) == TAG_Variable)
         function = Variable::Read(buf);
@@ -707,7 +694,7 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
           function->DecRef();
       }
       else {
-        res->AddFunctionField(field, function);
+        res->AddFunctionField(field, base, function);
       }
       break;
     }
@@ -727,7 +714,7 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
 CompositeCSU::CompositeCSU(String *name)
   : m_kind(CSU_Invalid), m_name(name), m_width(0), m_command(NULL),
     m_begin_location(NULL), m_end_location(NULL),
-    m_base_classes(NULL), m_data_fields(NULL), m_function_fields(NULL)
+    m_data_fields(NULL), m_function_fields(NULL)
 {
   Assert(m_name);
   m_hash = m_name->Hash();
@@ -773,15 +760,6 @@ void CompositeCSU::SetEndLocation(Location *loc)
   m_end_location = loc;
 }
 
-void CompositeCSU::AddBaseClass(String *base_class)
-{
-  if (m_base_classes == NULL)
-    m_base_classes = new Vector<String*>();
-
-  base_class->MoveRef(NULL, this);
-  m_base_classes->PushBack(base_class);
-}
-
 void CompositeCSU::AddField(Field *field, size_t offset)
 {
   if (m_data_fields == NULL)
@@ -791,15 +769,18 @@ void CompositeCSU::AddField(Field *field, size_t offset)
   m_data_fields->PushBack(DataField(field, offset));
 }
 
-void CompositeCSU::AddFunctionField(Field *field, Variable *function)
+void CompositeCSU::AddFunctionField(Field *field, Field *base,
+                                    Variable *function)
 {
   if (m_function_fields == NULL)
     m_function_fields = new Vector<FunctionField>();
 
   field->MoveRef(NULL, this);
+  if (base)
+    base->MoveRef(NULL, this);
   if (function)
     function->MoveRef(NULL, this);
-  m_function_fields->PushBack(FunctionField(field, function));
+  m_function_fields->PushBack(FunctionField(field, base, function));
 }
 
 void CompositeCSU::Print(OutStream &out) const
@@ -811,7 +792,7 @@ void CompositeCSU::Print(OutStream &out) const
   default: Assert(false);
   }
 
-  out << m_name << endl;
+  out << m_name->Value() << endl;
 
   if (m_command)
     out << "command: " << m_command->Value() << endl;
@@ -820,9 +801,6 @@ void CompositeCSU::Print(OutStream &out) const
   out << "end_location: " << m_end_location << endl;
 
   out << "width: " << m_width << endl;
-
-  for (size_t ind = 0; ind < GetBaseClassCount(); ind++)
-    out << "base: " << GetBaseClass(ind) << endl;
 
   for (size_t ind = 0; ind < GetFieldCount(); ind++) {
     const DataField &df = GetField(ind);
@@ -833,8 +811,10 @@ void CompositeCSU::Print(OutStream &out) const
   for (size_t ind = 0; ind < GetFunctionFieldCount(); ind++) {
     const FunctionField &ff = GetFunctionField(ind);
     out << "function: " << ff.field;
+    if (ff.base)
+      out << " from " << ff.base;
     if (ff.function)
-      out << " " << ff.function;
+      out << " " << ff.function->GetName();
     out << endl;
   }
 }
@@ -875,12 +855,6 @@ void CompositeCSU::UnPersist()
     m_end_location = NULL;
   }
 
-  if (m_base_classes) {
-    DecRefVector<String>(*m_base_classes, this);
-    delete m_base_classes;
-    m_base_classes = NULL;
-  }
-
   if (m_data_fields) {
     for (size_t ind = 0; ind < m_data_fields->Size(); ind++)
       m_data_fields->At(ind).field->DecRef(this);
@@ -892,6 +866,8 @@ void CompositeCSU::UnPersist()
     for (size_t ind = 0; ind < m_function_fields->Size(); ind++) {
       const FunctionField &ff = m_function_fields->At(ind);
       ff.field->DecRef(this);
+      if (ff.base)
+        ff.base->DecRef(this);
       if (ff.function)
         ff.function->DecRef(this);
     }
