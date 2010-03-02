@@ -98,8 +98,7 @@ class EscapeEdgeSet : public HashObject
   size_t GetEdgeCount() const;
   const EscapeEdge& GetEdge(size_t ind) const;
 
-  // add an edge at the specified point to target. consumes references
-  // on edge.where.id and edge.target.
+  // add an edge at the specified point to target.
   void AddEdge(const EscapeEdge &edge);
 
   // set the version for the location of a particular edge.
@@ -208,8 +207,7 @@ class EscapeAccessSet : public HashObject
   const EscapeAccess& GetAccess(size_t ind) const;
 
   // add an access to the value in this set of the specified kind
-  // at the specified point. consumes references on access.target,
-  // access.where.id and access.field (if non-NULL).
+  // at the specified point.
   void AddAccess(const EscapeAccess &access);
 
   // set the version for the location of a particular access.

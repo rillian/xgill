@@ -76,9 +76,12 @@ void CallEdgeSet::WriteMerge(Buffer *buf,
   WriteTagEmpty(buf, callers ? TAG_True : TAG_False);
 
   for (size_t eind = 0; eind < edges.Size(); eind++) {
+    const CallEdge &edge = edges[eind];
     WriteOpenTag(buf, TAG_CallEdge);
-    BlockPPoint::Write(buf, edges[eind].where);
-    Variable::Write(buf, edges[eind].callee);
+    BlockPPoint::Write(buf, edge.where);
+    Variable::Write(buf, edge.callee);
+    if (edge.rfld_chain)
+      Exp::Write(buf, edge.rfld_chain);
     WriteCloseTag(buf, TAG_CallEdge);
   }
 
@@ -112,7 +115,10 @@ void CallEdgeSet::ReadMerge(Buffer *buf,
 
       BlockPPoint where = BlockPPoint::Read(buf);
       Variable *callee = Variable::Read(buf);
-      pedges->PushBack(CallEdge(where, callee));
+      Exp *rfld_chain = NULL;
+      if (PeekOpenTag(buf) == TAG_Exp)
+        rfld_chain = Exp::Read(buf);
+      pedges->PushBack(CallEdge(where, callee, rfld_chain));
 
       Try(ReadCloseTag(buf, TAG_CallEdge));
       break;
@@ -159,11 +165,15 @@ void CallEdgeSet::AddEdge(const CallEdge &edge)
   if (!m_edges->Contains(edge)) {
     edge.where.id->MoveRef(NULL, this);
     edge.callee->MoveRef(NULL, this);
+    if (edge.rfld_chain)
+      edge.rfld_chain->MoveRef(NULL, this);
     m_edges->PushBack(edge);
   }
   else {
     edge.where.id->DecRef();
     edge.callee->DecRef();
+    if (edge.rfld_chain)
+      edge.rfld_chain->DecRef();
   }
 }
 
@@ -182,7 +192,10 @@ void CallEdgeSet::Print(OutStream &out) const
   if (m_edges != NULL) {
     for (size_t eind = 0; eind < m_edges->Size(); eind++) {
       const CallEdge &edge = m_edges->At(eind);
-      out << "  " << edge.where << " -> " << edge.callee << endl;
+      out << "  " << edge.where << " -> " << edge.callee->GetName();
+      if (edge.rfld_chain)
+        out << " [" << edge.rfld_chain << "]";
+      out << endl;
     }
   }
 }
@@ -199,6 +212,8 @@ void CallEdgeSet::DecMoveChildRefs(ORef ov, ORef nv)
 
       edge.where.id->DecRef(this);
       edge.callee->DecRef(this);
+      if (edge.rfld_chain)
+        edge.rfld_chain->DecRef(this);
     }
   }
 }
@@ -220,7 +235,8 @@ void CallEdgeSet::UnPersist()
 
 // add to the append callgraph caches the call edges resulting from the
 // specified call invoking the specified callee (directly or indirectly).
-void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
+void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee,
+                          Exp *rfld_chain)
 {
   Assert(callee->IsGlobal());
 
@@ -240,7 +256,9 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 
   where.id->IncRef();
   callee->IncRef();
-  caller_cset->AddEdge(CallEdge(where, callee));
+  if (rfld_chain)
+    rfld_chain->IncRef();
+  caller_cset->AddEdge(CallEdge(where, callee, rfld_chain));
 
   // add the callee edge to the cache.
 
@@ -255,7 +273,9 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee)
 
   where.id->IncRef();
   callee->IncRef();
-  callee_cset->AddEdge(CallEdge(where, callee));
+  if (rfld_chain)
+    rfld_chain->IncRef();
+  callee_cset->AddEdge(CallEdge(where, callee, rfld_chain));
 }
 
 void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
@@ -269,10 +289,9 @@ void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
       // frontend not being able to figure out the function being referred to.
       Variable *callee = nedge->GetDirectFunction();
       if (callee && callee->IsGlobal()) {
-        CallgraphProcessCall(cfg, nedge, callee);
-
         if (!callees->Contains(callee))
           callees->PushBack(callee);
+        CallgraphProcessCall(cfg, nedge, callee, NULL);
       }
 
       if (!callee)
@@ -287,7 +306,7 @@ void CallgraphProcessCFG(BlockCFG *cfg, Vector<Variable*> *callees,
 #define FUNPTR_ESCAPE_LIMIT  100
 
 // if trace represents a global function then get that function.
-Variable* GetTraceFunction(Trace *trace)
+static Variable* GetTraceFunction(Trace *trace)
 {
   if (trace->Kind() == TK_Glob) {
     if (ExpVar *exp = trace->GetValue()->IfVar()) {
@@ -319,13 +338,8 @@ class FunctionPointerEscape : public EscapeStatus
   {
     // handle discovery of a specific function as the call target.
     if (Variable *function = GetTraceFunction(trace)) {
-      if (print_indirect_calls.IsSpecified())
-        logout << "Indirect: " << m_cfg->GetId() << ": " << m_edge->GetSource()
-               << ": " << function << endl;
-
       // check to see if there is a mismatch in the number of arguments
-      // between the call edge and target function. we don't use a more
-      // aggressive notion of mismatch, which can run into trouble with casts.
+      // between the call edge and target function.
 
       function->IncRef();
       BlockId *callee_id = BlockId::Make(B_Function, function);
@@ -354,15 +368,20 @@ class FunctionPointerEscape : public EscapeStatus
       if (mismatch) {
         logout << "WARNING: Discarded mismatched indirect call: "
                << m_cfg->GetId() << ": " << m_edge->GetSource()
-               << ": " << function << endl;
+               << ": " << function->GetName() << endl;
       }
       else {
+        if (print_indirect_calls.IsSpecified())
+          logout << "Indirect: " << m_cfg->GetId()
+                 << ": " << m_edge->GetSource()
+                 << ": " << function->GetName() << endl;
+
         if (!m_callees->Contains(function)) {
           function->IncRef();
           m_callees->PushBack(function);
         }
 
-        CallgraphProcessCall(m_cfg, m_edge, function);
+        CallgraphProcessCall(m_cfg, m_edge, function, NULL);
         m_found = true;
       }
     }
@@ -389,6 +408,106 @@ class FunctionPointerEscape : public EscapeStatus
   }
 };
 
+// walk the class hierarchy to get all methods which might be invoked by edge
+// through field from a csu or one of its subtypes. callees is the vector
+// maintaining all callees of the current function, super_callees indicates
+// only the callees for superclasses of type for the walk on this edge.
+static void ProcessVirtualCallees(BlockCFG *cfg, PEdgeCall *edge,
+                                  Vector<Variable*> *callees,
+                                  Vector<Variable*> *super_callees,
+                                  String *csu_name, Field *field,
+                                  Exp *object, Exp *rfld_chain)
+{
+  // this gets somewhat tricky when the root type of the search,
+  // e.g. A in 'A->f()' does not define or override the function field,
+  // but inherits it from some parent B. in these cases implicit field accesses
+  // should be added by the frontend to get to that parent so that
+  // the call looks like 'A->b.f()'. we need to make sure the rfld chains
+  // are computed so that the callees are consistent with the call site type,
+  // and that we keep track of the subclass and only add targets that are in
+  // A or inherit from A.
+
+  CompositeCSU *csu = CompositeCSUCache.Lookup(csu_name);
+
+  // add whichever function is declared for field within csu. only do the add
+  // if the same callee was added by a superclass: the callee was not
+  // overridden and the implementation expects a value of the superclass type.
+  Variable *function = NULL;
+  for (size_t ind = 0; csu && ind < csu->GetFunctionFieldCount(); ind++) {
+    const FunctionField &ff = csu->GetFunctionField(ind);
+    if (ff.field == field) {
+      if (ff.function && !super_callees->Contains(ff.function))
+        function = ff.function;
+      break;
+    }
+  }
+
+  if (function) {
+    if (print_indirect_calls.IsSpecified())
+      logout << "Indirect: " << cfg->GetId() << ": " << edge->GetSource()
+             << ": " << function->GetName()
+             << " [" << rfld_chain << "]" << endl;
+
+    if (!callees->Contains(function)) {
+      function->IncRef();
+      callees->PushBack(function);
+    }
+
+    super_callees->PushBack(function);
+    CallgraphProcessCall(cfg, edge, function, rfld_chain);
+  }
+
+  // find all subclasses of this type.
+  csu_name->IncRef();
+  Exp *empty = Exp::MakeEmpty();
+  Trace *super_trace = Trace::MakeComp(empty, csu_name);
+
+  EscapeEdgeSet *eset = EscapeBackwardCache.Lookup(super_trace);
+
+  for (size_t eind = 0; eset && eind < eset->GetEdgeCount(); eind++) {
+    Trace *target = eset->GetEdge(eind).target;
+
+    Assert(target->Kind() == TK_Comp);
+    Assert(target->GetValue()->IsFld());
+
+    Field *sub_field = target->GetValue()->AsFld()->GetField();
+    Assert(sub_field->GetType()->IsCSU() &&
+           sub_field->GetType()->AsCSU()->GetCSUName() == csu_name);
+
+    // if the object is definitely a particular subclass due to some implicit
+    // field accesses, only recurse on that subclass. peel off the implicit
+    // accesses as they are accounted for.
+    Exp *new_object = object;
+    if (object && object->IsFld()) {
+      ExpFld *nobject = object->AsFld();
+      if (nobject->GetField() == sub_field)
+        new_object = nobject->GetTarget();
+      else
+        continue;
+    }
+
+    String *new_csu_name = sub_field->GetCSUType()->GetCSUName();
+    Assert(new_csu_name == target->GetCSUName());
+
+    rfld_chain->IncRef();
+    sub_field->IncRef();
+    Exp *new_rfld_chain = Exp::MakeRfld(rfld_chain, sub_field);
+
+    ProcessVirtualCallees(cfg, edge, callees, super_callees,
+                          new_csu_name, field, new_object, new_rfld_chain);
+
+    new_rfld_chain->DecRef();
+  }
+
+  EscapeBackwardCache.Release(super_trace);
+  super_trace->DecRef();
+
+  if (function)
+    super_callees->PopBack();
+
+  CompositeCSUCache.Release(csu_name);
+}
+
 void CallgraphProcessCFGIndirect(BlockCFG *cfg, Vector<Variable*> *callees)
 {
   static BaseTimer indirect_timer("cfg_indirect");
@@ -404,54 +523,64 @@ void CallgraphProcessCFGIndirect(BlockCFG *cfg, Vector<Variable*> *callees)
       continue;
     }
 
-    FunctionPointerEscape escape(cfg, edge, callees);
     Exp *function = edge->GetFunction();
 
-    // source we will propagate backwards from to get indirect targets.
-    Trace *source = NULL;
-
-    if (edge->GetInstanceObject()) {
-      // virtual call through an object. we've encoded a class hierarchy
+    if (Exp *object = edge->GetInstanceObject()) {
+      // virtual call through an object. we've encoded the class hierarchy
       // in the escape edges so walk this to get the possible targets.
+      // along the way we need to accumulate the reverse field chains
+      // to get from this object to each callee.
 
       // get the supertype to use from the callsite's signature.
-      TypeCSU *csu_type = edge->GetType()->GetCSUType();
+      String *csu_name = edge->GetType()->GetCSUType()->GetCSUName();
 
-      if (csu_type) {
-        String *csu_name = csu_type->GetCSUName();
-
-        if (IgnoreType(csu_name)) {
-          logout << "WARNING: Ignoring indirect call: " << edge << endl;
-          continue;
-        }
-
-        csu_name->IncRef();
-
-        function->IncRef();
-        source = Trace::MakeComp(function, csu_name);
+      if (IgnoreType(csu_name)) {
+        logout << "WARNING: Ignoring virtual call: " << edge << endl;
+        continue;
       }
+
+      if (!function->IsDrf() ||
+          !function->AsDrf()->GetTarget()->IsFld()) {
+        logout << "WARNING: Unexpected function format for virtual call:"
+               << edge << endl;
+        continue;
+      }
+
+      Field *field = function->AsDrf()->GetTarget()->AsFld()->GetField();
+      Exp *rfld_chain = Exp::MakeEmpty();
+
+      Vector<Variable*> super_callees;
+
+      ProcessVirtualCallees(cfg, edge, callees, &super_callees,
+                            csu_name, field, object, rfld_chain);
+
+      rfld_chain->DecRef();
     }
     else {
-      // indirect call through a function pointer.
+      // indirect call through a function pointer. do an escape to propagate
+      // backwards and find the possible targets.
+
+      FunctionPointerEscape escape(cfg, edge, callees);
+
       function->IncRef();
-      source = Trace::MakeFromExp(cfg->GetId(), function);
-    }
+      Trace *source = Trace::MakeFromExp(cfg->GetId(), function);
 
-    bool success = false;
+      bool success = false;
 
-    if (source) {
-      success = escape.FollowEscape(source);
-      source->DecRef();
-    }
+      if (source) {
+        success = escape.FollowEscape(source);
+        source->DecRef();
+      }
 
-    if (!success) {
-      logout << "WARNING: Incomplete function pointer propagation: "
-             << edge << endl;
-    }
+      if (!success) {
+        logout << "WARNING: Incomplete function pointer propagation: "
+               << edge << endl;
+      }
 
-    if (!escape.m_found) {
-      logout << "WARNING: No indirect targets found: "
-             << cfg->GetId() << ": " << edge << endl;
+      if (!escape.m_found) {
+        logout << "WARNING: No indirect targets found: "
+               << cfg->GetId() << ": " << edge << endl;
+      }
     }
   }
 }

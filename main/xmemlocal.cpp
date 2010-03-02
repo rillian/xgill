@@ -229,8 +229,6 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
                     Vector<BlockModset*> *block_mods)
 {
   Variable *function = block_cfgs[0]->GetId()->BaseVar();
-  logout << "Generating memory [#" << stage << "] "
-         << "'" << function->GetName()->Value() << "'" << endl << flush;
 
   // did we have a timeout while processing the CFGs?
   bool had_timeout = false;
@@ -406,7 +404,9 @@ void RunAnalysis(const Vector<const char*> &functions)
 
     Vector<BlockCFG*> block_cfgs;
     BlockCFGUncompress(t, body_data_result, &block_cfgs);
+
     Assert(!block_cfgs.Empty());
+    String *function = block_cfgs[0]->GetId()->Function();
 
     Vector<BlockModset*> old_mods;
     TOperandString *modset_data = t->LookupString(modset_data_result);
@@ -419,6 +419,9 @@ void RunAnalysis(const Vector<const char*> &functions)
     Vector<BlockMemory*> block_mems;
     Vector<BlockModset*> block_mods;
 
+    logout << "Generating memory [#" << current_stage << "] "
+           << "'" << function->Value() << "'" << endl << flush;
+
     GetCalleeModsets(t, block_cfgs, current_stage, &callees);
     bool success = GenerateMemory(block_cfgs, current_stage,
                                   &block_mems, &block_mods);
@@ -426,7 +429,6 @@ void RunAnalysis(const Vector<const char*> &functions)
     if (success) {
       // write out the generated memory and modsets. modsets use a special
       // backend function so that they are not visible until the stage ends.
-      String *function = block_cfgs[0]->GetId()->Function();
 
       TOperand *body_key = new TOperandString(t, function->Value());
       TOperandString *memory_arg = BlockMemoryCompress(t, block_mems);

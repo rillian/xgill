@@ -37,12 +37,19 @@ struct CallEdge
   // function being called.
   Variable *callee;
 
+  // optional chain of rflds to apply before performing the call, only used
+  // for virtual function calls. if the call is on an object of type A and
+  // the callee expects an object of type B, then A is a supertype of B
+  // and chain indicates how to get from an A to a B.
+  Exp *rfld_chain;
+
   CallEdge() : callee(NULL) {}
-  CallEdge(BlockPPoint _where, Variable *_callee)
-    : where(_where), callee(_callee) {}
+  CallEdge(BlockPPoint _where, Variable *_callee, Exp *_rfld_chain)
+    : where(_where), callee(_callee), rfld_chain(_rfld_chain) {}
 
   bool operator == (const CallEdge &o) const {
-    return where == o.where && callee == o.callee;
+    return where == o.where && callee == o.callee &&
+           rfld_chain == o.rfld_chain;
   }
 };
 
@@ -79,7 +86,6 @@ class CallEdgeSet : public HashObject
   // add a call edge to this set. if this stores the callers of the function
   // then callee is equal to the function, and if this stores the callees
   // then where is within the outer body or an inner loop of the function.
-  // consumes references on edge.where.id and edge.callee.
   void AddEdge(const CallEdge &edge);
 
   // set the version for the call site at a particular edge.

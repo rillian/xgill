@@ -425,7 +425,7 @@ void XIL_TranslateComparison(struct XIL_TreeEnv *env, tree node)
 // of node with the implicit field accesses to get from type to super.
 XIL_Exp XIL_CoerceSuperType(struct XIL_TreeEnv *env,
                             tree type, tree super, tree node)
-{ 
+{
   if (TREE_CODE(type) != RECORD_TYPE || TREE_CODE(super) != RECORD_TYPE)
     return NULL;
 

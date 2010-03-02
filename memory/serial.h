@@ -35,6 +35,7 @@
 // children:
 //   TAG_BlockPPoint
 //   TAG_CacheString
+//   TAG_Exp (optional)
 #define TAG_CallEdge 3042
 
 ///////////////////////////////

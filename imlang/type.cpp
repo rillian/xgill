@@ -990,6 +990,7 @@ Field::Field(String *name, String *source_name, TypeCSU *csu_type,
 void Field::Print(OutStream &out) const
 {
 #ifdef FIELD_PRINT_DECORATED
+  out << m_csu_type->GetCSUName()->Value() << "$";
   out << m_name->Value();
 #else
   if (m_source_name)
