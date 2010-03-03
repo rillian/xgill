@@ -31,11 +31,9 @@
 
 #include <util/config.h>
 #include <util/monitor.h>
-#include <backend/transaction.h>
-
-// for incremental options.
 #include <backend/backend_block.h>
 #include <imlang/storage.h>
+#include <memory/storage.h>
 
 NAMESPACE_XGILL_USING
 
@@ -72,6 +70,8 @@ static void termination_handler(int signal)
   logout << "Termination signal received, finishing..." << endl << flush;
   close(server_socket);
 
+  ClearBlockCaches();
+  ClearMemoryCaches();
   AnalysisFinish(0);
 }
 
@@ -184,6 +184,8 @@ void handle_event(int fd, short, void *v)
                  << endl << flush;
           close(server_socket);
 
+          ClearBlockCaches();
+          ClearMemoryCaches();
           AnalysisFinish(0);
         }
       }

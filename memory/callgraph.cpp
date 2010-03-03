@@ -132,6 +132,48 @@ void CallEdgeSet::ReadMerge(Buffer *buf,
   Try(!pedges->Empty());
 }
 
+Exp* CallEdgeAddRfldExp(Exp *exp, BlockId *callee, Exp *rfld_chain)
+{
+  if (!rfld_chain || rfld_chain->IsEmpty()) {
+    exp->IncRef();
+    return exp;
+  }
+
+  Assert(callee->Kind() == B_Function);
+  callee->IncRef();
+  Variable *this_var = Variable::Make(callee, VK_This, NULL, 0, NULL);
+  Exp *this_exp = Exp::MakeVar(this_var);
+  Exp *this_drf = Exp::MakeDrf(this_exp);
+  Exp *this_rfld = Exp::Compose(this_drf, rfld_chain);
+
+  Exp *new_exp = ExpReplaceExp(exp, this_drf, this_rfld);
+  this_drf->DecRef();
+  this_rfld->DecRef();
+
+  return new_exp;
+}
+
+Bit* CallEdgeAddRfldBit(Bit *bit, BlockId *callee, Exp *rfld_chain)
+{
+  if (!rfld_chain || rfld_chain->IsEmpty()) {
+    bit->IncRef();
+    return bit;
+  }
+
+  Assert(callee->Kind() == B_Function);
+  callee->IncRef();
+  Variable *this_var = Variable::Make(callee, VK_This, NULL, 0, NULL);
+  Exp *this_exp = Exp::MakeVar(this_var);
+  Exp *this_drf = Exp::MakeDrf(this_exp);
+  Exp *this_rfld = Exp::Compose(this_drf, rfld_chain);
+
+  Bit *new_bit = BitReplaceExp(bit, this_drf, this_rfld);
+  this_drf->DecRef();
+  this_rfld->DecRef();
+
+  return new_bit;
+}
+
 /////////////////////////////////////////////////////////////////////
 // CallEdgeSet
 /////////////////////////////////////////////////////////////////////

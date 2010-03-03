@@ -435,7 +435,7 @@ Exp* ConvertCallsiteMapper::Map(Exp *value, Exp *old)
   // the target is the 'this' expression.
   bool call_this = false;
 
-  if (target->DerefCount() == 0) {
+  if (target->DrfCount() == 0) {
     Variable *root = target->Root();
     if (root) {
       if (root->Kind() == VK_Arg) {

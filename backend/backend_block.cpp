@@ -928,6 +928,27 @@ static HashTable<String*,Buffer*,String> g_pending_modsets;
 // next stage. the value is the time at which the wait will timeout.
 static HashTable<String*,uint64_t,String> g_wait_modsets;
 
+// flush any pending modsets to the database.
+void FlushModsets()
+{
+  // flush any pending modsets before advancing the stage.
+  if (!g_pending_modsets.IsEmpty()) {
+    Xdb *modset_xdb = GetDatabase(MODSET_DATABASE, true);
+    HashIterate(g_pending_modsets) {
+      String *key = g_pending_modsets.ItKey();
+      Buffer *buf = g_pending_modsets.ItValueSingle();
+
+      Buffer key_buf((const uint8_t*) key->Value(), strlen(key->Value()) + 1);
+      Buffer write_buf(buf->base, buf->pos - buf->base);
+      modset_xdb->Replace(&key_buf, &write_buf);
+
+      key->DecRef(&g_pending_modsets);
+      delete buf;
+    }
+    g_pending_modsets.Clear();
+  }
+}
+
 /////////////////////////////////////////////////////////////////////
 // Backend data cleanup
 /////////////////////////////////////////////////////////////////////
@@ -939,6 +960,10 @@ void FinishBlockBackend()
   // out the annotations so that g_body_reanalyze uses complete information.
 
   FlushEscape();
+
+  // write any modset changes. this only does work if we finish prematurely.
+
+  FlushModsets();
 
   // write out any annotations we found. these may update g_body_reanalyze
   // so need to be done before the worklist is generated.
@@ -1611,22 +1636,8 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
     g_wait_modsets.ItKey()->DecRef(&g_wait_modsets);
   g_wait_modsets.Clear();
 
-  // flush any pending modsets before advancing the stage.
-  if (!g_pending_modsets.IsEmpty()) {
-    Xdb *modset_xdb = GetDatabase(MODSET_DATABASE, true);
-    HashIterate(g_pending_modsets) {
-      String *key = g_pending_modsets.ItKey();
-      Buffer *buf = g_pending_modsets.ItValueSingle();
-
-      Buffer key_buf((const uint8_t*) key->Value(), strlen(key->Value()) + 1);
-      Buffer write_buf(buf->base, buf->pos - buf->base);
-      modset_xdb->Replace(&key_buf, &write_buf);
-
-      key->DecRef(&g_pending_modsets);
-      delete buf;
-    }
-    g_pending_modsets.Clear();
-  }
+  // flush any pending modsets.
+  FlushModsets();
 
   // flush any callgraph edges before advancing the stage.
   FlushEscape();

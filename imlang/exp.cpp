@@ -2442,13 +2442,14 @@ class ExpVisitor_AnySub : public ExpVisitor
   bool relative;
   bool index;
   Field *base_field;
-  size_t derefs;
-  size_t fields;
+  size_t num_drf;
+  size_t num_fld;
+  size_t num_rfld;
 
   ExpVisitor_AnySub()
     : ExpVisitor(VISK_SubExprs),
       root(NULL), clobber_root(NULL), relative(false), index(false),
-      base_field(NULL), derefs(0), fields(0)
+      base_field(NULL), num_drf(0), num_fld(0), num_rfld(0)
   {}
 
   void Visit(Exp *exp)
@@ -2466,13 +2467,16 @@ class ExpVisitor_AnySub : public ExpVisitor
       index = true;
 
     if (ExpFld *nexp = exp->IfFld()) {
-      fields++;
+      num_fld++;
       if (nexp->GetTarget()->IsEmpty())
         base_field = nexp->GetField();
     }
 
+    if (exp->IsRfld())
+      num_rfld++;
+
     if (exp->IsDrf())
-      derefs++;
+      num_drf++;
   }
 };
 
@@ -2512,20 +2516,28 @@ Field* Exp::BaseField()
   return visitor.base_field;
 }
 
-size_t Exp::DerefCount()
+size_t Exp::DrfCount()
 {
   ExpVisitor_AnySub visitor;
   DoVisit(&visitor);
 
-  return visitor.derefs;
+  return visitor.num_drf;
 }
 
-size_t Exp::FieldCount()
+size_t Exp::FldCount()
 {
   ExpVisitor_AnySub visitor;
   DoVisit(&visitor);
 
-  return visitor.fields;
+  return visitor.num_fld;
+}
+
+size_t Exp::RfldCount()
+{
+  ExpVisitor_AnySub visitor;
+  DoVisit(&visitor);
+
+  return visitor.num_rfld;
 }
 
 class ExpVisitor_TermCount : public ExpVisitor
@@ -4092,11 +4104,11 @@ class ReplaceExpMapper : public ExpMapper
     : ExpMapper(VISK_All, WIDK_Drop), old_exp(_old_exp), new_exp(_new_exp)
   {}
 
-  Exp* Map(Exp *exp, Exp*)
+  Exp* Map(Exp *exp, Exp *old)
   {
     Assert(exp);
 
-    if (exp == old_exp) {
+    if (old == old_exp) {
       exp->DecRef();
       new_exp->IncRef();
       return new_exp;

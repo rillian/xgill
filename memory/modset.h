@@ -53,6 +53,10 @@ class BlockModset : public HashObject
   // for indirect callees.
   void ComputeModset(BlockMemory *mcfg, bool indirect);
 
+  // fill in any modset information for a target of a call/loop edge.
+  void ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
+                         BlockId *callee, Exp *rfld_chain);
+
   // merge any data from omod into this modset. return true if the merged
   // modset differs from omod.
   bool MergeModset(BlockModset *omod);

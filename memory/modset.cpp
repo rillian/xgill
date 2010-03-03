@@ -250,46 +250,28 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
       }
     }
 
-    // get the direct and indirect callees of the edge.
-    Vector<BlockId*> callees;
+    // pull in modsets from the direct and indirect callees of the edge.
     if (BlockId *callee = edge->GetDirectCallee()) {
-      callees.PushBack(callee);
+      ComputeModsetCall(mcfg, edge, callee, NULL);
+      callee->DecRef();
     }
     else if (edge->IsCall() && indirect_callees) {
       for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
-        const CallEdge &edge = indirect_callees->GetEdge(ind);
+        const CallEdge &cedge = indirect_callees->GetEdge(ind);
 
         // when comparing watch out for the case that this is a temporary
         // modset and does not share the same block kind as the edge point.
-        if (edge.where.point == point &&
-            edge.where.id->Function() == m_id->Function() &&
-            edge.where.id->Loop() == m_id->Loop()) {
-          edge.callee->IncRef();
-          BlockId *callee = BlockId::Make(B_Function, edge.callee);
-          callees.PushBack(callee);
+        if (cedge.where.version == cfg->GetVersion() &&
+            cedge.where.point == point &&
+            cedge.where.id->Function() == m_id->Function() &&
+            cedge.where.id->Loop() == m_id->Loop()) {
+          cedge.callee->IncRef();
+          BlockId *callee = BlockId::Make(B_Function, cedge.callee);
+
+          ComputeModsetCall(mcfg, edge, callee, cedge.rfld_chain);
+          callee->DecRef();
         }
       }
-    }
-
-    // pull in the modsets for all possible callees.
-    for (size_t ind = 0; ind < callees.Size(); ind++) {
-      BlockId *callee = callees[ind];
-      BlockModset *modset = GetBlockModset(callee);
-
-      for (size_t mind = 0; mind < modset->GetModsetCount(); mind++) {
-        const PointValue &cv = modset->GetModsetLval(mind);
-
-        GuardExpVector caller_res;
-        mcfg->TranslateExp(TRK_Callee, point, cv.lval, &caller_res);
-
-        for (size_t cind = 0; cind < caller_res.Size(); cind++) {
-          const GuardExp &gt = caller_res[cind];
-          ProcessUpdatedLval(mcfg, gt.exp, cv.kind, false, edge->IsCall());
-        }
-      }
-
-      modset->DecRef();
-      callee->DecRef();
     }
   }
 
@@ -301,6 +283,30 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
 
   if (indirect)
     CalleeCache.Release(m_id->BaseVar());
+}
+
+void BlockModset::ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
+                                    BlockId *callee, Exp *rfld_chain)
+{
+  PPoint point = edge->GetSource();
+  BlockModset *modset = GetBlockModset(callee);
+
+  for (size_t mind = 0; mind < modset->GetModsetCount(); mind++) {
+    const PointValue &cv = modset->GetModsetLval(mind);
+    Exp *new_lval = CallEdgeAddRfldExp(cv.lval, callee, rfld_chain);
+
+    GuardExpVector caller_res;
+    mcfg->TranslateExp(TRK_Callee, point, new_lval, &caller_res);
+
+    new_lval->DecRef();
+
+    for (size_t cind = 0; cind < caller_res.Size(); cind++) {
+      const GuardExp &gt = caller_res[cind];
+      ProcessUpdatedLval(mcfg, gt.exp, cv.kind, false, edge->IsCall());
+    }
+  }
+
+  modset->DecRef();
 }
 
 bool BlockModset::MergeModset(BlockModset *omod)
@@ -512,7 +518,7 @@ class ModsetIncludeVisitor : public ExpVisitor
       if (!rvalue) {
         // limits on the number of dereferences in expressions.
         size_t max_derefs = buffer ? 2 : 1;
-        if (exp->DerefCount() > max_derefs)
+        if (exp->DrfCount() > max_derefs)
           excluded = exp;
       }
 
@@ -525,9 +531,17 @@ class ModsetIncludeVisitor : public ExpVisitor
       return;
     }
 
-    if (exp->IsFld() && exp->FieldCount() > 6) {
+    if (exp->IsFld() && exp->FldCount() > 6) {
       // limit on the number of fields in expressions. this cuts off infinite
       // recursion during modset computation when the program does funny casts.
+      excluded = exp;
+      return;
+    }
+
+    if (exp->IsRfld()) {
+      // all rfld expressions are excluded. these are usually here because
+      // of indirect calls which could operate on a variety of structures
+      // (this happens in both C and C++).
       excluded = exp;
       return;
     }
@@ -597,7 +611,7 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
   // to 'this' which can come from frontend parse/tcheck errors.
   if (use_id->Kind() == B_Function &&
       (root->Kind() == VK_Arg || root->Kind() == VK_This)) {
-    if (lval->DerefCount() == 0)
+    if (lval->DrfCount() == 0)
       goto exit;
   }
 

@@ -488,7 +488,7 @@ public:
 
   void Visit(Exp *exp)
   {
-    if (exp->DerefCount() > 1)
+    if (exp->DrfCount() > 1)
       exclude = true;
   }
 };

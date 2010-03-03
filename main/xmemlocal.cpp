@@ -343,8 +343,10 @@ void RunAnalysis(const Vector<const char*> &functions)
     // currently memory usage for xmemlocal can balloon (not sure what's
     // causing this). There's no real way to get memory usage on Linux
     // (getrusage is broken) so just die every so often. TODO: fix this.
-    if (g_print_counter == 5000) {
+    if (IsAnalysisRemote() && g_print_counter == 5000) {
       logout << "Restarting process, function threshold reached." << endl;
+      ClearBlockCaches();
+      ClearMemoryCaches();
       AnalysisFinish(1);
     }
 

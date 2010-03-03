@@ -53,6 +53,10 @@ struct CallEdge
   }
 };
 
+// add an rfld chain to the 'this' variable in exp or bit.
+Exp* CallEdgeAddRfldExp(Exp *exp, BlockId *callee, Exp *rfld_chain);
+Bit* CallEdgeAddRfldBit(Bit *bit, BlockId *callee, Exp *rfld_chain);
+
 // set of callers or callees of a function and its loops.
 class CallEdgeSet : public HashObject
 {

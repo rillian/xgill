@@ -2354,6 +2354,15 @@ void generate_TranslateTree(struct XIL_TreeEnv *env, tree node)
       break;
     }
 
+    case ERROR_MARK: {
+      // don't generate an unexpected/unhandled, gcc already reported this.
+      XIL_Var error_var = XIL_VarGlob("error", "error");
+      XIL_Exp error_exp = XIL_ExpVar(error_var);
+      XIL_Exp error_drf = XIL_ExpDrf(error_exp);
+      XIL_ProcessResult(env, error_drf);
+      break;
+    }
+
     default:
       TREE_UNEXPECTED_RESULT(env, node);
     }

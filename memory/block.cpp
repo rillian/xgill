@@ -1014,7 +1014,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     // the target is the 'this' expression.
     bool call_this = false;
 
-    if (translating_call && target->DerefCount() == 0) {
+    if (translating_call && target->DrfCount() == 0) {
       Variable *root = target->Root();
       if (root) {
         if (root->Kind() == VK_Arg) {

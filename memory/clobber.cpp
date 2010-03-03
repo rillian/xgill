@@ -72,6 +72,54 @@ class MemoryClobberModset : public MemoryClobber
     : MemoryClobber(indirect ? MCLB_Modset : MCLB_ModsetNoIndirect),
       m_indirect(indirect) {}
 
+  void ComputeClobberCall(BlockMemory *mcfg, PEdge *edge,
+                          Vector<GuardAssign> *assigns,
+                          Vector<GuardAssign> *clobbered,
+                          bool direct, BlockId *callee, Exp *rfld_chain)
+  {
+    PPoint point = edge->GetSource();
+    BlockModset *modset = GetBlockModset(callee);
+
+    // fill the assigns in the caller, but only for direct calls.
+    if (direct) {
+      for (size_t ind = 0; ind < modset->GetAssignCount(); ind++) {
+        const GuardAssign &gts = modset->GetAssign(ind);
+        mcfg->TranslateAssign(TRK_Callee, point, NULL,
+                              gts.left, gts.right, gts.guard, assigns);
+      }
+    }
+
+    for (size_t mind = 0; mind < modset->GetModsetCount(); mind++) {
+      const PointValue &cv = modset->GetModsetLval(mind);
+      Exp *new_lval = CallEdgeAddRfldExp(cv.lval, callee, rfld_chain);
+
+      GuardExpVector caller_res;
+      mcfg->TranslateExp(TRK_Callee, point, new_lval, &caller_res);
+
+      new_lval->DecRef();
+
+      for (size_t ind = 0; ind < caller_res.Size(); ind++) {
+        const GuardExp &gt = caller_res[ind];
+
+        // filter out lvalues containing rfld.
+        if (gt.exp->RfldCount() > 0)
+          continue;
+
+        if (!gt.guard->IsTrue())
+          gt.guard->IncRef(clobbered);
+        gt.exp->IncRef(clobbered);
+        cv.lval->IncRef(clobbered);
+        if (cv.kind)
+          cv.kind->IncRef(clobbered);
+
+        GuardAssign gti(gt.exp, cv.lval, gt.guard, cv.kind);
+        clobbered->PushBack(gti);
+      }
+    }
+
+    modset->DecRef();
+  }
+
   void ComputeClobber(BlockMemory *mcfg, PEdge *edge,
                       Vector<GuardAssign> *assigns,
                       Vector<GuardAssign> *clobbered)
@@ -79,13 +127,10 @@ class MemoryClobberModset : public MemoryClobber
     // only clobbering values written by direct calls and loops.
     PPoint point = edge->GetSource();
 
-    // get the direct and indirect callees of the edge.
-    Vector<BlockId*> callees;
-    bool is_direct = false;
-
     if (BlockId *callee = edge->GetDirectCallee()) {
-      is_direct = true;
-      callees.PushBack(callee);
+      ComputeClobberCall(mcfg, edge, assigns, clobbered,
+                         true, callee, NULL);
+      callee->DecRef();
     }
     else if (edge->IsCall() && m_indirect) {
       Variable *function = mcfg->GetId()->BaseVar();
@@ -93,55 +138,22 @@ class MemoryClobberModset : public MemoryClobber
 
       if (indirect_callees) {
         for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
-          const CallEdge &edge = indirect_callees->GetEdge(ind);
+          const CallEdge &cedge = indirect_callees->GetEdge(ind);
 
-          if (edge.where == BlockPPoint(mcfg->GetId(), point)) {
-            edge.callee->IncRef();
-            BlockId *callee = BlockId::Make(B_Function, edge.callee);
-            callees.PushBack(callee);
+          if (cedge.where.version == mcfg->GetCFG()->GetVersion() &&
+              cedge.where.id == mcfg->GetId() &&
+              cedge.where.point == point) {
+            cedge.callee->IncRef();
+            BlockId *callee = BlockId::Make(B_Function, cedge.callee);
+
+            ComputeClobberCall(mcfg, edge, assigns, clobbered,
+                               false, callee, cedge.rfld_chain);
+            callee->DecRef();
           }
         }
       }
 
       CalleeCache.Release(function);
-    }
-
-    for (size_t cind = 0; cind < callees.Size(); cind++) {
-      BlockId *callee = callees[cind];
-      BlockModset *modset = GetBlockModset(callee);
-
-      // fill the assigns in the caller, but only for direct calls.
-      if (is_direct) {
-        for (size_t ind = 0; ind < modset->GetAssignCount(); ind++) {
-          const GuardAssign &gts = modset->GetAssign(ind);
-          mcfg->TranslateAssign(TRK_Callee, point, NULL,
-                                gts.left, gts.right, gts.guard, assigns);
-        }
-      }
-
-      // fill the modsets in the caller.
-      for (size_t ind = 0; ind < modset->GetModsetCount(); ind++) {
-        const PointValue &cv = modset->GetModsetLval(ind);
-
-        GuardExpVector caller_res;
-        mcfg->TranslateExp(TRK_Callee, point, cv.lval, &caller_res);
-
-        for (size_t ind = 0; ind < caller_res.Size(); ind++) {
-          const GuardExp &gt = caller_res[ind];
-          if (!gt.guard->IsTrue())
-            gt.guard->IncRef(clobbered);
-          gt.exp->IncRef(clobbered);
-          cv.lval->IncRef(clobbered);
-          if (cv.kind)
-            cv.kind->IncRef(clobbered);
-
-          GuardAssign gti(gt.exp, cv.lval, gt.guard, cv.kind);
-          clobbered->PushBack(gti);
-        }
-      }
-
-      modset->DecRef();
-      callee->DecRef();
     }
   }
 };
