@@ -123,6 +123,16 @@ a.navlink {
   border-width: thin;
 }
 
+a.helplink {
+  padding: 0px 6px;
+  font-weight: bold;
+  text-decoration: none;
+  color: black;
+  border-style: solid;
+  border-width: thin;
+  background-color: #FF0000;
+}
+
 a.joblink {
   padding: 0px 6px;
   font-weight: bold;
@@ -165,6 +175,11 @@ a.code_link {
   background-color: #CCCCFF;
 }
 
+span.helptext {
+  font-size: 12pt;
+  color: #DD0000;
+}
+
 </style>
 </head>
 
@@ -176,6 +191,7 @@ a.code_link {
 
 Report:
 
+<a class='helplink' id='helpme' href='#' onClick='toggleHelp(); return false;'>Help!</a>
 <a class='navlink' id='annotate' href='#' onClick='doAnnotate(); return false;'>Annotate</a>
 <a class='navlink' id='reanalyze' href='#' onClick='doReanalyze(); return false;'>Reanalyze</a>
 <a class='navlink' id='reporttop' href='index.html'>Top</a>
@@ -246,19 +262,25 @@ print <<EOF;
 
 </script>
 
+<span class="helptext" id="help_result"></span>
+<span class="helptext" style="font-size: 3px" id="help_resultnext"></span>
 <div id="login_result" style="font-size: 12pt"></div>
 <div id="job_result" style="font-size: 12pt"></div>
 
 <div style="padding-bottom: 5px">
+<span class="helptext" id="help_goal"></span>
 <span style="float: left; width: 125px">Goal:</span><span id="maindata"></span>
 </div>
 
 <div style="padding-bottom: 10px">
+<span class="helptext" id="help_dependent"></span>
 <span style="float: left; width: 125px">Dependent:</span><span id="wheredata"></span>
 </div>
 
 <div>
 
+<span class="helptext" id="help_steps"></span>
+<span class="helptext" style="font-size: 3px" id="help_stepsnext"></span>
 Steps:
 <a class="navlink" href="#" id="navfirst" onClick="setMoveIndex(firstArray[curIndex]); return false;">First</a>
 <a class="navlink" href="#" id="navprev"  onClick="setMoveIndex(prevArray[curIndex]); return false;">Prev</a>
@@ -520,6 +542,72 @@ function toggleCode(code, line)
     }
 }
 
+var showHelp = false;
+var showResult = false;
+
+var result_reanalyze = false;
+var result_annotate = false;
+var login_value = "";
+
+function refreshHeader()
+{
+    var headerHeight;
+    if (showHelp)
+        headerHeight = showResult ? 310 : 240;
+    else
+        headerHeight = showResult ? 210 : 160;
+
+    document.getElementById("header_div").style.height = headerHeight + "px";
+    document.getElementById("path_div").style.top = (headerHeight + 5) + "px";
+    document.getElementById("code_div").style.top = (headerHeight + 5) + "px";
+
+    var goal = document.getElementById("help_goal");
+    var dependent = document.getElementById("help_dependent");
+    var steps = document.getElementById("help_steps");
+    var stepsnext = document.getElementById("help_stepsnext");
+    var path = document.getElementById("help_path");
+    var values = document.getElementById("help_values");
+    var result = document.getElementById("help_result");
+    var resultnext = document.getElementById("help_resultnext");
+
+    if (showHelp) {
+        goal.innerHTML = "The assertion sixgill is trying to prove<br>";
+        dependent.innerHTML = "The condition sixgill thinks it needs to prove in order to prove the goal.<br> If this condition is something that should hold of the program, navigate the path below.<br> Otherwise, add an annotation for a different condition.<br>";
+        steps.innerHTML = "Navigation for the steps taken in the current path node, and the statement at the current step<br>";
+        stepsnext.innerHTML = "<br>";
+        path.innerHTML = "Path through the code which sixgill explored. The dependent for one node in the path is the goal in the next node up. Walk up the path from the final assertion until the dependent is incorrect.<br>";
+        values.innerHTML = "Assignment of values to each variable at the current step. Added annotations should generally be false under this assignment.";
+
+        if (showResult) {
+            if (result_reanalyze)
+                result.innerHTML = "Reanalyze this report using any newly added annotations<br>";
+            else
+                result.innerHTML = "Add an annotation at a place within the current path node, and reanalyze this report<br>";
+            resultnext.innerHTML = "<br>";
+        }
+        else {
+            result.innerHTML = "";
+            resultnext.innerHTML = "";
+        }
+    }
+    else {
+        goal.innerHTML = "";
+        dependent.innerHTML = "";
+        steps.innerHTML = "";
+        stepsnext.innerHTML = "";
+        path.innerHTML = "";
+        values.innerHTML = "";
+        result.innerHTML = "";
+        resultnext.innerHTML = "";
+    }
+}
+
+function toggleHelp()
+{
+    showHelp = !showHelp;
+    refreshHeader();
+}
+
 function newExtension()
 {
     var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -532,10 +620,6 @@ function newExtension()
 
     return res;
 }
-
-var result_reanalyze = false;
-var result_annotate = false;
-var login_value = "";
 
 function clearLogin()
 {
@@ -637,9 +721,8 @@ function setupResult(job_html)
     setNavLink("reanalyze",0);
     setNavLink("annotate",0);
 
-    document.getElementById("header_div").style.height = "210px";
-    document.getElementById("path_div").style.top = "215px";
-    document.getElementById("code_div").style.top = "215px";
+    showResult = true;
+    refreshHeader();
 
     document.getElementById("login_result").style.paddingBottom = "5px";
     document.getElementById("job_result").style.paddingBottom = "5px";
@@ -656,9 +739,8 @@ function hideResult()
     setNavLink("reanalyze",1);
     setNavLink("annotate",1);
 
-    document.getElementById("header_div").style.height = "160px";
-    document.getElementById("path_div").style.top = "165px";
-    document.getElementById("code_div").style.top = "165px";
+    showResult = false;
+    refreshHeader();
 
     document.getElementById("login_result").innerHTML = "";
     document.getElementById("login_result").style.paddingBottom = "";
@@ -807,8 +889,9 @@ print <<EOF;
 
 <div id='path_div'>
 
-<div style="white-space: nowrap">
 <h3>Path</h3>
+<span class="helptext" id="help_path"></span>
+<div style="white-space: nowrap">
 
 EOF
 
@@ -856,8 +939,9 @@ print <<EOF;
 
 </div>
 
-<div style="white-space: nowrap">
 <h3>Values</h3>
+<span class="helptext" id="help_values"></span>
+<div style="white-space: nowrap">
 <span id="valuedata"></span>
 <span id="annotdata"></span>
 </div>

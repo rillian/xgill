@@ -278,29 +278,31 @@ else
 build-plugin:
 endif
 
+BUILD_LIBS = ${ALL_LIBS} ${CVC3_LIBS} ${LDFLAGS}
+
 bin/xdbfind: main/xdbfind.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xdbkeys: main/xdbkeys.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xsource: main/xsource.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xmemlocal: main/xmemlocal.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xbrowse: main/xbrowse.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xinfer: main/xinfer.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xcheck: main/xcheck.o ${ALL_LIBS}
-	${CXX} $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} $< -o $@ ${BUILD_LIBS}
 
 bin/xmanager: main/xmanager.o ${ALL_LIBS}
-	${CXX} libevent/*.o $< -o $@ ${LDFLAGS} ${ALL_LIBS} ${CVC3_LIBS}
+	${CXX} libevent/*.o $< -o $@ ${BUILD_LIBS}
 
 # libevent stuff
 
