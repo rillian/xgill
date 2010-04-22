@@ -5,7 +5,25 @@ AC_CONFIG_HEADER([config.h])
 AC_PROG_CC
 AC_PROG_CXX
 
-dnl *** check for zlib ***
+AC_CANONICAL_HOST
+
+case "$host_os" in
+  darwin*)
+    CPPFLAGS="$CPPFLAGS -I/opt/local/include";
+    HOST_CFLAGS="-I/opt/local/include -DHOST_DARWIN";
+    HOST_LDFLAGS="-L/opt/local/lib";
+    ;;
+    
+  cygwin*)
+    HOST_CFLAGS="-DHOST_CYGWIN";
+    ;;
+esac
+
+AC_SUBST(HOST_CFLAGS)
+AC_SUBST(HOST_LDFLAGS)
+
+dnl *** check for gmp/zlib ***
+AC_CHECK_HEADERS( gmp.h, [], [AC_MSG_ERROR(GMP must be installed)] )
 AC_CHECK_HEADERS( zlib.h, [], [AC_MSG_ERROR(Zlib must be installed)] )
 
 dnl ***********************

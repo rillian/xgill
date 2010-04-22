@@ -27,12 +27,12 @@ else
 endif
 
 WARNINGS = -Wall -Wno-non-virtual-dtor -Wno-strict-aliasing -Werror
-CFLAGS = -g ${OPT} -I${PWD} ${WARNINGS}
-LDFLAGS = -lz -lgmp
+CPPFLAGS = -g ${OPT} -I${PWD} ${HOST_CFLAGS} ${WARNINGS}
+LDFLAGS = ${HOST_LDFLAGS} -lz -lgmp
 
 # run 'make profile' to enable profiling in generated binaries
 ifdef PROFILE
-  CFLAGS += -pg
+  CPPFLAGS += -pg
   LDFLAGS += -pg
 endif
 
@@ -233,7 +233,7 @@ ALL_BINS = \
 
 # additional settings for Yices.
 ifeq ($(USE_YICES),yes)
-CFLAGS += -DSOLVER_YICES=1 -I${YICES_DIR}/include
+CPPFLAGS += -DSOLVER_YICES=1 -I${YICES_DIR}/include
 INCLUDE += solve/solver-yices.h solve/wrapyices.h
 CHK_OBJS += solve/solver-yices.o solve/wrapyices.o
 ALL_LIBS += ${YICES_DIR}/lib/libyices.a
@@ -244,13 +244,13 @@ endif
 
 # additional settings for CVC3.
 ifeq ($(USE_CVC3),yes)
-CFLAGS += -DSOLVER_CVC3=1 ${CVC3_CFLAGS}
+CPPFLAGS += -DSOLVER_CVC3=1 ${CVC3_CFLAGS}
 INCLUDE += solve/solver-cvc3.h solve/cvc3_interface.h
 CHK_OBJS += solve/solver-cvc3.o solve/cvc3_interface.o
 endif
 
 %.o: %.cpp ${INCLUDE}
-	${CXX} ${CFLAGS} -fPIC -c $< -o $@
+	${CXX} ${CPPFLAGS} -fPIC -c $< -o $@
 
 all: .have_yices build-libevent ${ALL_LIBS} ${ALL_BINS} build-plugin # build-elsa
 

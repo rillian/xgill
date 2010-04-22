@@ -23,6 +23,15 @@
 #include <unistd.h>
 #include <string.h>
 
+// filesystem differences for OSX, which supports large files without
+// special handling or functions.
+#ifdef HOST_DARWIN
+#define O_LARGEFILE 0
+#define lseek64 lseek
+#define ftruncate64 ftruncate
+typedef off_t off64_t;
+#endif
+
 NAMESPACE_XGILL_BEGIN
 
 /////////////////////////////////////////////////////////////////////
