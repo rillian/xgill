@@ -34,12 +34,14 @@ if ($pass =~ /[^\.a-zA-Z0-9_ ]/) {
     exit_with "ERROR: Bad character in password";
 }
 
+exit_with("ERROR: Unknown email/password") if (not -e "users");
+
 open(USERS, "< users");
 
 while (my $line = <USERS>) {
     chomp $line;
     $line =~ /^([^;]*);([^;]*);(.*)$/ or next;
-    if ($1 eq $mail && $3 eq $pass) {
+    if ($1 eq $mail && crypt($pass, $3) eq $3) {
 	print "var date = new Date();\n";
 	print "date.setTime(date.getTime() + 90*24*60*60*1000);\n";
 	print "document.cookie = 'sixgill=$mail:$pass; expires=' + date.toGMTString() + '; path=/';\n";

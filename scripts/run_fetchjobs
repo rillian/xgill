@@ -25,25 +25,32 @@
 use strict;
 use IO::Handle;
 use Cwd;
+use File::Copy;
 
-use LWP;
+# use LWP;
 
 #################################
 # environment specific settings #
 #################################
 
-# URL for getting new jobs to perform.
-my $get_url = "http://path/to/getjob.cgi";
+# directory containing the CGI scripts.
+my $script_dir = "/path/to/www/scripts";
 
-# URL for posting the result of a job.
-my $post_url = "http://path/to/postjob.cgi";
+# directory containing report subdirectories.
+my $base_dir = "/path/to/www";
+
+# if web server is remote, URL for getting new jobs to perform.
+my $get_url = "";
+
+# if web server is remote, URL for posting the result of a job.
+my $post_url = "";
 
 # number of worker processes to use.
 my $worker_count = 4;
 
 # how often some worker should attempt to fetch a new job. if the workers
 # are busy then some fetch attempts may be skipped.
-my $fetch_delay = 10;
+my $fetch_delay = 5;
 
 # root directory of the project, as in run_complete.
 my $build_dir = "/path/to/project";
@@ -71,6 +78,15 @@ my $result_dir = getcwd();
 open(ANNOT, ">> annots.list");
 print ANNOT "\n";
 close(ANNOT);
+
+# make sure the script directory exists if specified.
+if ($script_dir ne "") {
+    die "Need directory: $script_dir/jobs"
+        if (not -d "$script_dir/jobs");
+    die "Need directory: $script_dir/jobs_todo"
+        if (not -d "$script_dir/jobs_todo");
+    die "Need directory: $base_dir" if (not -d $base_dir);
+}
 
 # fork a manager process.
 defined(my $pid = fork) or die;
@@ -116,7 +132,9 @@ sub run_fetch_loop {
     STDOUT->fdopen(\*OUT, "w");
     STDERR->fdopen(\*OUT, "w");
 
-    my $browser = LWP::UserAgent->new;
+    # my $browser = LWP::UserAgent->new;
+    my $browser;
+    my $response;
 
     my $secshift = $worker_count * $fetch_delay;
     my $secpos = $index * $fetch_delay;
@@ -139,15 +157,37 @@ sub run_fetch_loop {
             last;
         }
 
-        my $response = $browser->get($get_url);
+        my @lines;
 
-        die ("Couldn't get from $get_url: " . $response->status_line)
-            unless ($response->is_success);
+        if ($script_dir ne "") {
+            opendir(TODO, "$script_dir/jobs_todo");
+            my @files = readdir(TODO);
+            closedir(TODO);
 
-        die ("Unexpected content: " . $response->content_type)
-            unless ($response->content_type eq "text/plain");
+            while (my $file = shift @files) {
+                chomp $file;
+                if ($file =~ /\.job$/) {
+                    open(JOB, "$script_dir/jobs_todo/$file");
+                    @lines = <JOB>;
+                    chomp @lines;
+                    close(JOB);
 
-        my @lines = split(/\n/, $response->content);
+                    move("$script_dir/jobs_todo/$file", "$script_dir/jobs");
+                    last;
+                }
+            }
+        }
+        else {
+            $response = $browser->get($get_url);
+
+            die ("Couldn't get from $get_url: " . $response->status_line)
+                unless ($response->is_success);
+
+            die ("Unexpected content: " . $response->content_type)
+                unless ($response->content_type eq "text/plain");
+
+            @lines = split(/\n/, $response->content);
+        }
 
         # if the response is empty there is no job to do.
         my $ext = shift @lines or next;
@@ -236,16 +276,36 @@ sub run_fetch_loop {
             }
         }
 
-        $response = $browser->post($post_url,
-          [
-           'report' => $report,
-           'ext' => $ext,
-           'message' => $message,
-           'html' => $html,
-           'file' => $link,
-          ]);
+        if ($script_dir ne "") {
+            open(OUT, "> $script_dir/$ext.done");
+            print OUT "$message\n";
+            close(OUT);
 
-        die ("Couldn't post to $post_url: " . $response->status_line)
-            unless ($response->is_success);
+            if ($html ne "") {
+                $report =~ /(.*?)\$/ or die;
+                my $dir = $1;
+
+                die if (not (-e "$base_dir/$dir"));
+
+                open(HTML, "> $base_dir/$dir/$link.html");
+                print HTML $html;
+                close(HTML);
+
+                move("$script_dir/$ext.done", "$script_dir/jobs");
+            }
+        }
+        else {
+            $response = $browser->post($post_url,
+                [
+                 'report' => $report,
+                 'ext' => $ext,
+                 'message' => $message,
+                 'html' => $html,
+                 'file' => $link,
+                 ]);
+
+            die ("Couldn't post to $post_url: " . $response->status_line)
+                unless ($response->is_success);
+        }
     }
 }

@@ -30,29 +30,65 @@ my $link = check_param('link');
 my $prev = check_param('prev');
 my $next = check_param('next');
 
+if ($report =~ /[\n\"\']/) {
+    exit_with "ERROR: Bad character in report";
+}
+if ($ext =~ /[^A-Z]/) {
+    exit_with "ERROR: Invalid extension";
+}
+if ($link =~ /[^a-zA-Z0-9_]/) {
+    exit_with "ERROR: Bad character in link";
+}
+if ($prev =~ /[^a-zA-Z0-9_]/) {
+    exit_with "ERROR: Bad character in prev";
+}
+if ($next =~ /[^a-zA-Z0-9_]/) {
+    exit_with "ERROR: Bad character in next";
+}
+
 my $hook = param('hook');
 my $text = param('text');
 my $trust = param('trust');
 
 if (defined $hook) {
+    if ($hook =~ /[\n\"\']/) {
+	exit_with "ERROR: Bad character in hook";
+    }
+
     exit_with "Need CGI parameter: text" if (not (defined $text));
     exit_with "Need CGI parameter: trust" if (not (defined $trust));
+
     if ($text eq "") {
 	exit_with "ERROR: Annotation text is blank";
     }
+    if ($text =~ /[\n\"\']/) {
+	exit_with "ERROR: Bad character in text";
+    }
+    if ($trust ne "true" && $trust ne "false") {
+	exit_with "ERROR: Invalid trust";
+    }
 }
-
-open(USERS, "< users");
 
 $login =~ /(.*?):(.*)/ or exit_with "ERROR: Malformed login";
 my $mail = $1;
 my $pass = $2;
 
+if ($mail =~ /[^\@\.a-zA-Z0-9_]/) {
+    exit_with "ERROR: Bad character in email address";
+}
+if ($pass =~ /[^\.a-zA-Z0-9_ ]/) {
+    exit_with "ERROR: Bad character in password";
+}
+
+exit_with "ERROR: Invalid login" if (not -e "users");
+
+open(USERS, "< users");
+
 my $name = "";
 while (my $line = <USERS>) {
     chomp $line;
     $line =~ /^([^;]*);([^;]*);(.*)$/ or next;
-    if ($1 eq $mail && $3 eq $pass) {
+    if ($1 eq $mail && crypt($pass,$3) eq $3) {
 	$name = $2;
 	last;
     }

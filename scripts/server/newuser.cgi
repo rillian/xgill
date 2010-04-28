@@ -44,21 +44,26 @@ if ($pass =~ /[^\.a-zA-Z0-9_ ]/) {
     exit_with "ERROR: Bad character in password";
 }
 
-open(USERS, "< users");
+if (-e "users") {
+    open(USERS, "< users");
 
-while (my $line = <USERS>) {
-    chomp $line;
-    $line =~ /^([^;]*);([^;]*);(.*)$/ or next;
-    if ($1 eq $mail) {
-	exit_with "ERROR: User already exists";
+    while (my $line = <USERS>) {
+	chomp $line;
+	$line =~ /^([^;]*);([^;]*);(.*)$/ or next;
+	if ($1 eq $mail) {
+	    exit_with "ERROR: User already exists";
+	}
     }
 }
 
 close(USERS);
 
+my $salt = join '', ('A'..'Z')[rand 26, rand 26];
+my $newpass = crypt($pass, $salt);
+
 open(USERS, ">> users");
 
-print USERS "$mail;$name;$pass\n";
+print USERS "$mail;$name;$newpass\n";
 
 close(USERS);
 
