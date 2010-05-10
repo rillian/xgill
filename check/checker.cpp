@@ -739,7 +739,7 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
 
   TypeCSU *csu = invariant->GetCSU();
   Bit *bit = invariant->GetBit();
-  WhereInvariant *dupe_invariant = new WhereInvariant(csu, bit);
+  WhereInvariant *dupe_invariant = new WhereInvariant(csu, NULL, bit);
   state->m_invariant_list.PushBack(dupe_invariant);
 
   // list of all the written lvalues to propagate to.

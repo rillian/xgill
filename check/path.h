@@ -164,6 +164,10 @@ struct DisplayFrame
   // the kinds of annotations that can be added for this frame.
   Vector<AnnotationHook> m_annotation_hooks;
 
+  // types and variables we have emitted invariant hooks for, to avoid dupes.
+  Vector<TypeCSU*> m_type_hooks;
+  Vector<Variable*> m_global_hooks;
+
   // write a <frame> tag for this to the specified buffer.
   void WriteXML(Buffer *buf);
 };

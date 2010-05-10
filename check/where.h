@@ -232,7 +232,7 @@ class WhereInvariant : public Where
   static Where* Make(TypeCSU *csu, Exp *lval, Bit *bit);
 
  public:
-  WhereInvariant(TypeCSU *csu, Bit *bit);
+  WhereInvariant(TypeCSU *csu, Variable *var, Bit *bit);
   ~WhereInvariant();
 
   TypeCSU* GetCSU() const { return m_csu; }
@@ -261,6 +261,10 @@ class WhereInvariant : public Where
   // if NULL, the bit refers only to global variables. otherwise, the bit
   // may contain 'this' to refer to the value of type m_csu.
   TypeCSU *m_csu;
+
+  // optional global variable to hang a global invariant on. for printing
+  // hooks so that we know where to attach the inserted annotation.
+  Variable *m_var;
 };
 
 NAMESPACE_XGILL_END

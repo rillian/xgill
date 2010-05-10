@@ -269,6 +269,27 @@ void DisplayFrame::WriteXML(Buffer *buf)
     WriteXMLCloseTag(buf, "hook");
   }
 
+  // the last hook is the special 'point' hook for annotating an
+  // intermediate point in a function.
+
+  static Buffer scratch_buf;
+  BufferOutStream point_out(&scratch_buf);
+  point_out << "point ";
+
+  if (id->Kind() == B_Loop)
+    point_out << id->Loop()->Value() << " ";
+  else
+    point_out << "pre ";
+
+  point_out << id->BaseVar()->GetName()->Value();
+
+  WriteXMLOpenTag(buf, "hook");
+  WriteXMLTagString(buf, "text", "PointAssert");
+  WriteXMLTagString(buf, "name", point_out.Base());
+  WriteXMLCloseTag(buf ,"hook");
+
+  scratch_buf.Reset();
+
   WriteXMLCloseTag(buf, "frame");
 }
 
@@ -439,15 +460,56 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
     // make sure we don't skip past the propagate's end point.
     Assert(cur_cfg_point <= end_point);
 
+    PEdge *edge = solver->AsnEdgeTaken(chk_frame->Id(), cur_cfg_point, false);
+
+    if (!edge) {
+      Assert(cur_cfg_point == end_point);
+      break;
+    }
+
+    // add hooks for invariants on any types or globals used by the edge.
+    Vector<Exp*> lval_list;
+    LvalListVisitor visitor(&lval_list);
+    edge->DoVisit(&visitor);
+
+    for (size_t lind = 0; lind < lval_list.Size(); lind++) {
+      Exp *lval = lval_list[lind];
+
+      if (ExpFld *nlval = lval->IfFld()) {
+        TypeCSU *csu_type = nlval->GetField()->GetCSUType();
+        if (disp_frame->m_type_hooks.Contains(csu_type))
+          continue;
+
+        WhereInvariant *invariant_where =
+          new WhereInvariant(csu_type, NULL, NULL);
+        AddHook(disp_frame, invariant_where);
+        delete invariant_where;
+
+        csu_type->IncRef();
+        disp_frame->m_type_hooks.PushBack(csu_type);
+      }
+
+      if (ExpVar *nlval = lval->IfVar()) {
+        Variable *var = nlval->GetVariable();
+        if (!var->IsGlobal() || disp_frame->m_global_hooks.Contains(var))
+          continue;
+
+        WhereInvariant *invariant_where = new WhereInvariant(NULL, var, NULL);
+        AddHook(disp_frame, invariant_where);
+        delete invariant_where;
+
+        var->IncRef();
+        disp_frame->m_global_hooks.PushBack(var);
+      }
+    }
+
+    // drop the references added by the LvalListVisitor.
+    DecRefVector<Exp>(lval_list, &lval_list);
+
     if (cur_cfg_point == end_point) {
       // finished generating points for the desired path.
       break;
     }
-
-    PEdge *edge = solver->AsnEdgeTaken(chk_frame->Id(), cur_cfg_point);
-
-    // add any assert/assume/postcondition annotations for this point.
-    AddAnnotations(disp_frame, assume_list, cur_cfg_point, edge);
 
     // if this is a call or loop then add a hook for postconditions or
     // invariants from it.
@@ -458,11 +520,20 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
       delete post_where;
     }
 
+    // add any assert/assume/postcondition annotations for this point.
+    AddAnnotations(disp_frame, assume_list, cur_cfg_point, edge);
+
     cur_cfg_point = edge->GetTarget();
   }
 
   for (size_t ind = 0; ind < assume_list.Size(); ind++)
     assume_list[ind].DecRef(&assume_list);
+
+  DecRefVector<TypeCSU>(disp_frame->m_type_hooks);
+  disp_frame->m_type_hooks.Clear();
+
+  DecRefVector<Variable>(disp_frame->m_global_hooks);
+  disp_frame->m_global_hooks.Clear();
 
   // make sure the frame contains at least one point.
   Assert(disp_frame->m_begin_point);

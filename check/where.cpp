@@ -498,8 +498,6 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
   Assert(bit);
   Bit *new_bit;
 
-  cout << "HUH " << csu << " " << lval << " " << bit << endl;
-
   if (csu) {
     Variable *this_var = Variable::Make(NULL, VK_This, NULL, 0, NULL);
     Exp *this_exp = Exp::MakeVar(this_var);
@@ -518,24 +516,28 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
     new_bit->DoVisit(&visitor);
 
     if (!visitor.exclude)
-      res = new WhereInvariant(csu, new_bit);
+      res = new WhereInvariant(csu, NULL, new_bit);
     new_bit->DecRef();
   }
 
   return res;
 }
 
-WhereInvariant::WhereInvariant(TypeCSU *csu, Bit *bit)
-  : Where(WK_Invariant, bit), m_csu(csu)
+WhereInvariant::WhereInvariant(TypeCSU *csu, Variable *var, Bit *bit)
+  : Where(WK_Invariant, bit), m_csu(csu), m_var(var)
 {
   if (m_csu)
     m_csu->IncRef(this);
+  if (m_var)
+    m_var->IncRef(this);
 }
 
 WhereInvariant::~WhereInvariant()
 {
   if (m_csu)
     m_csu->DecRef(this);
+  if (m_var)
+    m_var->DecRef(this);
 }
 
 void WhereInvariant::Print(OutStream &out) const
@@ -550,6 +552,8 @@ void WhereInvariant::PrintUI(OutStream &out) const
 {
   if (m_csu)
     out << "TypeInvariant [" << m_csu << "]";
+  else if (m_var)
+    out << "GlobalInvariant [" << m_var->GetSourceName()->Value() << "]";
   else
     out << "GlobalInvariant";
 
@@ -561,8 +565,13 @@ void WhereInvariant::PrintUI(OutStream &out) const
 
 void WhereInvariant::PrintHook(OutStream &out) const
 {
-  // TODO: implement
-  Assert(false);
+  if (m_csu) {
+    out << "type " << m_csu->GetCSUName()->Value();
+  }
+  else {
+    Assert(m_var);
+    out << "global " << m_var->GetName()->Value();
+  }
 }
 
 void WhereInvariant::GetHeapBits(CheckerFrame *write_frame,

@@ -642,7 +642,7 @@ function submitLogin()
     var head = document.getElementsByTagName("head").item(0);
     var script = document.createElement("script");
     script.type = "text/javascript";
-    script.src = "../login.cgi?mail=" + mail + "&pass=" + pass;
+    script.src = "../scripts/login.cgi?mail=" + mail + "&pass=" + pass;
     head.appendChild(script);
 }
 
@@ -662,7 +662,7 @@ function submitUser()
     var head = document.getElementsByTagName("head").item(0);
     var script = document.createElement("script");
     script.type = "text/javascript";
-    script.src = "../newuser.cgi?mail=" + mail + "&pass=" + pass + "&name=" + name;
+    script.src = "../scripts/newuser.cgi?mail=" + mail + "&pass=" + pass + "&name=" + name;
     head.appendChild(script);
 }
 
@@ -775,7 +775,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link;
+        script.src = "../scripts/addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link;
         head.appendChild(script);
     }
 
@@ -819,8 +819,16 @@ print <<EOF;
     var trustItem = document.getElementById("annotate_trust");
 
     var ext = newExtension();
-    var hook = encodeURIComponent(hookItem.value);
     var text = encodeURIComponent(textItem.value);
+
+    var hook;
+    if (hookItem.value.substring(0,5) == "point") {
+        hook = "point '" + textArray[curIndex] + "' " + hookItem.value.substring(6);
+    }
+    else {
+        hook = hookItem.value;
+    }
+    hook = encodeURIComponent(hook);
 
     document.getElementById("job_result").innerHTML =
         "<span style='padding: 0px 5px' id='job_server'></span>";
@@ -829,7 +837,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link + "&hook=" + hook + "&text=" + text + "&trust=" + trustItem.checked;
+        script.src = "../scripts/addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link + "&hook=" + hook + "&text=" + text + "&trust=" + !trustItem.checked;
         head.appendChild(script);
     }
 
@@ -879,7 +887,7 @@ print <<EOF;
 
     }
     job_html += "</select></span>";
-    job_html += "<span style='padding-right: 5px'>Trusted:<input type='checkbox' id='annotate_trust'></input></span>";
+    job_html += "<span style='padding-right: 5px'>Checked:<input type='checkbox' id='annotate_trust'></input></span>";
     job_html += "<input type='text' id='annotate_text' size=60'></input>";
 
     setupResult(job_html);
