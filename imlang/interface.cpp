@@ -203,8 +203,11 @@ struct ReadAnnotationInfo
   {}
 };
 
-// read annotations indexed by the function name.
-static HashTable<String*,ReadAnnotationInfo,String> g_read_annotations;
+// read annotations indexed by the function/global/type name.
+typedef HashTable<String*,ReadAnnotationInfo,String> ReadAnnotationTable;
+static ReadAnnotationTable g_read_annotation_func;
+static ReadAnnotationTable g_read_annotation_glob;
+static ReadAnnotationTable g_read_annotation_comp;
 
 extern "C" void XIL_ReadAnnotationFile(const char *file)
 {
@@ -277,10 +280,16 @@ extern "C" void XIL_ReadAnnotationFile(const char *file)
         *next = 0;
 
       String *where = String::Make(hook);
-      String *function = String::Make(space + 1);
+      String *key = String::Make(space + 1);
 
       ReadAnnotationInfo info(where, point_text, new_annot_text, new_trusted);
-      g_read_annotations.Insert(function, info);
+
+      if (!strcmp(hook, "global"))
+        g_read_annotation_glob.Insert(key, info);
+      else if (!strcmp(hook, "type"))
+        g_read_annotation_comp.Insert(key, info);
+      else
+        g_read_annotation_func.Insert(key, info);
 
       if (next) {
         hook = next + 1;
@@ -291,37 +300,43 @@ extern "C" void XIL_ReadAnnotationFile(const char *file)
   }
 }
 
-extern "C" int XIL_GetAnnotationCount(XIL_Var var, int annot_type)
+extern "C" int XIL_GetAnnotationCount(const char *name, bool global, bool type)
 {
-  if (annot_type)
-    return 0;
+  String *new_name = String::Make(name);
 
-  GET_OBJECT(Variable, var);
-  String *function = new_var->GetName();
+  Vector<ReadAnnotationInfo> *entries;
+  if (global)
+    entries = g_read_annotation_glob.Lookup(new_name);
+  else if (type)
+    entries = g_read_annotation_comp.Lookup(new_name);
+  else
+    entries = g_read_annotation_func.Lookup(new_name);
 
-  Vector<ReadAnnotationInfo> *entries = g_read_annotations.Lookup(function);
   if (entries)
     return entries->Size();
   return 0;
 }
 
-extern "C" void XIL_GetAnnotation(XIL_Var var, int annot_type, int index,
-                                  const char **pwhere,
+extern "C" void XIL_GetAnnotation(const char *name, bool global, bool type,
+                                  int index, const char **pwhere,
                                   const char **ppoint_text,
                                   const char **pannot_text,
                                   int *ptrusted)
 {
-  Assert(!annot_type);
+  String *new_name = String::Make(name);
 
-  GET_OBJECT(Variable, var);
-  String *function = new_var->GetName();
-
-  Vector<ReadAnnotationInfo> *entries = g_read_annotations.Lookup(function);
+  Vector<ReadAnnotationInfo> *entries;
+  if (global)
+    entries = g_read_annotation_glob.Lookup(new_name);
+  else if (type)
+    entries = g_read_annotation_comp.Lookup(new_name);
+  else
+    entries = g_read_annotation_func.Lookup(new_name);
   Assert(entries);
 
   const ReadAnnotationInfo &info = entries->At(index);
   *pwhere = info.where->Value();
-  *ppoint_text = info.point_text->Value();
+  *ppoint_text = info.point_text ? info.point_text->Value() : NULL;
   *pannot_text = info.annot_text->Value();
   *ptrusted = info.trusted;
 }
@@ -1139,7 +1154,7 @@ bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
   Variable *function = split_cfgs[0]->GetId()->BaseVar();
 
   Vector<ReadAnnotationInfo> *entries =
-    g_read_annotations.Lookup(function->GetName());
+    g_read_annotation_func.Lookup(function->GetName());
   if (!entries) return false;
 
   bool changed = false;
@@ -1315,11 +1330,7 @@ static void WriteForceAnnotations()
 
   for (size_t ind = 0; ind < g_keep_cfgs.Size(); ind++) {
     BlockCFG *cfg = g_keep_cfgs[ind];
-    if (!cfg->GetCommand()) {
-      logout << "Failure!" << endl << flush;
-      sleep(120);
-      Assert(cfg->GetCommand());
-    }
+    Assert(cfg->GetCommand());
 
     if (g_drop_cfgs.Contains(cfg))
       continue;

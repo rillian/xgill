@@ -225,21 +225,31 @@ sub run_fetch_loop {
             for my $hook_entry (@hook_list) {
                 $hook_entry =~ s/point \'.*?\' //;
                 $hook_entry =~ /.*? (.*)/;
-                my $func = $1;
-                my $func_body = `xdbfind src_body.xdb '$func'`;
+                my $key = $1;
+                my $body;
 
-                # get the command for reanalyzing this function. if the
-                # function has a body then use the command for building it.
+                # get the command for reanalyzing this function/global/type.
+                # if the function has a body then use its build command.
                 # otherwise find a caller and use the command for building
                 # that caller. this might miss functions without bodies that
                 # are called indirectly. fix?
 
+                if ($hook =~ /^global/) {
+                  $body = `xdbfind src_init.xdb '$key'`;
+                }
+                elsif ($hook =~ /^type/) {
+                  $body = `xdbfind src_comp.xdb '$key'`;
+                }
+                else {
+                  $body = `xdbfind src_body.xdb '$key'`;
+                }
+
                 my $command = "";
-                if ($func_body =~ /\ncommand: (.*?)\n/) {
+                if ($body =~ /\ncommand: (.*?)\n/) {
                     $command = $1;
                 }
                 else {
-                    my $callers = `xdbfind body_caller.xdb '$func'`;
+                    my $callers = `xdbfind body_caller.xdb '$key'`;
                     if ($callers =~ /\n  (.*?):\d+ -> /) {
                         my $caller = $1;
                         my $caller_body = `xdbfind src_body.xdb '$caller'`;
@@ -249,7 +259,7 @@ sub run_fetch_loop {
                     }
                 }
                 if ($command eq "") {
-                    print "WARNING: Could not figure out command for '$func'\n";
+                    print "WARNING: Could not figure out command for '$key'\n";
                     next;
                 }
 

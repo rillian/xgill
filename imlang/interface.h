@@ -107,11 +107,11 @@ typedef enum _enum_XIL_AnnotationKind XIL_AnnotationKind;
 // read a file of annotations generated from the web interface.
 void XIL_ReadAnnotationFile(const char *file);
 
-// get the number of read annotations associated with var.
-int XIL_GetAnnotationCount(XIL_Var var, int annot_type);
+// get the number of read annotations associated with a func/global/type.
+int XIL_GetAnnotationCount(const char *name, bool global, bool type);
 
 // get one of the read annotations associated with var.
-void XIL_GetAnnotation(XIL_Var var, int annot_type, int index,
+void XIL_GetAnnotation(const char *name, bool global, bool type, int index,
                        const char **pwhere,
                        const char **ppoint_text, const char **pannot_text,
                        int *ptrusted);

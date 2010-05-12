@@ -1896,6 +1896,9 @@ void XIL_ProcessAnnotationRead(tree node, const char *where,
     annot_kind = trusted ? XIL_AK_Assume : XIL_AK_Assert;
     all_locals = true;
   }
+  else if (!strcmp(where, "global") || !strcmp(where, "type")) {
+    annot_kind = trusted ? XIL_AK_InvariantAssume : XIL_AK_Invariant;
+  }
 
   if (point_text) {
     annot_kind = trusted ? XIL_AK_Assume : XIL_AK_Assert;

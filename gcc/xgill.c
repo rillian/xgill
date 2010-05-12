@@ -230,8 +230,10 @@ void XIL_GenerateBlock(tree decl)
     gcc_assert(use_kind);
   }
 
+  const char *name = XIL_GetVarName(xil_var);
+
   xil_active_env.decl = decl;
-  xil_active_env.decl_name = XIL_GetVarName(xil_var);
+  xil_active_env.decl_name = name;
   XIL_SetActiveBlock(xil_var, annotation_name, use_kind, annot_type);
 
   const char *decl_file = DECL_SOURCE_FILE(decl);
@@ -296,7 +298,9 @@ void XIL_GenerateBlock(tree decl)
   // current point for traversal of the function/initializer.
   XIL_PPoint point = xil_active_env.entry_point;
 
-  if (TREE_CODE(decl) == FUNCTION_DECL) {
+  bool is_function = (TREE_CODE(decl) == FUNCTION_DECL);
+
+  if (is_function) {
     // handling for function definitions.
     tree defn = DECL_SAVED_TREE(decl);
 
@@ -342,13 +346,13 @@ void XIL_GenerateBlock(tree decl)
 
   // process any annotations read in from file for the function,
   // now that we know all locals.
-  int count = XIL_GetAnnotationCount(xil_var, false);
+  int count = XIL_GetAnnotationCount(name, !is_function, false);
   int ind = 0;
   for (; ind < count; ind++) {
     const char *where;
     const char *point_text, *annot_text;
     int trusted;
-    XIL_GetAnnotation(xil_var, false, ind, &where,
+    XIL_GetAnnotation(name, !is_function, false, ind, &where,
                       &point_text, &annot_text, &trusted);
     XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
   }
@@ -598,7 +602,9 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
       is_global = true;
   }
 
-  if (!is_global && TREE_CODE(decl) != FUNCTION_DECL)
+  bool is_function = (TREE_CODE(decl) == FUNCTION_DECL);
+
+  if (!is_global && !is_function)
     return;
 
   // only processing the output function for annotations.
@@ -617,11 +623,11 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
 
   // also look for annotations read in from file.
   int ind = 0;
-  for (; ind < XIL_GetAnnotationCount(var, false); ind++) {
+  for (; ind < XIL_GetAnnotationCount(name, !is_function, false); ind++) {
     const char *where;
     const char *point_text, *annot_text;
     int trusted;
-    XIL_GetAnnotation(var, false, ind, &where,
+    XIL_GetAnnotation(name, !is_function, false, ind, &where,
                       &point_text, &annot_text, &trusted);
 
     // we'll handle loop invariants after seeing the function's definition.
