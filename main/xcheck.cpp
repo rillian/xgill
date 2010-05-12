@@ -452,40 +452,9 @@ int main(int argc, const char **argv)
 
   Vector<const char*> new_checks;
 
-  // unescape any HTML markup in the checks - &amp; &lt; &gt;
-  for (size_t ind = 0; ind < checks.Size(); ind++) {
-    const char *check = checks[ind];
-    char *new_check = new char[strlen(check) + 1];
-
-    const char *pos = check;
-    char *new_pos = new_check;
-    while (*pos) {
-      switch (*pos) {
-      case '&':
-        if (strncmp(pos, "&amp;", 5) == 0) {
-          pos += 5;
-          *new_pos++ = '&';
-          break;
-        }
-        else if (strncmp(pos, "&lt;", 4) == 0) {
-          pos += 4;
-          *new_pos++ = '<';
-          break;
-        }
-        else if (strncmp(pos, "&gt;", 4) == 0) {
-          pos += 4;
-          *new_pos++ = '>';
-          break;
-        }
-        // fall through
-      default:
-        *new_pos++ = *pos++;
-      }
-    }
-    *new_pos = *pos;
-
-    new_checks.PushBack(new_check);
-  }
+  // unescape any HTML markup in the checks.
+  for (size_t ind = 0; ind < checks.Size(); ind++)
+    new_checks.PushBack(HtmlUnescape(checks[ind]));
 
   // Solver::CheckSimplifications();
 

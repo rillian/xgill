@@ -887,7 +887,7 @@ print <<EOF;
 
     }
     job_html += "</select></span>";
-    job_html += "<span style='padding-right: 5px'>Checked:<input type='checkbox' id='annotate_trust'></input></span>";
+    job_html += "<span style='padding-right: 5px'>Checked:<input type='checkbox' id='annotate_trust' checked=true></input></span>";
     job_html += "<input type='text' id='annotate_text' size=60'></input>";
 
     setupResult(job_html);

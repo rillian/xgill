@@ -642,6 +642,40 @@ bool UnescapeStringLiteral(const char *str, Buffer *result)
   }
 }
 
+char* HtmlUnescape(const char *val)
+{
+  char *res = new char[strlen(val) + 1];
+
+  const char *pos = val;
+  char *new_pos = res;
+  while (*pos) {
+    switch (*pos) {
+    case '&':
+      if (strncmp(pos, "&amp;", 5) == 0) {
+        pos += 5;
+        *new_pos++ = '&';
+        break;
+      }
+      else if (strncmp(pos, "&lt;", 4) == 0) {
+        pos += 4;
+        *new_pos++ = '<';
+        break;
+      }
+      else if (strncmp(pos, "&gt;", 4) == 0) {
+        pos += 4;
+        *new_pos++ = '>';
+        break;
+      }
+      // fall through
+    default:
+      *new_pos++ = *pos++;
+    }
+  }
+  *new_pos = *pos;
+
+  return res;
+}
+
 inline char ToHex(uint8_t v)
 {
   Assert(v < 16);

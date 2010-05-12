@@ -340,19 +340,21 @@ void XIL_GenerateBlock(tree decl)
   //  exit(1);
   //}
 
-  XIL_ClearActiveBlock(xil_active_env.dropped);
-  XIL_ClearAssociate(XIL_AscBlock);
-
   // process any annotations read in from file for the function,
   // now that we know all locals.
+  int count = XIL_GetAnnotationCount(xil_var, false);
   int ind = 0;
-  for (; ind < XIL_GetAnnotationCount(xil_var, false); ind++) {
+  for (; ind < count; ind++) {
     const char *where;
-    const char *text;
+    const char *point_text, *annot_text;
     int trusted;
-    XIL_GetAnnotation(xil_var, false, ind, &where, &text, &trusted);
-    XIL_ProcessAnnotationRead(decl, where, text, trusted);
+    XIL_GetAnnotation(xil_var, false, ind, &where,
+                      &point_text, &annot_text, &trusted);
+    XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
   }
+
+  XIL_ClearActiveBlock(xil_active_env.dropped);
+  XIL_ClearAssociate(XIL_AscBlock);
 
   memset(&xil_active_env, 0, sizeof(struct XIL_BlockEnv));
 }
@@ -362,6 +364,7 @@ void XIL_GenerateBlock(tree decl)
 // additional settings we get from plugin arguments.
 static const char *normalize_directory = NULL;
 static const char *log_file = NULL;
+static const char *annotation_file = NULL;
 
 void gcc_plugin_start_unit(void *gcc_data, void *user_data)
 {
@@ -392,6 +395,9 @@ void gcc_plugin_start_unit(void *gcc_data, void *user_data)
   else {
     xil_log = stdout;
   }
+
+  if (annotation_file)
+    XIL_ReadAnnotationFile(annotation_file);
 
   // compute the width of pointers on this target.
   addr_space_t as = ADDR_SPACE_GENERIC;
@@ -613,15 +619,16 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
   int ind = 0;
   for (; ind < XIL_GetAnnotationCount(var, false); ind++) {
     const char *where;
-    const char *text;
+    const char *point_text, *annot_text;
     int trusted;
-    XIL_GetAnnotation(var, false, ind, &where, &text, &trusted);
+    XIL_GetAnnotation(var, false, ind, &where,
+                      &point_text, &annot_text, &trusted);
 
     // we'll handle loop invariants after seeing the function's definition.
     if (!strncmp(where, "loop", 4))
       continue;
 
-    XIL_ProcessAnnotationRead(decl, where, text, trusted);
+    XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
   }
 
   // future parameter declarations will be for a different function.
@@ -737,7 +744,7 @@ int plugin_init (struct plugin_name_args *plugin_info,
     }
     else if (!strcmp(arg_key,"annfile")) {
       if (arg_value)
-        XIL_ReadAnnotationFile(arg_value);
+        annotation_file = arg_value;
       else
         printf("WARNING: xgill argument 'annfile' requires value\n");
     }

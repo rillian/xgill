@@ -311,7 +311,7 @@ bool CheckSingleCaller(CheckerState *state, CheckerFrame *frame,
       return false;
     }
 
-    caller_frame->AssertPointGuard(where.point);
+    caller_frame->AssertPointGuard(where.point, true);
 
     // check for a recursive function/loop call. if there is an existing
     // propagate for this function then just assert its safe/sufficient
@@ -468,7 +468,7 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
   }
 
   PPoint exit_point = callee_frame->Memory()->GetCFG()->GetExitPoint();
-  callee_frame->AssertPointGuard(exit_point);
+  callee_frame->AssertPointGuard(exit_point, true);
 
   if (is_call) {
     frame->ConnectCallee(callee_frame, point, true);
@@ -572,7 +572,7 @@ bool CheckSingleHeapWrite(CheckerState *state, CheckerFrame *frame,
   Assert(write_frame && write_frame->Memory() == write.mcfg);
 
   PPoint exit_point = write.mcfg->GetCFG()->GetExitPoint();
-  write_frame->AssertPointGuard(exit_point);
+  write_frame->AssertPointGuard(exit_point, true);
 
   // assert the lvalue is actually updated within this frame. these bits
   // are never explicitly popped, they get dropped when the frame is deleted.
@@ -1153,6 +1153,7 @@ CheckerState* CheckAssertion(BlockId *id, const AssertInfo &info)
 
   // point to translate the assertion at.
   PPoint use_point = 0;
+  bool allow_point = true;
 
   if (info.kind == ASK_Invariant) {
     // for invariants we assert at exit from the block. the path must still
@@ -1164,9 +1165,15 @@ CheckerState* CheckAssertion(BlockId *id, const AssertInfo &info)
   else {
     // the assert must hold at the point of the assertion (!).
     use_point = info.point;
+
+    // pull in annotations at this point except when checking other
+    // annotations. this is only important for point annotations added
+    // via the web UI, which don't have an outgoing annotation edge.
+    if (info.kind == ASK_Annotation || info.kind == ASK_AnnotationRuntime)
+      allow_point = false;
   }
 
-  base_frame->AssertPointGuard(use_point);
+  base_frame->AssertPointGuard(use_point, allow_point);
 
   // get safe bits for the initial assertion.
   GuardBitVector base_safe_list;

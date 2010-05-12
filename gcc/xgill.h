@@ -491,6 +491,7 @@ bool XIL_ProcessAnnotationAttr(tree node, tree attr, XIL_PPoint *point,
 
 // consume an annotation read from an annotation file.
 void XIL_ProcessAnnotationRead(tree node, const char *where,
-                               const char *text, bool trusted);
+                               const char *point_text, const char *annot_text,
+                               bool trusted);
 
 #endif // XIL_MAIN

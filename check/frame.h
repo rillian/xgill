@@ -270,8 +270,9 @@ class CheckerFrame
 
   // specify point as the ending point of this frame, and assert the guard
   // at that point holds and any associated assumptions from the inference,
-  // populating m_assumed_bits.
-  void AssertPointGuard(PPoint point);
+  // populating m_assumed_bits. if allow_point is set then assumptions may
+  // be pulled in at point itself.
+  void AssertPointGuard(PPoint point, bool allow_point);
 
   // push/pop extra assumed bits for this frame. pushing a bit will assert it.
   void PushAssumedBit(Bit *guard);

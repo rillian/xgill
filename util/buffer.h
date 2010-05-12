@@ -290,6 +290,10 @@ const char* GetMaximumInteger(size_t bits, bool sign);
 bool UnescapeCharLiteral(const char *str, char *result);
 bool UnescapeStringLiteral(const char *str, Buffer *result);
 
+// unescape HTML sequences in val: &amp; &lt; &gt;. the result is allocated
+// using new[].
+char* HtmlUnescape(const char *val);
+
 // print a string to the specified stream, escaping non-printable characters.
 void PrintString(OutStream &buf, const uint8_t *str, size_t len);
 

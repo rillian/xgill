@@ -51,18 +51,13 @@ my $text = param('text');
 my $trust = param('trust');
 
 if (defined $hook) {
-    if ($hook =~ /[\n\"\']/) {
-	exit_with "ERROR: Bad character in hook";
-    }
-
     exit_with "Need CGI parameter: text" if (not (defined $text));
     exit_with "Need CGI parameter: trust" if (not (defined $trust));
 
+    # hook will be checked downstream, text is not checked.
+
     if ($text eq "") {
 	exit_with "ERROR: Annotation text is blank";
-    }
-    if ($text =~ /[\n\"\']/) {
-	exit_with "ERROR: Bad character in text";
     }
     if ($trust ne "true" && $trust ne "false") {
 	exit_with "ERROR: Invalid trust";

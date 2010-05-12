@@ -584,7 +584,7 @@ void GetMemoryLvalues(BlockMemory *mcfg, Vector<Exp*> *lvalue_list)
   }
 }
 
-void CheckerFrame::AssertPointGuard(PPoint point)
+void CheckerFrame::AssertPointGuard(PPoint point, bool allow_point)
 {
   Solver *solver = m_state->GetSolver();
 
@@ -592,9 +592,12 @@ void CheckerFrame::AssertPointGuard(PPoint point)
   Assert(point);
   m_end_point = point;
 
+  // if allow_point is set then we can pull in assumptions at the point itself.
+  PPoint assume_point = allow_point ? (point + 1) : point;
+
   // add any assumptions given to us by the summary/annots for the block.
   Vector<AssumeInfo> assume_list;
-  BlockSummary::GetAssumedBits(m_mcfg, point, &assume_list);
+  BlockSummary::GetAssumedBits(m_mcfg, assume_point, &assume_list);
 
   for (size_t ind = 0; ind < assume_list.Size(); ind++) {
     const AssumeInfo &info = assume_list[ind];

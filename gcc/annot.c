@@ -510,10 +510,11 @@ void XIL_ScanDefineType(tree type)
   }
 }
 
-static inline bool is_alpha(char c)
+// characters that can appear between quotes we process.
+static inline bool quote_char(char c)
 {
   return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-      || (c >= '0' && c <= '9') || (c == '_') || (c == ' ');
+      || (c >= '0' && c <= '9') || (c == '_') || (c == ' ') || (c == ':');
 }
 
 // if *str is a string quoted with three-character unicode sequences,
@@ -526,7 +527,7 @@ char* GetNameQuote(char **str)
     return NULL;
 
   char *pos = *str + 3;
-  while (is_alpha(*pos)) pos++;
+  while (quote_char(*pos)) pos++;
 
   if (*pos != (char) -30)
     return NULL;
@@ -563,6 +564,13 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
   if (!strncmp(str,"struct ",7)) str += 7;
   if (!strncmp(str,"union ",6)) str += 6;
 
+  // eat any namespaces from the quoted portion of the string.
+  while (true) {
+    char *colon = strchr(str, ':');
+    if (!colon) break;
+    str = colon + 1;
+  }
+
   *quoted = str;
   *post = strdup(pos);
   return true;
@@ -571,7 +579,7 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
 // returns true if the error message was interpreted successfully and the
 // state was changed to fix the error.
 bool XIL_ProcessAnnotationError(char *error_message)
-{ 
+{
   char *pre, *quoted, *post;
   if (!GetQuoteMessage(error_message, &pre, &quoted, &post))
     return false;
@@ -1517,7 +1525,7 @@ void WriteAnnotationFile(FILE *file)
 // process an annotation either from an attribute or read in from a file.
 void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
                            XIL_Location loc, XIL_AnnotationKind annot_kind,
-                           const char *annot_text)
+                           const char *point_text, const char *annot_text)
 {
   gcc_assert(xil_plugin_path);
   if (!xil_gcc_path) {
@@ -1866,12 +1874,14 @@ bool XIL_ProcessAnnotationAttr(tree node, tree attr, XIL_PPoint *point,
     return true;
   }
 
-  XIL_ProcessAnnotation(node, point, false, loc, annot_kind, annot_text);
+  XIL_ProcessAnnotation(node, point, false, loc, annot_kind,
+                        NULL, annot_text);
   return true;
 }
 
 void XIL_ProcessAnnotationRead(tree node, const char *where,
-                               const char *text, bool trusted)
+                               const char *point_text, const char *annot_text,
+                               bool trusted)
 {
   XIL_AnnotationKind annot_kind = 0;
   bool all_locals = false;
@@ -1887,5 +1897,11 @@ void XIL_ProcessAnnotationRead(tree node, const char *where,
     all_locals = true;
   }
 
-  XIL_ProcessAnnotation(node, NULL, all_locals, NULL, annot_kind, text);
+  if (point_text) {
+    annot_kind = trusted ? XIL_AK_Assume : XIL_AK_Assert;
+    all_locals = true;
+  }
+
+  XIL_ProcessAnnotation(node, NULL, all_locals, NULL, annot_kind,
+                        point_text, annot_text);
 }

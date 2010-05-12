@@ -204,6 +204,9 @@ sub run_fetch_loop {
 
         print "Processing $ext...\n";
 
+        my $message = "";
+        my $html = "";
+
         if ($hook ne "") {
             # append to the annotation file. because of the fetch delay there
             # shouldn't be contention between multiple workers for this append.
@@ -220,6 +223,7 @@ sub run_fetch_loop {
             # break up and reanalyze all functions in the hook.
             my @hook_list = split(/\$/, $hook);
             for my $hook_entry (@hook_list) {
+                $hook_entry =~ s/point \'.*?\' //;
                 $hook_entry =~ /.*? (.*)/;
                 my $func = $1;
                 my $func_body = `xdbfind src_body.xdb '$func'`;
@@ -244,7 +248,10 @@ sub run_fetch_loop {
                         }
                     }
                 }
-                next if ($command eq "");
+                if ($command eq "") {
+                    print "WARNING: Could not figure out command for '$func'\n";
+                    next;
+                }
 
                 $command =~ /(.*?): (.*)/;
                 my $command_dir = $1;
@@ -255,24 +262,33 @@ sub run_fetch_loop {
                 chdir $command_dir;
                 system("$command_run");
                 chdir $result_dir;
+
+                # check if an error was generated. this will be the second to last line
+                # in the log, provided that this was the only new anntoation and
+                # we haven't raced with another worker handling another new
+                # annotation.
+                my $error_line = `tail -n 2 build_fetch.log`;
+                if ($error_line =~ /ERROR: Could not figure out error: (.*?)\n$/) {
+                    $message = "Error processing annotation: $1";
+                }
             }
         }
 
-        my $res = system("$xcheck '$report' -xml-out=$ext.xml -remote=$address");
-        my $message;
-        my $html = "";
+        if ($message eq "") {
+            my $res = system("$xcheck '$report' -xml-out=$ext.xml -remote=$address");
 
-        if ($res != 0) {
-            $message = "Failure during analysis";
-        }
-        else {
-            if (-e "$ext.xml") {
-                $message = "New report generated. Refresh your browser.";
-                $html = `make_report $link $prev $next < $ext.xml`;
+            if ($res != 0) {
+                $message = "Failure during analysis";
             }
             else {
-                $message = "Assertion successfully checked. Refresh your browser.";
-                $html = `make_report $link $prev $next -success`;
+                if (-e "$ext.xml") {
+                    $message = "New report generated. Refresh your browser.";
+                    $html = `make_report $link $prev $next < $ext.xml`;
+                }
+                else {
+                    $message = "Assertion successfully checked. Refresh your browser.";
+                    $html = `make_report $link $prev $next -success`;
+                }
             }
         }
 
@@ -290,9 +306,9 @@ sub run_fetch_loop {
                 open(HTML, "> $base_dir/$dir/$link.html");
                 print HTML $html;
                 close(HTML);
-
-                move("$script_dir/$ext.done", "$script_dir/jobs");
             }
+
+            move("$script_dir/$ext.done", "$script_dir/jobs");
         }
         else {
             $response = $browser->post($post_url,

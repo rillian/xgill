@@ -112,7 +112,8 @@ int XIL_GetAnnotationCount(XIL_Var var, int annot_type);
 
 // get one of the read annotations associated with var.
 void XIL_GetAnnotation(XIL_Var var, int annot_type, int index,
-                       const char **pwhere, const char **ptext,
+                       const char **pwhere,
+                       const char **ppoint_text, const char **pannot_text,
                        int *ptrusted);
 
 // ensure that any generated annotations are forced to disk after processing
