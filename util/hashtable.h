@@ -37,9 +37,8 @@ inline uint32_t ELFHash(uint32_t hash, const void *val, uint32_t len)
 
   for (uint32_t i = 0; i < len; dval++, i++) {
     hash = (hash << 4) + (*dval);
-    if ((x = hash & 0xF0000000L) != 0) {
+    if ((x = hash & 0xF0000000L) != 0)
       hash ^= (x >> 24);
-    }
     hash &= ~x;
   }
 

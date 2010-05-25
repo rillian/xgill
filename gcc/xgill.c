@@ -278,8 +278,7 @@ void XIL_GenerateBlock(tree decl)
 
   XIL_Location end_loc = XIL_MakeLocation(end_file, end_line);
 
-  if (xil_command)
-    XIL_CFGSetCommand(xil_command);
+  XIL_CFGSetCommand(xil_command);
 
   XIL_CFGSetBeginLocation(begin_loc);
   XIL_CFGSetEndLocation(end_loc);
@@ -372,9 +371,6 @@ static const char *annotation_file = NULL;
 
 void gcc_plugin_start_unit(void *gcc_data, void *user_data)
 {
-  XIL_SetupGenerate(xil_remote_address);
-  XIL_SetNormalizeDirectory(normalize_directory);
-
   if (log_file) {
     xil_log = fopen(log_file, "a");
     gcc_assert(xil_log);
@@ -399,6 +395,9 @@ void gcc_plugin_start_unit(void *gcc_data, void *user_data)
   else {
     xil_log = stdout;
   }
+
+  XIL_SetupGenerate(xil_remote_address);
+  XIL_SetNormalizeDirectory(normalize_directory);
 
   if (annotation_file)
     XIL_ReadAnnotationFile(annotation_file);
@@ -630,8 +629,9 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     XIL_GetAnnotation(name, !is_function, false, ind, &where,
                       &point_text, &annot_text, &trusted);
 
-    // we'll handle loop invariants after seeing the function's definition.
-    if (!strncmp(where, "loop", 4))
+    // we'll handle loop invariants and point assertions after seeing the
+    // function's definition.
+    if (!strncmp(where, "loop", 4) || point_text)
       continue;
 
     XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
@@ -717,6 +717,7 @@ int plugin_init (struct plugin_name_args *plugin_info,
   // this as a plugin argument as the command line may include '=' and
   // use both single and double quotes.
   xil_command = getenv("XGILL_COMMAND");
+  gcc_assert(xil_command);
 
   // process any plugin arguments.
   int arg_ind;

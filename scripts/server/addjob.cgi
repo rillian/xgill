@@ -33,7 +33,7 @@ my $next = check_param('next');
 if ($report =~ /[\n\"\']/) {
     exit_with "ERROR: Bad character in report";
 }
-if ($ext =~ /[^A-Z]/) {
+if ($ext =~ /[^A-Z]/ || length($ext) > 10) {
     exit_with "ERROR: Invalid extension";
 }
 if ($link =~ /[^a-zA-Z0-9_]/) {
@@ -95,6 +95,34 @@ if ($name eq "") {
     exit_with "ERROR: Invalid login";
 }
 
+if ($ext eq "NEW") {
+    # new job, make an extension for it.
+    $ext = "";
+    my @chars = ('A'..'Z');
+    for (my $i = 0; $i < 10; $i++) {
+        $ext .= $chars[rand @chars];
+    }
+
+    open(OUT, "> $ext.job");
+    print OUT "$ext\n";
+    print OUT "$name\n";
+    print OUT "$mail\n";
+    print OUT "$report\n";
+    print OUT "$link\n";
+    print OUT "$prev\n";
+    print OUT "$next\n";
+    if (defined $hook) {
+        print OUT "$hook\n";
+        print OUT "$text\n";
+        print OUT "$trust\n";
+    }
+    close(OUT);
+    move("$ext.job", "jobs_todo/$ext.job");
+
+    print "setTimeout('refreshJob(\"$ext\")', 3000);\n";
+    exit_with "Waiting to start...";
+}
+
 if (-e "jobs/$ext.done") {
     open(IN, "< jobs/$ext.done");
     my $result = <IN>;
@@ -114,7 +142,7 @@ if (-e "jobs/$ext.job") {
 	exit_with "Timeout waiting for result";
     }
 
-    print "setTimeout('refreshJob()', 3000);\n";
+    print "setTimeout('refreshJob(\"$ext\")', 3000);\n";
     exit_with "Analysis in progress... ($age seconds)";
 }
 
@@ -128,25 +156,8 @@ if (-e "jobs_todo/$ext.job") {
 	exit_with "Timeout waiting to start";
     }
 
-    print "setTimeout('refreshJob()', 3000);\n";
+    print "setTimeout('refreshJob(\"$ext\")', 3000);\n";
     exit_with "Waiting to start... ($age seconds)";
 }
 
-open(OUT, "> $ext.job");
-print OUT "$ext\n";
-print OUT "$name\n";
-print OUT "$mail\n";
-print OUT "$report\n";
-print OUT "$link\n";
-print OUT "$prev\n";
-print OUT "$next\n";
-if (defined $hook) {
-    print OUT "$hook\n";
-    print OUT "$text\n";
-    print OUT "$trust\n";
-}
-close(OUT);
-move("$ext.job", "jobs_todo/$ext.job");
-
-print "setTimeout('refreshJob()', 3000);\n";
-exit_with "Waiting to start...";
+exit_with "Unknown job";

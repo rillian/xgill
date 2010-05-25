@@ -1818,8 +1818,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
   // log the error message.
   fprintf(xil_log, "ERROR: %s\n\n", error_buf);
 
-  // TODO: there does not seem to be any location information available
-  // for attributes.
+  // there isn't any location information available for attributes.
   XIL_Location error_loc = XIL_MakeLocation("<error>", 0);
 
   // make an annotation CFG so we remember this later (and don't try again
@@ -1831,10 +1830,12 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
   XIL_ClearAssociate(XIL_AscAnnotate);
 
   // remove the output files unless we're keeping all failed annotations.
+  /*
 #ifndef ANNOTATION_DEBUG
   remove(out_file);
   remove(annotation_file);
 #endif
+  */
 }
 
 bool XIL_ProcessAnnotationAttr(tree node, tree attr, XIL_PPoint *point,

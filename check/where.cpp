@@ -324,49 +324,6 @@ WherePostcondition::WherePostcondition(CheckerFrame *frame,
   : Where(WK_Postcondition, bit), m_frame(frame), m_point(point)
 {}
 
-// mapper to replace all exit and clobber expressions with
-// the corresponding Drf or other expression.
-class ConvertExitClobberMapper : public ExpMapper
-{
-public:
-  ConvertExitClobberMapper()
-    : ExpMapper(VISK_All, WIDK_Drop)
-  {}
-
-  Exp* Map(Exp *value, Exp *old)
-  {
-    Exp *target = NULL;
-    Exp *value_kind = NULL;
-
-    if (ExpExit *nvalue = value->IfExit()) {
-      target = nvalue->GetTarget();
-      value_kind = nvalue->GetValueKind();
-    }
-
-    if (ExpClobber *nvalue = value->IfClobber()) {
-      target = nvalue->GetOverwrite();
-      value_kind = nvalue->GetValueKind();
-    }
-
-    if (!target)
-      return value;
-
-    // feed the targeted expression back into the mapper,
-    // as this outer exp was treated as a leaf.
-    Exp *new_target = target->DoMap(this);
-
-    if (value_kind) {
-      Exp *res = value_kind->ReplaceLvalTarget(new_target);
-      value->DecRef();
-      return res;
-    }
-    else {
-      value->DecRef();
-      return Exp::MakeDrf(new_target);
-    }
-  }
-};
-
 void WherePostcondition::Print(OutStream &out) const
 {
   out << "Postcondition [" << m_point << "]";
@@ -394,8 +351,7 @@ void WherePostcondition::PrintUI(OutStream &out) const
   }
 
   if (m_bit) {
-    ConvertExitClobberMapper mapper;
-    Bit *new_bit = m_bit->DoMap(&mapper);
+    Bit *new_bit = BitConvertExitClobber(m_bit);
 
     out << " :: ";
     new_bit->PrintUI(out, true);
@@ -448,8 +404,7 @@ void WherePostcondition::GetSkipLoopBits(Bit **base_bit, GuardBitVector *res)
 {
   BlockMemory *mcfg = m_frame->Memory();
 
-  ConvertExitClobberMapper mapper;
-  *base_bit = m_bit->DoMap(&mapper);
+  *base_bit = BitConvertExitClobber(m_bit);
 
   // TODO: is SkipClobber the best translation to do here?
   // there can't be any clobbers in m_bit, just exit expressions
@@ -466,8 +421,7 @@ void WherePostcondition::GetCalleeBits(CheckerFrame *callee_frame,
   BlockMemory *callee_mcfg = callee_frame->Memory();
   PPoint exit_point = callee_mcfg->GetCFG()->GetExitPoint();
 
-  ConvertExitClobberMapper mapper;
-  *base_bit = m_bit->DoMap(&mapper);
+  *base_bit = BitConvertExitClobber(m_bit);
 
   GuardBitVector base_res;
   callee_mcfg->TranslateBit(TRK_Exit, exit_point, m_bit, &base_res);
@@ -600,8 +554,7 @@ void WhereInvariant::GetHeapBits(CheckerFrame *write_frame,
   // the base CSU, and hope that means the same thing at exit as at
   // the point of the write.
 
-  ConvertExitClobberMapper mapper;
-  Bit *new_bit = m_bit->DoMap(&mapper);
+  Bit *new_bit = BitConvertExitClobber(m_bit);
 
   if (base_csu) {
     *base_bit = BitReplaceExp(new_bit, old_lval, base_csu);

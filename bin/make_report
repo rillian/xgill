@@ -608,19 +608,6 @@ function toggleHelp()
     refreshHeader();
 }
 
-function newExtension()
-{
-    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    var res = '';
-
-    for (var i = 0; i < 10; i++) {
-        var index = Math.floor(Math.random() * chars.length);
-        res += chars.substring(index, index+1);
-    }
-
-    return res;
-}
-
 function clearLogin()
 {
     document.cookie = "sixgill=; expires=; path=/";
@@ -748,7 +735,7 @@ function hideResult()
     document.getElementById("job_result").style.paddingBottom = "";
 }
 
-var refreshJob = function () {
+var refreshJob = function (ext) {
     document.getElementById("job_server").innerHTML = ":(";
 }
 
@@ -766,12 +753,10 @@ EOF
 
 print <<EOF;
 
-    var ext = newExtension();
-
     document.getElementById("job_result").innerHTML =
         "<span style='padding: 0px 5px' id='job_server'></span>";
 
-    refreshJob = function() {
+    refreshJob = function(ext) {
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
@@ -779,7 +764,7 @@ print <<EOF;
         head.appendChild(script);
     }
 
-    refreshJob();
+    refreshJob("NEW");
 }
 
 function doReanalyze()
@@ -818,7 +803,6 @@ print <<EOF;
     var textItem = document.getElementById("annotate_text");
     var trustItem = document.getElementById("annotate_trust");
 
-    var ext = newExtension();
     var text = encodeURIComponent(textItem.value);
 
     var hook;
@@ -833,7 +817,7 @@ print <<EOF;
     document.getElementById("job_result").innerHTML =
         "<span style='padding: 0px 5px' id='job_server'></span>";
 
-    refreshJob = function() {
+    refreshJob = function(ext) {
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
@@ -841,7 +825,7 @@ print <<EOF;
         head.appendChild(script);
     }
 
-    refreshJob();
+    refreshJob("NEW");
 }
 
 function doAnnotate()

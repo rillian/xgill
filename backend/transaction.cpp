@@ -424,13 +424,13 @@ void AnalysisPrepare(const char *remote_address)
 
   const char *colon_pos = strchr(remote_address, ':');
   if (colon_pos == NULL) {
-    cout << "ERROR: malformed remote address: missing ':'" << endl << flush;
+    logout << "ERROR: malformed remote address: missing ':'" << endl << flush;
     abort();
   }
 
   char address[512];
   if (colon_pos - remote_address + 1 > (long) sizeof(address)) {
-    cout << "ERROR: malformed remote address: too long" << endl << flush;
+    logout << "ERROR: malformed remote address: too long" << endl << flush;
     abort();
   }
 
@@ -439,7 +439,7 @@ void AnalysisPrepare(const char *remote_address)
 
   long port;
   if (!StringToInt(colon_pos + 1, &port)) {
-    cout << "ERROR: malformed remote address: invalid port" << endl << flush;
+    logout << "ERROR: malformed remote address: invalid port" << endl << flush;
     abort();
   }
 
@@ -447,7 +447,7 @@ void AnalysisPrepare(const char *remote_address)
 
   remotefd = socket(PF_INET, SOCK_STREAM, 0);
   if (remotefd == -1) {
-    cout << "ERROR: socket() failure: " << strerror(errno) << endl << flush;
+    logout << "ERROR: socket() failure: " << strerror(errno) << endl << flush;
     abort();
   }
 
@@ -456,11 +456,11 @@ void AnalysisPrepare(const char *remote_address)
 
   ret = inet_pton(PF_INET, address, &addr.sin_addr);
   if (ret == 0) {
-    cout << "ERROR: invalid address for inet_pton()" << endl << flush;
+    logout << "ERROR: invalid address for inet_pton()" << endl << flush;
     abort();
   }
   if (ret == -1) {
-    cout << "ERROR: inet_pton() failure: " << strerror(errno) << endl << flush;
+    logout << "ERROR: inet_pton() failure: " << strerror(errno) << endl << flush;
     abort();
   }
 
@@ -472,10 +472,12 @@ void AnalysisPrepare(const char *remote_address)
     // we get ECONNREFUSED when the manager is not there anymore.
     // treat this as a success, presumably the manager finished its work
     // and shut down.
-    if (errno == ECONNREFUSED)
+    if (errno == ECONNREFUSED) {
+      logout << "Manager has been terminated, exiting..." << endl << flush;
       exit(0);
+    }
 
-    cout << "ERROR: connect() failure: " << strerror(errno) << endl << flush;
+    logout << "ERROR: connect() failure: " << strerror(errno) << endl << flush;
     abort();
   }
 

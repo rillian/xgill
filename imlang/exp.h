@@ -286,7 +286,7 @@ class Exp : public HashObject
   }
 
   // print this expression for the UI.
-  virtual void PrintUI(OutStream &out, bool parens) const { out << this; }
+  virtual void PrintUI(OutStream &out, bool parens) const { Print(out); }
 
   // as in PrintUI, except prints this as an rvalue, removing any leading
   // Drf or adding an '&' as appropriate.
@@ -793,6 +793,7 @@ class ExpFrame : public Exp
 
   // inherited methods
   void Print(OutStream &out) const;
+  void PrintUI(OutStream &out, bool parens) const;
   void DecMoveChildRefs(ORef ov, ORef nv);
 
  private:
@@ -1085,6 +1086,10 @@ inline bool LimitRevertResult(ExpMultiMapper *mapper,
 // replace old_exp with new_exp within exp/bit.
 Exp* ExpReplaceExp(Exp *exp, Exp *old_exp, Exp *new_exp);
 Bit* BitReplaceExp(Bit *bit, Exp *old_exp, Exp *new_exp);
+
+// convert all exit and clobber expressions to the corresponding Drf.
+Exp* ExpConvertExitClobber(Exp *exp);
+Bit* BitConvertExitClobber(Bit *bit);
 
 // if exp is a bound or terminate, get its target and the kind of bound/term.
 // accounts for clobbered terminate values. gets references on bound/terminate

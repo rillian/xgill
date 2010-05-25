@@ -3732,6 +3732,17 @@ void ExpFrame::Print(OutStream &out) const
   out << "frame(" << m_value << "," << m_frame_id << ")";
 }
 
+void ExpFrame::PrintUI(OutStream &out, bool parens) const
+{
+  Exp *new_value = ExpConvertExitClobber(m_value);
+
+  out << "frame(";
+  new_value->PrintUI(out, false);
+  out << ")";
+
+  new_value->DecRef();
+}
+
 void ExpFrame::DecMoveChildRefs(ORef ov, ORef nv)
 {
   m_value->DecMoveRef(ov, nv);
@@ -4127,6 +4138,61 @@ Exp* ExpReplaceExp(Exp *exp, Exp *old_exp, Exp *new_exp)
 Bit* BitReplaceExp(Bit *bit, Exp *old_exp, Exp *new_exp)
 {
   ReplaceExpMapper mapper(old_exp, new_exp);
+  return bit->DoMap(&mapper);
+}
+
+// mapper to replace all exit and clobber expressions with
+// the corresponding Drf or other expression.
+class ConvertExitClobberMapper : public ExpMapper
+{
+public:
+  ConvertExitClobberMapper()
+    : ExpMapper(VISK_All, WIDK_Drop)
+  {}
+
+  Exp* Map(Exp *value, Exp *old)
+  {
+    Exp *target = NULL;
+    Exp *value_kind = NULL;
+
+    if (ExpExit *nvalue = value->IfExit()) {
+      target = nvalue->GetTarget();
+      value_kind = nvalue->GetValueKind();
+    }
+
+    if (ExpClobber *nvalue = value->IfClobber()) {
+      target = nvalue->GetOverwrite();
+      value_kind = nvalue->GetValueKind();
+    }
+
+    if (!target)
+      return value;
+
+    // feed the targeted expression back into the mapper,
+    // as this outer exp was treated as a leaf.
+    Exp *new_target = target->DoMap(this);
+
+    if (value_kind) {
+      Exp *res = value_kind->ReplaceLvalTarget(new_target);
+      value->DecRef();
+      return res;
+    }
+    else {
+      value->DecRef();
+      return Exp::MakeDrf(new_target);
+    }
+  }
+};
+
+Exp* ExpConvertExitClobber(Exp *exp)
+{
+  ConvertExitClobberMapper mapper;
+  return exp->DoMap(&mapper);
+}
+
+Bit* BitConvertExitClobber(Bit *bit)
+{
+  ConvertExitClobberMapper mapper;
   return bit->DoMap(&mapper);
 }
 
