@@ -31,6 +31,9 @@ const char *USAGE = "xcheck [options] [function-check*]";
 ConfigOption check_kind(CK_String, "check-kind", "write_overflow",
                         "assert kind to analyze");
 
+ConfigOption check_types(CK_String, "check-type", "",
+                         "bound type to check within assertions");
+
 ConfigOption check_file(CK_String, "check-file", "",
                         "file with list of checks to analyze");
 
@@ -270,12 +273,30 @@ void RunAnalysis(const Vector<const char*> &checks)
       for (size_t ind = 0; ind < assert_count; ind++) {
         const AssertInfo &info = asserts->At(ind);
 
-        // only look at assertions with a kind we're interested in,
-        // unless we have an explicit list of checks (in which case we'll
-        // look at all those specified).
+        // apply kind and type filters on the assertion, unless we have
+        // an explicit list of checks (in which case we'll look at all
+        // those specified).
         if (checks.Empty()) {
           if (strcmp(AssertKindString(info.kind), check_kind.StringValue()))
             continue;
+
+          if (check_types.IsSpecified()) {
+            Vector<Exp*> lval_list;
+            LvalListVisitor visitor(&lval_list);
+            info.bit->DoVisit(&visitor);
+
+            bool found_match = false;
+            for (size_t lind = 0; lind < lval_list.Size(); lind++) {
+              if (ExpBound *nexp = lval_list[lind]->IfBound()) {
+                if (nexp->GetStrideType()->EqualsString(check_types.StringValue()))
+                  found_match = true;
+              }
+            }
+
+            DecRefVector<Exp>(&lval_list);
+            if (!found_match)
+              continue;
+          }
         }
 
         // ignore trivial and redundant assertions.
@@ -401,6 +422,7 @@ int main(int argc, const char **argv)
   solver_constraint.Enable();
 
   check_kind.Enable();
+  check_types.Enable();
   check_file.Enable();
   xml_file.Enable();
 

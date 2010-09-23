@@ -174,7 +174,7 @@ class HashObject
   // and append that string to buf.
   void ToString(Buffer *buf) const;
 
-  // whether this object equals the specified string. for debugging.
+  // whether this object equals the specified string.
   bool EqualsString(const char *str) const;
 
   // ensure that all data referred to by this object is persisted in the heap.

@@ -53,6 +53,10 @@ extern const char *xil_plugin_path;
 // gcc binary and command line arguments used to invoke the plugin.
 extern const char *xil_command;
 
+// if an error is encountered during annotation processing, name of the
+// file to write information about that error.
+extern const char *xil_annotation_single;
+
 // whether our input file is generating an annotation CFG.
 extern bool xil_has_annotation;
 

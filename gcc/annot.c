@@ -1805,7 +1805,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
     bool success = XIL_ProcessAnnotationError(error_message);
     if (!success) {
       // found an error but couldn't process it. give up.
-      sprintf(error_buf, "Could not figure out error: %s", error_message);
+      sprintf(error_buf, "Compiler message: %s", error_message);
       break;
     }
 
@@ -1817,6 +1817,13 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
   // log the error message.
   fprintf(xil_log, "ERROR: %s\n\n", error_buf);
+
+  // write a separate file with the error message for web annotations.
+  if (xil_annotation_single) {
+    FILE *xil_annot = fopen(xil_annotation_single, "w");
+    fprintf(xil_annot, "%s\n", error_buf);
+    fclose(xil_annot);
+  }
 
   // there isn't any location information available for attributes.
   XIL_Location error_loc = XIL_MakeLocation("<error>", 0);

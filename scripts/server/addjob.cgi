@@ -54,7 +54,14 @@ if (defined $hook) {
     exit_with "Need CGI parameter: text" if (not (defined $text));
     exit_with "Need CGI parameter: trust" if (not (defined $trust));
 
-    # hook will be checked downstream, text is not checked.
+    # hook will be checked further downstream, text will not get
+    # anymore checking.
+    if ($hook =~ /[\n\r]/) {
+        exit_with "ERROR: Invalid hook";
+    }
+    if ($text =~ /[\n\r\'\"]/) {
+        exit_with "ERROR: Invalid text";
+    }
 
     if ($text eq "") {
 	exit_with "ERROR: Annotation text is blank";

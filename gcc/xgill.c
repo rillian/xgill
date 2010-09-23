@@ -37,6 +37,8 @@ const char *xil_command = NULL;
 bool xil_has_annotation = false;
 tree xil_annotation_this = NULL;
 
+const char *xil_annotation_single = NULL;
+
 // if our input file is generating an annotation CFG, the class ("func", "init"
 // or "comp"), kind and name of annotation. the name of the variable/type
 // being annotated comes from the annotation function.
@@ -755,7 +757,11 @@ int plugin_init (struct plugin_name_args *plugin_info,
       else
         printf("WARNING: xgill argument 'annfile' requires value\n");
     }
-    else if (!strcmp(arg_key,"annforce")) {
+    else if (!strcmp(arg_key,"annsingle")) {
+      if (arg_value)
+        xil_annotation_single = arg_value;
+      else
+        printf("WARNING: xgill argument 'annsingle' requires value\n");
       XIL_ForceAnnotationWrites();
     }
     else if (!strcmp(arg_key,"annot")) {

@@ -73,9 +73,11 @@ my $xcheck = "xcheck -timeout=30";
 die "Need database: src_body.xdb" if (not (-e "src_body.xdb"));
 
 my $result_dir = getcwd();
+my $log_file = "$result_dir/build_fetch.log";
+my $ann_file = "$result_dir/annots.list";
 
 # make sure the annotation file exists.
-open(ANNOT, ">> annots.list");
+open(ANNOT, ">> $ann_file");
 print ANNOT "\n";
 close(ANNOT);
 
@@ -99,17 +101,6 @@ sleep(1);
 my $log_data = `cat fetch.manager.log`;
 $log_data =~ /Listening on ([\.\:0-9]*)/ or die;
 my $address = $1;
-
-# write the configuration file for the wrapper scripts.
-open(CONFIG, "> $wrap_dir/xgill.config");
-print CONFIG "$build_dir\n";
-print CONFIG "$result_dir/build_fetch.log\n";
-print CONFIG "$address\n";
-print CONFIG "-fplugin-arg-xgill-annfile=$result_dir/annots.list -fplugin-arg-xgill-annforce\n";
-close(CONFIG);
-
-# update the PATH so that commands to add annotations will see the wrappers.
-$ENV{"PATH"} = "$wrap_dir:" . $ENV{"PATH"};
 
 # fork the worker processes.
 for (my $ind = 0; $ind < $worker_count; $ind++) {
@@ -206,11 +197,12 @@ sub run_fetch_loop {
 
         my $message = "";
         my $html = "";
+        my $err_file = "$result_dir/$ext.err";
 
         if ($hook ne "") {
             # append to the annotation file. because of the fetch delay there
             # shouldn't be contention between multiple workers for this append.
-            open(ANNOT, ">> annots.list");
+            open(ANNOT, ">> $ann_file");
 
             print ANNOT "$name\n";
             print ANNOT "$mail\n";
@@ -269,17 +261,30 @@ sub run_fetch_loop {
 
                 print "Running: $command\n";
 
+                # add any extra arguments to the gcc command, as is performed
+                # by basecc. we don't use basecc here as the arguments differ
+                # across jobs and the workers could race.
+                $ENV{'XGILL_COMMAND'} = $command;
+                my $xgillargs = " -DXGILL_PLUGIN -fplugin=$wrap_dir/xgill.so";
+                $xgillargs .= " -fplugin-arg-xgill-gcc=gcc";
+                $xgillargs .= " -fplugin-arg-xgill-basedir=$build_dir";
+                $xgillargs .= " -fplugin-arg-xgill-remote=$address";
+                $xgillargs .= " -fplugin-arg-xgill-log=$log_file";
+                $xgillargs .= " -fplugin-arg-xgill-annfile=$ann_file";
+                $xgillargs .= " -fplugin-arg-xgill-annsingle=$err_file";
+
                 chdir $command_dir;
-                system("$command_run");
+                system("$command_run $xgillargs");
                 chdir $result_dir;
 
                 # check if an error was generated. this will be the second to last line
                 # in the log, provided that this was the only new anntoation and
                 # we haven't raced with another worker handling another new
                 # annotation.
-                my $error_line = `tail -n 2 build_fetch.log`;
-                if ($error_line =~ /ERROR: Could not figure out error: (.*?)\n$/) {
-                    $message = "Error processing annotation: $1";
+                if (-e $err_file) {
+                  my $error_line = `cat $err_file`;
+                  chomp $error_line;
+                  $message = "Error processing annotation: $error_line";
                 }
             }
         }
