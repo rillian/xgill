@@ -293,7 +293,7 @@ void RunAnalysis(const Vector<const char*> &checks)
               }
             }
 
-            DecRefVector<Exp>(&lval_list);
+            DecRefVector<Exp>(lval_list, &lval_list);
             if (!found_match)
               continue;
           }
