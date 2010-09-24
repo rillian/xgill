@@ -91,6 +91,13 @@ struct SufficientTester
       return false;
     }
 
+    // check that the sufficient condition does not render the point
+    // of the assertion unreachable: the solver is still satisfiable after
+    // asserting the sufficient condition. this also takes care of
+    // unsatisfiable sufficient conditions.
+
+    state->PushContext();
+
     // ignore bits we can't do any propagation from.
 
     CheckerPropagate *test_propagate =
@@ -98,20 +105,21 @@ struct SufficientTester
                            propagate->m_allow_point);
     test_propagate->SetTest(bit);
 
+    // propagations can trigger new solver side conditions. TODO: should figure
+    // out what's going on here.
+    if (!solver->IsSatisfiable()) {
+      state->PopContext();
+      return false;
+    }
+
     if (test_propagate->m_where->IsNone()) {
       if (verbose)
         logout << "SUFFICIENT: " << frame << ": Failed propagate: "
                << test_propagate->m_where << endl;
+      state->PopContext();
       delete test_propagate;
       return false;
     }
-
-    // check that the sufficient condition does not render the point
-    // of the assertion unreachable: the solver is still satisfiable after
-    // asserting the sufficient condition. this also takes care of
-    // unsatisfiable sufficient conditions.
-
-    state->PushContext();
 
     // assert the tested sufficient holds in the frame.
     frame->AddAssert(bit);

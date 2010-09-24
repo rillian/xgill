@@ -900,7 +900,7 @@ void Solver::CheckAssignmentBits()
   }
 }
 
-bool Solver::IsSatisfiable(bool force_alarm)
+bool Solver::IsSatisfiable(bool expired_result)
 {
   static BaseTimer solve_timer("solver_sat");
   Timer _timer(&solve_timer);
@@ -908,10 +908,10 @@ bool Solver::IsSatisfiable(bool force_alarm)
   if (m_verbose)
     logout << "SOLVER: Checking" << endl;
 
-  if (!force_alarm && TimerAlarm::ActiveExpired()) {
+  if (TimerAlarm::ActiveExpired()) {
     if (m_verbose)
-      logout << "SOLVER: Alarm expired, result is false" << endl;
-    return false;
+      logout << "SOLVER: Alarm expired" << endl;
+    return expired_result;
   }
 
   bool result = m_satisfiable ? true : m_base->BaseCheck();

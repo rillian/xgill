@@ -163,6 +163,30 @@ void StoreDisplayPath(DisplayPath *path, const char *name, BlockId *id)
   xml_buf.Reset();
 }
 
+// check that an expression has a bound matching the -check-type switch.
+class CheckTypeVisitor : public ExpVisitor
+{
+ public:
+  bool found_match;
+
+  CheckTypeVisitor()
+    : ExpVisitor(VISK_All), found_match(false)
+  {}
+
+  void Visit(Exp *exp)
+  {
+    if (ExpBound *nexp = exp->IfBound()) {
+
+  Buffer string_buf;
+  nexp->GetStrideType()->ToString(&string_buf);
+  printf("COMPARE %s %s\n", check_types.StringValue(), (const char*) string_buf.base);
+
+    if (nexp->GetStrideType()->EqualsString(check_types.StringValue()))
+      found_match = true;
+    }
+  }
+};
+
 void RunAnalysis(const Vector<const char*> &checks)
 {
   static BaseTimer analysis_timer("xcheck_main");
@@ -281,20 +305,10 @@ void RunAnalysis(const Vector<const char*> &checks)
             continue;
 
           if (check_types.IsSpecified()) {
-            Vector<Exp*> lval_list;
-            LvalListVisitor visitor(&lval_list);
+            CheckTypeVisitor visitor;
             info.bit->DoVisit(&visitor);
 
-            bool found_match = false;
-            for (size_t lind = 0; lind < lval_list.Size(); lind++) {
-              if (ExpBound *nexp = lval_list[lind]->IfBound()) {
-                if (nexp->GetStrideType()->EqualsString(check_types.StringValue()))
-                  found_match = true;
-              }
-            }
-
-            DecRefVector<Exp>(lval_list, &lval_list);
-            if (!found_match)
+            if (!visitor.found_match)
               continue;
           }
         }

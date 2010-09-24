@@ -297,9 +297,8 @@ class Solver
   void ExpandPendingVal(FrameId frame);
 
   // is the conjunction of the added assertions satisfiable?
-  // if force_alarm is set then the solver will be checked regardless of
-  // whether there is an expired alarm.
-  bool IsSatisfiable(bool force_alarm = false);
+  // expired_result is the result to return if the alarm is expired.
+  bool IsSatisfiable(bool expired_result = false);
 
   // attempt to add additional assertions to the solver forcing correct values
   // for the results of uninterpreted operations, while maintaining
