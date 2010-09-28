@@ -65,6 +65,13 @@ class BlockId : public HashObject
   // get the kind of identifier.
   BlockKind Kind() const { return m_kind; }
 
+  // whether this is an identifier for an annotation CFG.
+  bool IsAnnotation() const {
+    return m_kind == B_AnnotationFunc ||
+           m_kind == B_AnnotationInit ||
+           m_kind == B_AnnotationComp;
+  }
+
   // get the var/loop of this block. loop is non-NULL only
   // for NULL for B_Loop blocks.
   Variable* BaseVar() const { return m_var; }

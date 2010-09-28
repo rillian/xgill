@@ -1269,6 +1269,7 @@ void WriteAnnotationFile(FILE *file)
 "long __zterm(struct __bound__*);\n"
 "#define zterm(X) __zterm((__bound__*)(__bval))\n"
 "#define initial(X) ({ typeof(X) __initial = (X); __initial; })\n"
+"int skip_inference();\n"
   );
 
   // add any enum definitions. enum definitions have to go before declarations

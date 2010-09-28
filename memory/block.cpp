@@ -2410,6 +2410,7 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
   Vector<GuardAssign> *clobbered = m_clobber_table->Lookup(point, true);
   Assert(clobbered->Empty());
+
   m_clobber->ComputeClobber(this, edge, assigns, clobbered);
 
   // add a return value assignment if there isn't already an explicit one.

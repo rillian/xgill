@@ -48,10 +48,12 @@ typedef HashTable<String*,TFunction,HashObject> FunctionTable;
 static FunctionTable g_functions;
 
 static bool started_backends = false;
+static bool finished_backends = false;
 
 void TransactionBackend::StartBackend()
 {
   Assert(!started_backends);
+  Assert(!finished_backends);
   started_backends = true;
 
 #define START_BACKEND(BACKEND)  (BACKEND).m_start();
@@ -65,6 +67,7 @@ void TransactionBackend::FinishBackend()
     return;
 
   started_backends = false;
+  finished_backends = true;
 
 #define FINISH_BACKEND(BACKEND)  if ((BACKEND).m_finish) (BACKEND).m_finish();
   ITERATE_BACKENDS(FINISH_BACKEND)
@@ -73,6 +76,11 @@ void TransactionBackend::FinishBackend()
   HashIterate(g_functions)
     g_functions.ItKey()->DecRef(&g_functions.ItValues());
   g_functions.Clear();
+}
+
+bool TransactionBackend::HasFinishedBackends()
+{
+  return finished_backends;
 }
 
 bool TransactionBackend::RunFunction(Transaction *t, const char *name,

@@ -36,11 +36,15 @@ struct XdbInfo {
   XdbInfo() : name(NULL), xdb(NULL) {}
 };
 
-// list of all opened databases
+// list of all opened databases.
 Vector<XdbInfo> databases;
+
+// whether the databases have been cleared. no further access can happen.
+bool cleared_databases = false;
 
 void ClearDatabases()
 {
+  cleared_databases = true;
   for (size_t dind = 0; dind < databases.Size(); dind++) {
     const XdbInfo &info = databases[dind];
 
@@ -53,6 +57,7 @@ void ClearDatabases()
 
 XdbInfo& GetDatabaseInfo(const uint8_t *name, bool do_create)
 {
+  Assert(!cleared_databases);
   String *name_str = String::Make((const char*)name);
   for (size_t dind = 0; dind < databases.Size(); dind++) {
     if (databases[dind].name == name_str) {

@@ -50,6 +50,9 @@ class TransactionBackend
   // only be called once.
   static void FinishBackend();
 
+  // whether the backends have finished, or are in the process of finishing.
+  static bool HasFinishedBackends();
+
   // run a function in some backend on the specified arguments,
   // returning a result in *result if there is one.
   // return true on success, false and print an error otherwise.

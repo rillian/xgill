@@ -146,6 +146,23 @@ bool DoLookupTransaction(const char *db_name,
                          const char *key_name,
                          Buffer *buf)
 {
+  // lookups can occur even as some backends are being finished
+  // (i.e. the block backend). allow this behavior, which must come
+  // before the Xdb backend itself is finished.
+  if (TransactionBackend::HasFinishedBackends()) {
+    Assert(!IsAnalysisRemote());
+
+    Xdb *xdb = GetDatabase(db_name, false);
+    if (!xdb || !xdb->Exists())
+      return false;
+
+    String *key = String::Make(key_name);
+    bool found = XdbFindUncompressed(xdb, key, buf);
+
+    key->DecRef();
+    return found;
+  }
+
   Transaction *t = new Transaction();
 
   size_t data_res = t->MakeVariable(true);
