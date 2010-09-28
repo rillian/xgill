@@ -426,7 +426,7 @@ void generate_TranslateTree(struct XIL_TreeEnv *env, tree node);
 
 // signal an unexpected tree encountered during translation. prints the
 // file/line of the signal and the contents of the tree, then bail out.
-  #define TREE_UNEXPECTED(TREE)                                         \
+#define TREE_UNEXPECTED(TREE)                                           \
   do {                                                                  \
     if (!xil_active_env.dropped) {                                      \
       fprintf(xil_log, "\nXIL: Unexpected tree (%s:%d):\n",             \
@@ -449,6 +449,8 @@ void generate_TranslateTree(struct XIL_TreeEnv *env, tree node);
     XIL_ProcessResult(ENV, error_drf);                  \
     return;                                             \
   } while (0)
+
+void XIL_DebugPrint(tree node);
 
 // as with TREE_UNEXPECTED, but less log information. these are cases where
 // our translation is incomplete but the issue is known.

@@ -52,6 +52,11 @@ struct XIL_BlockEnv xil_active_env;
 
 struct XIL_ParamDecl *xil_pending_param_decls = NULL;
 
+void XIL_DebugPrint(tree node)
+{
+  print_node(stdout, "", node, 0);
+}
+
 void XIL_ActivePushScope()
 {
   struct XIL_ScopeEnv *scope = malloc(sizeof(struct XIL_ScopeEnv));

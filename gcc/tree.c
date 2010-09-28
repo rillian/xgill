@@ -147,6 +147,23 @@ const char* XIL_TreeIntString(tree node)
   double_int cst = TREE_INT_CST(node);
   mpz_set_double_int(mpz, cst, unsign);
 
+  if (unsign) {
+    // the wide int may have bits set above the width of the type.
+    const char *max = NULL;
+    int bits = TYPE_SIZE(type) ?
+      TREE_UINT(TYPE_SIZE(type)) : TYPE_PRECISION(type);
+    switch (bits) {
+    case 8:  max = "255"; break;
+    case 16: max = "65535"; break;
+    case 32: max = "4294967295"; break;
+    case 64: max = "18446744073709551615"; break;
+    default: gcc_unreachable();
+    }
+    mpz_t mask;
+    mpz_init_set_str(mask, max, 10);
+    mpz_and(mpz, mpz, mask);
+  }
+
   int needed = mpz_sizeinbase(mpz, 10) + 2;
   char *str = malloc(needed);
 
@@ -609,6 +626,10 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
   case BIT_AND_EXPR:
     xil_left = XIL_ExpSign(xil_left, bits, false);
     xil_right = XIL_ExpSign(xil_right, bits, false);
+    break;
+
+  case POINTER_PLUS_EXPR:
+    xil_right = XIL_ExpSign(xil_right, bits, true);
     break;
 
   default: break;
