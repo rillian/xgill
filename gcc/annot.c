@@ -12,10 +12,6 @@
 // to the annotation. we'll then ask gcc to parse the file we constructed,
 // and recover the syntax for the annotation from that parse.
 
-// define this to keep output files for annotations we failed to process.
-// for debugging. this also makes the names of the output files deterministic.
-//#define ANNOTATION_DEBUG
-
 // here we keep track of what information needs to go in the annotation file,
 // and the order in which that information should be added. the general order:
 // - macro definitions.
@@ -1267,9 +1263,9 @@ void WriteAnnotationFile(FILE *file)
   fprintf(file,
 "typedef struct __bound__ __bound__;\n"
 "long __ubound(__bound__*);\n"
-"#define ubound(X) __ubound((__bound__*)(X))\n"
+"#define ubound(X) ({ typeof(X[0]) __data; __ubound((__bound__*)(X)); })\n"
 "long __lbound(struct __bound__*);\n"
-"#define lbound(X) __lbound((__bound__*)(X))\n"
+"#define lbound(X) ({ typeof(X[0]) __data; __lbound((__bound__*)(X)); })\n"
 "long __zterm(struct __bound__*);\n"
 "#define zterm(X) __zterm((__bound__*)(__bval))\n"
 "#define initial(X) ({ typeof(X) __initial = (X); __initial; })\n"
@@ -1608,13 +1604,6 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
     strcpy(annotation_file, "tmp.XXXXXX");
   mktemp(annotation_file);
 
-  // get a deterministic file if we might leave it behind.
-#ifdef ANNOTATION_DEBUG
-  static int file_count = 0;
-  file_count++;
-  sprintf(annotation_file + strlen(annotation_file) - 6, "%d", file_count);
-#endif
-
   char *out_file = malloc(strlen(annotation_file) + 10);
   sprintf(out_file, "%s.out", annotation_file);
 
@@ -1658,9 +1647,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
           plugin_buf, annot_class, purpose,
           annotation_file, object_file, out_file);
 
-#ifdef ANNOTATION_DEBUG
   fprintf(xil_log, "%s\n", system_buf);
-#endif
 
   if (state->decl && TREE_CODE(state->decl) == FUNCTION_DECL) {
     // scan for any structs/typedefs used in parameter/return vars.
@@ -1757,10 +1744,10 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
       // successfully processed the annotation file.
       XIL_ClearAssociate(XIL_AscAnnotate);
 
-#ifndef ANNOTATION_DEBUG
+      /*
       remove(out_file);
       remove(annotation_file);
-#endif
+      */
 
       state = NULL;
       return;
@@ -1838,10 +1825,8 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
   // remove the output files unless we're keeping all failed annotations.
   /*
-#ifndef ANNOTATION_DEBUG
   remove(out_file);
   remove(annotation_file);
-#endif
   */
 }
 
