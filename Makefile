@@ -19,7 +19,7 @@
 # this file includes the results of the autoconf run
 include config.mk
 
-# run 'make debug'
+# configure --enable-debug
 ifdef DEBUG
   OPT = -O0 -DDEBUG
 else
@@ -254,12 +254,6 @@ endif
 
 all: .have_yices build-libevent ${ALL_LIBS} ${ALL_BINS} build-plugin # build-elsa
 
-debug:
-	$(MAKE) all "DEBUG=1"
-
-debug_xcheck:
-	$(MAKE) bin/xcheck "DEBUG=1"
-
 profile:
 	$(MAKE) all "PROFILE=1"
 
@@ -337,15 +331,3 @@ clean:
 distclean: clean
 	rm -f config.mk config.h
 	make -C libevent distclean
-
-complete_clean:
-	$(MAKE) clean
-	make -C elsa clean
-
-complete:
-	$(MAKE)
-	make -C elsa
-
-complete_debug:
-	$(MAKE) debug
-	make -C elsa debug

@@ -25,11 +25,18 @@ AC_SUBST(HOST_LDFLAGS)
 dnl *** check for gmp/zlib ***
 AC_CHECK_HEADERS( gmp.h, [], [AC_MSG_ERROR(GMP must be installed)] )
 AC_CHECK_HEADERS( zlib.h, [], [AC_MSG_ERROR(Zlib must be installed)] )
+AC_LANG(C++)
+
+dnl *** debug build
+AC_ARG_ENABLE([debug],
+              [AS_HELP_STRING([--enable-debug],
+                [Build debugging binaries])],
+              [DEBUG=1])
+AC_SUBST(DEBUG)
 
 dnl ***********************
 dnl CVC3 support
 dnl ***********************
-AC_LANG(C++)
 AC_CHECK_HEADERS( cvc3/vc.h )
 LDFLAGS_SAVED=$LDFLAGS
 LDFLAGS="$LDFLAGS -lcvc3"
