@@ -284,6 +284,7 @@ XIL_Exp XIL_ExpInitial(XIL_Exp target);
 XIL_Exp XIL_ExpLBound(XIL_Exp target, XIL_Type stride_type);
 XIL_Exp XIL_ExpUBound(XIL_Exp target, XIL_Type stride_type);
 XIL_Exp XIL_ExpZTerm(XIL_Exp target, XIL_Type stride_type);
+XIL_Exp XIL_ExpSkipInference();
 
 // get the value of an integer expression and store it in value,
 // otherwise return 0.

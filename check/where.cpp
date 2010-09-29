@@ -433,17 +433,40 @@ void WherePostcondition::GetCalleeBits(CheckerFrame *callee_frame,
 /////////////////////////////////////////////////////////////////////
 
 // visitor to check that an invariant contains only lvalues we can find
-// the possible updates for.
+// the possible updates for, and that we are not disallowing invariant
+// inference on any types or globals used in the condition.
 class CheckInvariantVisitor : public ExpVisitor
 {
 public:
   bool exclude;
-  CheckInvariantVisitor() : ExpVisitor(VISK_Lval), exclude(false) {}
+  CheckInvariantVisitor() : ExpVisitor(VISK_All), exclude(false) {}
 
   void Visit(Exp *exp)
   {
-    if (exp->DrfCount() > 1)
-      exclude = true;
+    if (ExpDrf *nexp = exp->IfDrf()) {
+      if (nexp->GetTarget()->DrfCount() > 1)
+        exclude = true;
+    }
+
+    if (ExpFld *nexp = exp->IfFld()) {
+      // pick up any type invariants from the host type.
+      String *csu_name = nexp->GetField()->GetCSUType()->GetCSUName();
+      Vector<BlockCFG*> *annot_list = CompAnnotCache.Lookup(csu_name);
+
+      for (size_t ind = 0; annot_list && ind < annot_list->Size(); ind++) {
+        BlockCFG *annot_cfg = annot_list->At(ind);
+        Assert(annot_cfg->GetAnnotationKind() == AK_Invariant ||
+               annot_cfg->GetAnnotationKind() == AK_InvariantAssume);
+
+        Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg, false);
+        if (!bit) continue;
+
+        if (BitHasDirective(bit, DIRECTIVE_SkipInference))
+          exclude = true;
+      }
+
+      CompAnnotCache.Release(csu_name);
+    }
   }
 };
 

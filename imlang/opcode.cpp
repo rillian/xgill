@@ -86,6 +86,14 @@ const char* BoundString(BoundKind bound)
   }
 }
 
+const char* DirectiveString(DirectiveKind directive)
+{
+  switch (directive) {
+  case DIRECTIVE_SkipInference: return "skip_inference";
+  default: Assert(false);
+  }
+}
+
 static inline void FoldBoolean(mpz_t res, bool val)
 {
   if (val)

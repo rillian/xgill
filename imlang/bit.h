@@ -246,4 +246,9 @@ inline bool IsSortedBitList(const Vector<Bit*> &data)
 //   ordered list of TAG_Bit (and, not, or)
 #define TAG_Bit  1080
 
+// miscellaneous
+
+bool BitHasDirective(Bit *bit, DirectiveKind kind);
+bool BitHasAnyDirective(Bit *bit);
+
 NAMESPACE_XGILL_END

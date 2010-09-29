@@ -417,8 +417,10 @@ class BlockMemory : public HashObject
   }
 
   // gets the bit associated with an annotation, computing it if necessary.
-  // msg_out receives any error message from processing the condition.
-  static Bit* GetAnnotationBit(BlockCFG *annot_cfg, ostream *msg_out = NULL);
+  // bits containing directives will be skipped per skip_directives.
+  // msg_out receives any error message for the annotation.
+  static Bit* GetAnnotationBit(BlockCFG *annot_cfg, bool skip_directives = true,
+                               ostream *msg_out = NULL);
 
  public:
   // get the ID of the CFG for this block.

@@ -52,10 +52,11 @@ enum BoundKind {
   BND_Offset = 3,
 };
 
-// boolean properties of a memory address.
-enum PointerKind {
-
-
+// directives that can be specified in annotations.
+enum DirectiveKind {
+  // when used in a type or global invariant, indicates that during checking
+  // the analysis should not try to infer invariants on the type or global.
+  DIRECTIVE_SkipInference = 0
 };
 
 // get the string representation of an operation. these return NULL
@@ -66,6 +67,9 @@ const char* BinopString(BinopKind kind, bool is_ui = false);
 
 // get the string representation of an absolute buffer bound.
 const char* BoundString(BoundKind kind);
+
+// get the string representation of a directive.
+const char* DirectiveString(DirectiveKind kind);
 
 // constant fold an operation over particular integers.
 void ConstFoldUnop(UnopKind kind, const mpz_t val, mpz_t res);

@@ -1676,4 +1676,40 @@ void Bit::ClearExtra()
   }
 }
 
+class DirectiveVisitor : public ExpVisitor
+{
+public:
+  DirectiveKind directive_kind;
+  bool has_any_directive;
+  bool has_target_directive;
+
+  DirectiveVisitor(DirectiveKind kind)
+    : ExpVisitor(VISK_All), directive_kind(kind),
+      has_any_directive(false), has_target_directive(false)
+  {}
+
+  void Visit(Exp *exp)
+  {
+    if (ExpDirective *nexp = exp->IfDirective()) {
+      has_any_directive = true;
+      if (nexp->GetDirectiveKind() == directive_kind)
+        has_target_directive = true;
+    }
+  }
+};
+
+bool BitHasDirective(Bit *bit, DirectiveKind kind)
+{
+  DirectiveVisitor visitor(kind);
+  bit->DoVisit(&visitor, true);
+  return visitor.has_target_directive;
+}
+
+bool BitHasAnyDirective(Bit *bit)
+{
+  DirectiveVisitor visitor((DirectiveKind)0);
+  bit->DoVisit(&visitor, true);
+  return visitor.has_any_directive;
+}
+
 NAMESPACE_XGILL_END

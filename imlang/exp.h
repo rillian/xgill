@@ -79,6 +79,7 @@ enum ExpKind {
   // immutable properties.
   EK_NullTest = 500,
   EK_Bound = 501,
+  EK_Directive = 502,
 
   // mutable properties.
   EK_Terminate = 600
@@ -107,6 +108,7 @@ class ExpFrame;
 
 class ExpNullTest;
 class ExpBound;
+class ExpDirective;
 class ExpTerminate;
 
 class Exp : public HashObject
@@ -166,6 +168,7 @@ class Exp : public HashObject
   // property constructors.
   static Exp* MakeNullTest(Exp *target);
   static Exp* MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type);
+  static Exp* MakeDirective(DirectiveKind kind);
   static Exp* MakeTerminate(Exp *target, Type *stride_type,
                             Exp *terminate_test, ExpInt *terminate_int);
 
@@ -244,6 +247,7 @@ class Exp : public HashObject
 
   DOWNCAST_TYPE(Exp, EK_, NullTest)
   DOWNCAST_TYPE(Exp, EK_, Bound)
+  DOWNCAST_TYPE(Exp, EK_, Directive)
   DOWNCAST_TYPE(Exp, EK_, Terminate)
 
   // whether this expression is an lvalue which can be assigned to and/or from
@@ -278,6 +282,7 @@ class Exp : public HashObject
     // properties are considered to be rvalues.
     case EK_NullTest:
     case EK_Bound:
+    case EK_Directive:
     case EK_Terminate:
       return true;
     default:
@@ -859,6 +864,22 @@ class ExpBound : public Exp
   Type *m_stride_type;
 
   ExpBound(BoundKind bound_kind, Exp *target, Type *stride_type);
+  friend class Exp;
+};
+
+class ExpDirective : public Exp
+{
+ public:
+  // get the directive being supplied.
+  DirectiveKind GetDirectiveKind() const { return m_directive_kind; }
+
+  // inherited methods
+  void Print(OutStream &out) const;
+
+ private:
+  DirectiveKind m_directive_kind;
+
+  ExpDirective(DirectiveKind kind);
   friend class Exp;
 };
 

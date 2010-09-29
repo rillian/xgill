@@ -398,10 +398,15 @@ public:
   }
 };
 
-Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, ostream *msg_out)
+Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
+                                   ostream *msg_out)
 {
-  if (cfg->IsAnnotationBitComputed() && !msg_out)
-    return cfg->GetAnnotationBit();
+  if (cfg->IsAnnotationBitComputed() && !msg_out) {
+    Bit *bit = cfg->GetAnnotationBit();
+    if (skip_directives && bit && BitHasAnyDirective(bit))
+        return NULL;
+    return bit;
+  }
 
   BlockId *id = cfg->GetId();
   id->IncRef();
@@ -474,6 +479,9 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, ostream *msg_out)
   }
 
   mcfg->DecRef();
+
+  if (skip_directives && BitHasAnyDirective(annot_bit))
+    return NULL;
   return annot_bit;
 }
 
@@ -951,6 +959,16 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
   switch (exp->Kind()) {
 
+  case EK_String:
+  case EK_Int:
+  case EK_Float:
+  case EK_Directive: {
+    exp->IncRef();
+    Bit *guard = Bit::MakeConstant(true);
+    res->PushBack(GuardExp(exp, guard));
+    break;
+  }
+
   case EK_Var: {
     Variable *var = exp->AsVar()->GetVariable();
 
@@ -1158,21 +1176,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       }
     }
 
-    break;
-  }
-
-  case EK_String: {
-    exp->IncRef();
-    Bit *guard = Bit::MakeConstant(true);
-    res->PushBack(GuardExp(exp, guard));
-    break;
-  }
-
-  case EK_Int:
-  case EK_Float: {
-    exp->IncRef();
-    Bit *guard = Bit::MakeConstant(true);
-    res->PushBack(GuardExp(exp, guard));
     break;
   }
 

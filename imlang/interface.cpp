@@ -795,6 +795,11 @@ extern "C" XIL_Exp XIL_ExpZTerm(XIL_Exp target, XIL_Type stride_type)
                                       empty_exp, zero_exp);
 }
 
+extern "C" XIL_Exp XIL_ExpSkipInference()
+{
+  return (XIL_Exp) Exp::MakeDirective(DIRECTIVE_SkipInference);
+}
+
 extern "C" int XIL_GetExpInt(XIL_Exp exp, long *value)
 {
   GET_OBJECT(Exp, exp);

@@ -1338,6 +1338,12 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
     return false;
   const char *name = IDENTIFIER_POINTER(function_name);
 
+  if (!strcmp(name, "skip_inference")) {
+    XIL_Exp result = XIL_ExpSkipInference();
+    XIL_ProcessResult(env, result);
+    return true;
+  }
+
   if (strcmp(name,"__ubound") && strcmp(name,"__lbound") &&
       strcmp(name,"__zterm"))
     return false;

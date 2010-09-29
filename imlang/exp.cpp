@@ -165,6 +165,12 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
     TryCompareObjects(nexp0->GetStrideType(), nexp1->GetStrideType(), Type);
     break;
   }
+  case EK_Directive: {
+    const ExpDirective *nexp0 = exp0->AsDirective();
+    const ExpDirective *nexp1 = exp1->AsDirective();
+    TryCompareValues(nexp0->GetDirectiveKind(), nexp1->GetDirectiveKind());
+    break;
+  }
   case EK_Terminate: {
     const ExpTerminate *nexp0 = exp0->AsTerminate();
     const ExpTerminate *nexp1 = exp1->AsTerminate();
@@ -212,6 +218,7 @@ Exp* Exp::Copy(const Exp *exp)
 
     COPY_EXP(NullTest);
     COPY_EXP(Bound);
+    COPY_EXP(Directive);
     COPY_EXP(Terminate);
 
   default:
@@ -352,6 +359,11 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     Type::Write(buf, nexp->GetStrideType());
     if (Exp *target = nexp->GetTarget())
       Exp::Write(buf, target);
+    break;
+  }
+  case EK_Directive: {
+    const ExpDirective *nexp = exp->AsDirective();
+    WriteTagUInt32(buf, TAG_OpCode, nexp->GetDirectiveKind());
     break;
   }
   case EK_Terminate: {
@@ -536,6 +548,9 @@ Exp* Exp::Read(Buffer *buf)
     break;
   case EK_Bound:
     res = MakeBound((BoundKind)opcode, exp0, type);
+    break;
+  case EK_Directive:
+    res = MakeDirective((DirectiveKind)opcode);
     break;
   case EK_Terminate:
     Try(exp1);
@@ -1964,6 +1979,12 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
   }
 
   return exp;
+}
+
+Exp* Exp::MakeDirective(DirectiveKind kind)
+{
+  ExpDirective xexp(kind);
+  return g_table.Lookup(xexp);
 }
 
 Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
@@ -3954,6 +3975,21 @@ void ExpBound::DecMoveChildRefs(ORef ov, ORef nv)
   if (m_target)
     m_target->DecMoveRef(ov, nv);
   m_stride_type->DecMoveRef(ov, nv);
+}
+
+/////////////////////////////////////////////////////////////////////
+// ExpTerminate
+/////////////////////////////////////////////////////////////////////
+
+ExpDirective::ExpDirective(DirectiveKind kind)
+  : Exp(EK_Directive), m_directive_kind(kind)
+{
+  m_hash = Hash32(m_hash, m_directive_kind);
+}
+
+void ExpDirective::Print(OutStream &out) const
+{
+  out << "directive(" << DirectiveString(m_directive_kind) << ")";
 }
 
 /////////////////////////////////////////////////////////////////////
