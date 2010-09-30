@@ -335,23 +335,26 @@ void BlockMemory::ReadList(Buffer *buf, Vector<BlockMemory*> *mcfgs)
   }
 }
 
-// visitor to check that a computed annotation bit is good,
-// namely that it obeys the following constraints:
-// 1. does not refer to clobbered values or temporaries,
-//    i.e. it is entirely functional.
-// 2. initial expressions are only used for assertions or postconditions.
-// TODO: other constraints need to be checked here.
-class AnnotationBitVisitor : public ExpVisitor
+// mapper to remove invalid portions of a computed annotation bit.
+// the resulting bit will hold less often than the original.
+// invalid portions of an annotation bit include:
+// 1. references to clobbered values or temporaries, i.e. non-functional parts
+//    of the annotation.
+// 2. initial expressions outside of assertions and postconditions.
+class AnnotationBitMapper : public ExpMapper
 {
 public:
   AnnotationKind kind;
   Exp *exclude;
-  AnnotationBitVisitor(AnnotationKind _kind)
-    : ExpVisitor(VISK_All), kind(_kind), exclude(NULL)
+  AnnotationBitMapper(AnnotationKind _kind)
+    : ExpMapper(VISK_All, WIDK_Narrow), kind(_kind), exclude(NULL)
   {}
 
-  void Visit(Exp *exp)
+  Exp* Map(Exp *exp, Exp *old)
   {
+    if (!exp)
+      return NULL;
+
     if (exp->IsVar()) {
       Variable *var = exp->AsVar()->GetVariable();
       BlockId *id = var->GetId();
@@ -361,19 +364,21 @@ public:
       // type invariant annotation CFGs.
 
       if (var->Kind() == VK_This)
-        return;
+        return exp;
 
       if (id) {
         switch (id->Kind()) {
         case B_AnnotationFunc:
         case B_AnnotationInit:
         case B_AnnotationComp:
-          exclude = exp; break;
+          exclude = exp;
+          exp->DecRef();
+          return NULL;
         default: break;
         }
       }
 
-      return;
+      return exp;
     }
 
     if (exp->IsInitial()) {
@@ -387,14 +392,26 @@ public:
         break;
       default:
         exclude = exp;
-        break;
+        exp->DecRef();
+        return NULL;
       }
-      exp->GetLvalTarget()->DoVisit(this);
-      return;
+      Exp *new_target = exp->GetLvalTarget()->DoMap(this);
+      if (new_target) {
+        Assert(new_target == exp->GetLvalTarget());
+        new_target->DecRef();
+        return exp;
+      }
+      exclude = exp;
+      exp->DecRef();
+      return NULL;
     }
 
-    if (exp->IsVal() || exp->IsClobber())
+    if (exp->IsVal() || exp->IsClobber()) {
       exclude = exp;
+      exp->DecRef();
+      return NULL;
+    }
+    return exp;
   }
 };
 
@@ -457,32 +474,35 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
   assign_bit->DecRef();
 
   // scan the bit to make sure it is functional.
-  AnnotationBitVisitor visitor(cfg->GetAnnotationKind());
-  annot_bit->DoVisit(&visitor);
+  AnnotationBitMapper mapper(cfg->GetAnnotationKind());
+  Bit *new_bit = annot_bit->DoMap(&mapper);
 
-  if (visitor.exclude) {
+  // don't add the bit if it was narrowed to false, i.e. it has no functional
+  // component we could determine. allow explicit false annotations, however.
+  if (new_bit->IsFalse() && new_bit != annot_bit) {
+    Assert(mapper.exclude);
     if (!cfg->IsAnnotationBitComputed())
       cfg->SetAnnotationBit(NULL);
     if (msg_out)
       *msg_out << "Could not get annotation value: unexpected "
-               << visitor.exclude;
-    annot_bit->DecRef(&annot_bit);
-    annot_bit = NULL;
-  }
-  else {
+               << mapper.exclude;
+    new_bit->DecRef();
+    new_bit = NULL;
+  } else {
     // successfully interpreted the annotation.
     if (!cfg->IsAnnotationBitComputed()) {
-      annot_bit->IncRef();
-      cfg->SetAnnotationBit(annot_bit);
+      new_bit->IncRef();
+      cfg->SetAnnotationBit(new_bit);
     }
-    annot_bit->DecRef(&annot_bit);
+    new_bit->DecRef();
   }
 
   mcfg->DecRef();
+  annot_bit->DecRef(&annot_bit);
 
-  if (skip_directives && annot_bit && BitHasAnyDirective(annot_bit))
+  if (skip_directives && annot_bit && BitHasAnyDirective(new_bit))
     return NULL;
-  return annot_bit;
+  return new_bit;
 }
 
 /////////////////////////////////////////////////////////////////////
