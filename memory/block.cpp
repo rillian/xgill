@@ -480,7 +480,7 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
 
   mcfg->DecRef();
 
-  if (skip_directives && BitHasAnyDirective(annot_bit))
+  if (skip_directives && annot_bit && BitHasAnyDirective(annot_bit))
     return NULL;
   return annot_bit;
 }
