@@ -38,8 +38,8 @@ dnl ***********************
 dnl CVC3 support
 dnl ***********************
 AC_CHECK_HEADERS( cvc3/vc.h )
-LDFLAGS_SAVED=$LDFLAGS
-LDFLAGS="$LDFLAGS -lcvc3"
+LIBS_SAVED=$LIBS
+LIBS="$LIBS -lcvc3 -lgmp"
 AC_LINK_IFELSE(
     [AC_LANG_PROGRAM([#include <cvc3/vc.h>], 
       [CVC3::Expr expr])],
@@ -48,7 +48,7 @@ AC_LINK_IFELSE(
     [USE_CVC3="yes"],
     [AC_MSG_WARN([cannot find CVC3 libraries])]
     [USE_CVC3="no"])
-LDFLAGS=$LDFLAGS_SAVED
+LIBS=$LIBS_SAVED
 AC_SUBST(CVC3_LIBS)
 AC_SUBST(USE_CVC3)
 
