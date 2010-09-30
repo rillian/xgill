@@ -20,7 +20,7 @@
 
 #include "callgraph.h"
 #include "escape.h"
-#include "block.h"
+#include "mblock.h"
 #include "modset.h"
 #include "summary.h"
 
