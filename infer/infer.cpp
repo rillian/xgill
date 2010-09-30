@@ -26,7 +26,7 @@
 #include <imlang/loopsplit.h>
 #include <memory/baked.h>
 #include <memory/escape.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 #include <solve/solver.h>
 
 // cutoff for arithmetic escape propagation.

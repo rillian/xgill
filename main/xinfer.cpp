@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <backend/backend_block.h>
 #include <imlang/storage.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 #include <infer/infer.h>
 #include <infer/invariant.h>
 #include <util/config.h>

@@ -22,9 +22,9 @@
 
 #include <imlang/block.h>
 #include <imlang/storage.h>
-#include <memory/block.h>
+#include <memory/mblock.h>
 #include <memory/escape.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 #include <backend/backend_block.h>
 #include <backend/backend_compound.h>
 #include <util/config.h>

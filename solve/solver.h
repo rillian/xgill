@@ -29,7 +29,7 @@
 // designed to easily switch between backends at compile time and compare
 // their performance.
 
-#include <memory/block.h>
+#include <memory/mblock.h>
 #include <util/config.h>
 #include "solver_hash.h"
 #include "constraint.h"

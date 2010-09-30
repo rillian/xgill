@@ -21,7 +21,7 @@
 #include <util/config.h>
 
 #include <imlang/storage.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 
 #include <imlang/serial.h>
 #include <memory/serial.h>

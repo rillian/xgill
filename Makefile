@@ -66,14 +66,14 @@ IMLANG_INC = \
 MEMORY_INC = \
 	memory/alias.h \
 	memory/baked.h \
-	memory/block.h \
+	memory/mblock.h \
 	memory/callgraph.h \
 	memory/clobber.h \
 	memory/escape.h \
 	memory/modset.h \
 	memory/serial.h \
 	memory/simplify.h \
-	memory/storage.h \
+	memory/mstorage.h \
 	memory/summary.h
 
 INFER_INC = \
@@ -160,13 +160,13 @@ IMLANG_OBJS = \
 MEMORY_OBJS = \
 	memory/alias.o \
 	memory/baked.o \
-	memory/block.o \
+	memory/mblock.o \
 	memory/callgraph.o \
 	memory/clobber.o \
 	memory/escape.o \
 	memory/modset.o \
 	memory/simplify.o \
-	memory/storage.o \
+	memory/mstorage.o \
 	memory/summary.o
 
 INFER_OBJS = \

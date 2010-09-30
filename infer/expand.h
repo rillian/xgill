@@ -21,7 +21,7 @@
 // rules for determining when expressions are expandable in the callees
 // and callers of a function.
 
-#include <memory/block.h>
+#include <memory/mblock.h>
 #include <imlang/trace.h>
 
 NAMESPACE_XGILL_BEGIN

@@ -16,12 +16,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "block.h"
+#include "mblock.h"
 #include "alias.h"
 #include "clobber.h"
 #include "simplify.h"
 #include "serial.h"
-#include "storage.h"
+#include "mstorage.h"
 #include "baked.h"
 
 #include <imlang/storage.h>

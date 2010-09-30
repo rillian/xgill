@@ -17,7 +17,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "simplify.h"
-#include "block.h"
+#include "mblock.h"
 #include "serial.h"
 
 NAMESPACE_XGILL_BEGIN

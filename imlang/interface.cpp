@@ -24,7 +24,7 @@
 #include "storage.h"
 
 #include <backend/backend_block.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 #include <memory/serial.h>
 #include <util/monitor.h>
 

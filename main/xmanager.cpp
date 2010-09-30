@@ -33,7 +33,7 @@
 #include <util/monitor.h>
 #include <backend/backend_block.h>
 #include <imlang/storage.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 
 NAMESPACE_XGILL_USING
 

@@ -18,7 +18,7 @@
 
 #include "escape.h"
 #include "serial.h"
-#include "storage.h"
+#include "mstorage.h"
 #include <imlang/storage.h>
 
 NAMESPACE_XGILL_BEGIN

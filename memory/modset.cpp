@@ -18,7 +18,7 @@
 
 #include "modset.h"
 #include "serial.h"
-#include "storage.h"
+#include "mstorage.h"
 
 NAMESPACE_XGILL_BEGIN
 

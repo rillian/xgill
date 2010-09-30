@@ -21,7 +21,7 @@
 // entrypoint for inferring summary information about accesses and constraints
 // in a function.
 
-#include <memory/block.h>
+#include <memory/mblock.h>
 #include <memory/summary.h>
 
 NAMESPACE_XGILL_BEGIN

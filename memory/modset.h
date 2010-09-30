@@ -20,7 +20,7 @@
 
 // data structures and functions for modset analysis.
 
-#include "block.h"
+#include "mblock.h"
 #include "callgraph.h"
 
 NAMESPACE_XGILL_BEGIN

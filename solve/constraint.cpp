@@ -19,7 +19,7 @@
 #include "constraint.h"
 #include "solver.h"
 #include <imlang/storage.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 
 NAMESPACE_XGILL_BEGIN
 

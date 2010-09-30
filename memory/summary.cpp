@@ -18,7 +18,7 @@
 
 #include "summary.h"
 #include "serial.h"
-#include "storage.h"
+#include "mstorage.h"
 #include <imlang/loopsplit.h>
 #include <imlang/storage.h>
 

@@ -19,7 +19,7 @@
 #include "backend_block.h"
 #include "backend_xdb.h"
 #include <imlang/storage.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 #include <memory/serial.h>
 #include <util/monitor.h>
 #include <unistd.h>

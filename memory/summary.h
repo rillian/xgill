@@ -21,7 +21,7 @@
 // summary information inferred for each block. the code which actually
 // fills in this structure is in the infer directory.
 
-#include "block.h"
+#include "mblock.h"
 
 NAMESPACE_XGILL_BEGIN
 

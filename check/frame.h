@@ -18,8 +18,8 @@
 
 #pragma once
 
-#include <memory/block.h>
-#include <memory/storage.h>
+#include <memory/mblock.h>
+#include <memory/mstorage.h>
 #include <solve/solver.h>
 #include "path.h"
 #include "where.h"

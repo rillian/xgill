@@ -17,7 +17,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "baked.h"
-#include "storage.h"
+#include "mstorage.h"
 #include <imlang/storage.h>
 #include <backend/backend_block.h>
 

@@ -22,7 +22,7 @@
 #include <imlang/storage.h>
 #include <infer/expand.h>
 #include <memory/baked.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 
 NAMESPACE_XGILL_BEGIN
 

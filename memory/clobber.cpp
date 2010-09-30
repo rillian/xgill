@@ -17,8 +17,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "clobber.h"
-#include "block.h"
-#include "storage.h"
+#include "mblock.h"
+#include "mstorage.h"
 
 NAMESPACE_XGILL_BEGIN
 

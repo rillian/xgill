@@ -18,7 +18,7 @@
 
 #include "callgraph.h"
 #include "serial.h"
-#include "storage.h"
+#include "mstorage.h"
 #include "baked.h"
 #include <imlang/storage.h>
 

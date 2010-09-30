@@ -21,7 +21,7 @@
 #include "expand.h"
 #include "nullterm.h"
 #include <solve/solver.h>
-#include <memory/storage.h>
+#include <memory/mstorage.h>
 
 NAMESPACE_XGILL_BEGIN
 
