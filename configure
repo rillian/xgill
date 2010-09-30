@@ -3954,8 +3954,8 @@ fi
 
 done
 
-LDFLAGS_SAVED=$LDFLAGS
-LDFLAGS="$LDFLAGS -lcvc3"
+LIBS_SAVED=$LIBS
+LIBS="$LIBS -lcvc3 -lgmp"
 cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 #include <cvc3/vc.h>
@@ -3980,7 +3980,7 @@ $as_echo "$as_me: WARNING: cannot find CVC3 libraries" >&2;}
 fi
 rm -f core conftest.err conftest.$ac_objext \
     conftest$ac_exeext conftest.$ac_ext
-LDFLAGS=$LDFLAGS_SAVED
+LIBS=$LIBS_SAVED
 
 
 
