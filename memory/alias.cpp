@@ -18,7 +18,7 @@
 
 #include "alias.h"
 #include "serial.h"
-#include "block.h"
+#include "mblock.h"
 
 NAMESPACE_XGILL_BEGIN
 
