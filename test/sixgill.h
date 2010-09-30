@@ -21,22 +21,22 @@
 #define static_paste2(X,Y) X ## Y
 #define static_paste1(X,Y) static_paste2(X,Y)
 
-#define static_assert(COND)                          \
+#define assert_static(COND)                          \
   do {                                               \
-    __attribute__((static_assert(#COND), unused))    \
-    int static_paste1(static_assert_, __COUNTER__);  \
+    __attribute__((assert_static(#COND), unused))    \
+    int static_paste1(assert_static_, __COUNTER__);  \
   } while (0)
 
-#define static_assume(COND)                          \
+#define assume_static(COND)                          \
   do {                                               \
-    __attribute__((static_assume(#COND), unused))    \
-    int static_paste1(static_assume_, __COUNTER__);  \
+    __attribute__((assume_static(#COND), unused))    \
+    int static_paste1(assume_static_, __COUNTER__);  \
   } while (0)
 
-#define static_assert_runtime(COND)                         \
+#define assert_static_runtime(COND)                         \
   do {                                                      \
-    __attribute__((static_assert_runtime(#COND), unused))   \
-    int static_paste1(static_assert_runtime_, __COUNTER__); \
+    __attribute__((assert_static_runtime(#COND), unused))   \
+    int static_paste1(assert_static_runtime_, __COUNTER__); \
   } while (0)
 
 #else /* XGILL_PLUGIN */
@@ -48,9 +48,9 @@
 #define invariant(COND)             /* nothing */
 #define invariant_assume(COND)      /* nothing */
 
-#define static_assert(COND)          do { /* nothing */ } while (0)
-#define static_assume(COND)          do { /* nothing */ } while (0)
-#define static_assert_runtime(COND)  do { /* nothing */ } while (0)
+#define assert_static(COND)          do { /* nothing */ } while (0)
+#define assume_static(COND)          do { /* nothing */ } while (0)
+#define assert_static_runtime(COND)  do { /* nothing */ } while (0)
 
 #endif /* XGILL_PLUGIN */
 

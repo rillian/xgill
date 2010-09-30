@@ -961,17 +961,15 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
   bool has_base = false;
   while (c_dialect_cxx() && field) {
     if (XIL_IsBaseField(field, NULL)) {
-      struct XIL_AnnotationDecl *info =
-        XIL_GetDecl(TYPE_NAME(TREE_TYPE(field)));
-      gcc_assert(info);
-
       if (!has_base) {
-        fprintf(file, " : %s", info->name);
+        fprintf(file, " : ");
         has_base = true;
       }
       else {
-        fprintf(file, ", %s", info->name);
+        fprintf(file, ", ");
       }
+
+      XIL_PrintType(file, TREE_TYPE(field));
     }
 
     field = TREE_CHAIN(field);
