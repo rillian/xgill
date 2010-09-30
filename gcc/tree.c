@@ -47,7 +47,7 @@ void XIL_ProcessResult(struct XIL_TreeEnv *env, XIL_Exp result)
 
   env->processed = true;
 
-  if (env->point)
+  if (env->point && *env->point)
     xil_active_env.last_point = *env->point;
 
   // figure out what to do with the result according to the environment
