@@ -23,19 +23,19 @@
 
 #define static_assert(COND)                          \
   do {                                               \
-    __attribute__((assert(#COND), unused))           \
+    __attribute__((static_assert(#COND), unused))    \
     int static_paste1(static_assert_, __COUNTER__);  \
   } while (0)
 
 #define static_assume(COND)                          \
   do {                                               \
-    __attribute__((assume(#COND), unused))           \
+    __attribute__((static_assume(#COND), unused))    \
     int static_paste1(static_assume_, __COUNTER__);  \
   } while (0)
 
 #define static_assert_runtime(COND)                         \
   do {                                                      \
-    __attribute__((assert_runtime(#COND), unused))          \
+    __attribute__((static_assert_runtime(#COND), unused))   \
     int static_paste1(static_assert_runtime_, __COUNTER__); \
   } while (0)
 

@@ -93,9 +93,9 @@ void XIL_ClearAssociate(XIL_AssociateKind table);
   MACRO(Invariant, "invariant", 5)                              \
   MACRO(InvariantAssume, "invariant_assume", 6)                 \
     /* conditions holding at specific points in a function. */  \
-  MACRO(Assert, "assert", 7)                                    \
-  MACRO(Assume, "assume", 8)                                    \
-  MACRO(AssertRuntime, "assert_runtime", 9)
+  MACRO(Assert, "static_assert", 7)                             \
+  MACRO(Assume, "static_assume", 8)                             \
+  MACRO(AssertRuntime, "static_assert_runtime", 9)
 
 enum _enum_XIL_AnnotationKind {
 #define XIL_FILL_ANNOT(NAME, _, VALUE)  XIL_AK_ ## NAME = VALUE,
