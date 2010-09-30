@@ -288,6 +288,9 @@ struct XIL_BlockEnv
   XIL_PPoint entry_point;
   XIL_PPoint exit_point;
 
+  // most recent point in the CFG, for handling AST nodes without location info.
+  XIL_PPoint last_point;
+
   // all local variables in the CFG.
   struct XIL_LocalData *locals;
 };

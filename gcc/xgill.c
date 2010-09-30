@@ -290,7 +290,7 @@ void XIL_GenerateBlock(tree decl)
   XIL_CFGSetBeginLocation(begin_loc);
   XIL_CFGSetEndLocation(end_loc);
 
-  xil_active_env.entry_point = XIL_CFGAddPoint(begin_loc);
+  xil_active_env.entry_point = xil_active_env.last_point = XIL_CFGAddPoint(begin_loc);
   xil_active_env.exit_point = XIL_CFGAddPoint(end_loc);
   XIL_CFGSetEntryPoint(xil_active_env.entry_point);
   XIL_CFGSetExitPoint(xil_active_env.exit_point);

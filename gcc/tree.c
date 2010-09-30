@@ -47,6 +47,9 @@ void XIL_ProcessResult(struct XIL_TreeEnv *env, XIL_Exp result)
 
   env->processed = true;
 
+  if (env->point)
+    xil_active_env.last_point = *env->point;
+
   // figure out what to do with the result according to the environment
   // we're evaluating the expression in.
 
@@ -74,7 +77,7 @@ void XIL_ProcessResult(struct XIL_TreeEnv *env, XIL_Exp result)
     XIL_Exp assign_rhs = result;
 
     XIL_PPoint loc_point = *env->point;
-    if (!loc_point) loc_point = xil_active_env.entry_point;
+    if (!loc_point) loc_point = xil_active_env.last_point;
 
     XIL_Location loc = XIL_CFGGetPointLocation(loc_point);
     XIL_PPoint after_point = XIL_CFGAddPoint(loc);
@@ -125,15 +128,17 @@ XIL_Location XIL_TryUpdateLocation(XIL_PPoint point, tree node)
     int line = EXPR_LINENO(node);
     loc = XIL_MakeLocation(file, line);
 
-    if (point)
+    if (point) {
       XIL_CFGSetPointLocation(point, loc);
+      xil_active_env.last_point = point;
+    }
   }
 
   if (loc)
     return loc;
 
   // don't have a point in the CFG, and don't have a tree with a location.
-  return XIL_CFGGetPointLocation(xil_active_env.entry_point);
+  return XIL_CFGGetPointLocation(xil_active_env.last_point);
 }
 
 const char* XIL_TreeIntString(tree node)
