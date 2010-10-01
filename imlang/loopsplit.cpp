@@ -1014,6 +1014,18 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
   TrimUnreachable(loop_cfg, true);
   TopoSortCFG(loop_cfg);
 
+  // set the end location of the loop to the point in the body with the
+  // highest line number. the GCC frontend does not have information
+  // about the end location of loop bodies.
+  Location *highest = end_location;
+  for (PPoint point = 1; point <= loop_cfg->GetPointCount(); point++) {
+    Location *loc = loop_cfg->GetPointLocation(point);
+    if (loc->FileName() == highest->FileName() && loc->Line() > highest->Line())
+      highest = loc;
+  }
+  highest->IncRef();
+  loop_cfg->SetPointLocation(loop_cfg->GetExitPoint(), highest);
+
   return loop_cfg;
 }
 
