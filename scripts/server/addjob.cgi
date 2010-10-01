@@ -23,7 +23,6 @@ print "Content-type: text/javascript\n\n";
 die if not (-d "jobs");
 die if not (-d "jobs_todo");
 
-my $login = check_param('login');
 my $report = check_param('report');
 my $ext = check_param('ext');
 my $link = check_param('link');
@@ -71,37 +70,6 @@ if (defined $hook) {
     }
 }
 
-$login =~ /(.*?):(.*)/ or exit_with "ERROR: Malformed login";
-my $mail = $1;
-my $pass = $2;
-
-if ($mail =~ /[^\@\.a-zA-Z0-9_]/) {
-    exit_with "ERROR: Bad character in email address";
-}
-if ($pass =~ /[^\.a-zA-Z0-9_ ]/) {
-    exit_with "ERROR: Bad character in password";
-}
-
-exit_with "ERROR: Invalid login" if (not -e "users");
-
-open(USERS, "< users");
-
-my $name = "";
-while (my $line = <USERS>) {
-    chomp $line;
-    $line =~ /^([^;]*);([^;]*);(.*)$/ or next;
-    if ($1 eq $mail && crypt($pass,$3) eq $3) {
-	$name = $2;
-	last;
-    }
-}
-
-close(USERS);
-
-if ($name eq "") {
-    exit_with "ERROR: Invalid login";
-}
-
 if ($ext eq "NEW") {
     # new job, make an extension for it.
     $ext = "";
@@ -112,8 +80,6 @@ if ($ext eq "NEW") {
 
     open(OUT, "> $ext.job");
     print OUT "$ext\n";
-    print OUT "$name\n";
-    print OUT "$mail\n";
     print OUT "$report\n";
     print OUT "$link\n";
     print OUT "$prev\n";

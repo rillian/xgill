@@ -264,7 +264,6 @@ print <<EOF;
 
 <span class="helptext" id="help_result"></span>
 <span class="helptext" style="font-size: 3px" id="help_resultnext"></span>
-<div id="login_result" style="font-size: 12pt"></div>
 <div id="job_result" style="font-size: 12pt"></div>
 
 <div style="padding-bottom: 5px">
@@ -547,7 +546,6 @@ var showResult = false;
 
 var result_reanalyze = false;
 var result_annotate = false;
-var login_value = "";
 
 function refreshHeader()
 {
@@ -608,101 +606,6 @@ function toggleHelp()
     refreshHeader();
 }
 
-function clearLogin()
-{
-    document.cookie = "sixgill=; expires=; path=/";
-    setupLogin();
-}
-
-function submitLogin()
-{
-    var login_html =
-        "<a class='joblink' href='#' onClick='hideResult(); return false;'>Hide</a>";
-
-    var mail = document.getElementById("login_mail").value;
-    var pass = document.getElementById("login_pass").value;
-
-    login_html += "<span style='padding: 0px 5px' id='login_server'></span>";
-    login_html += "<a class='joblink' href='#' onClick='setupLogin(); return false;'>Back</a>";
-    document.getElementById("login_result").innerHTML = login_html;
-
-    var head = document.getElementsByTagName("head").item(0);
-    var script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "../scripts/login.cgi?mail=" + mail + "&pass=" + pass;
-    head.appendChild(script);
-}
-
-function submitUser()
-{
-    var login_html =
-        "<a class='joblink' href='#' onClick='hideResult(); return false;'>Hide</a>";
-
-    var mail = document.getElementById("login_mail").value;
-    var pass = document.getElementById("login_pass").value;
-    var name = document.getElementById("login_name").value;
-
-    login_html += "<span style='padding: 0px 5px' id='login_server'></span>";
-    login_html += "<a class='joblink' href='#' onClick='setupLogin(); return false;'>Back</a>";
-    document.getElementById("login_result").innerHTML = login_html;
-
-    var head = document.getElementsByTagName("head").item(0);
-    var script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "../scripts/newuser.cgi?mail=" + mail + "&pass=" + pass + "&name=" + name;
-    head.appendChild(script);
-}
-
-function setupLoginNew()
-{
-    var login_html =
-        "<a class='joblink' href='#' onClick='hideResult(); return false;'>Hide</a>";
-
-    login_html += "<span style='padding: 0px 5px'>Email: <input type='text' id='login_mail' size=20 /></span>";
-    login_html += "<span style='padding-right: 5px'>Password: <input type='password' id='login_pass' size=20 /></span>";
-    login_html += "<span style='padding-right: 5px'>Name: <input type='text' id='login_name' size=20 /></span>";
-    login_html += "<span style='padding-right: 5px'><a class='joblink' href='#' onClick='submitUser(); return false;'>Submit</a></span>";
-    login_html += "<a class='joblink' href='#' onClick='setupLogin(); return false;'>Back</a>";
-
-    document.getElementById("login_result").innerHTML = login_html;
-}
-
-function setupLogin()
-{
-    var login_html =
-        "<a class='joblink' href='#' onClick='hideResult(); return false;'>Hide</a>";
-
-    login_value = "";
-    var cookie_list = document.cookie.split(';');
-
-    for (var i = 0; i < cookie_list.length; i++) {
-        var str = cookie_list[i];
-        while (str.charAt(0) == ' ') str = str.substring(1);
-        if (str.indexOf("sixgill=") == 0)
-            login_value = str.substring(8);
-    }
-
-    var submitLink = document.getElementById("job_submit");
-
-    if (login_value != "") {
-        var login_list = login_value.split(':');
-        login_html += "<span style='padding: 0px 5px'>Logged in as " + login_list[0] + "</span>";
-        login_html += "<a class='joblink' href='#' onClick='clearLogin(); return false;'>Logout</a>";
-        if (submitLink)
-            submitLink.style.backgroundColor = "#9999FF";
-    }
-    else {
-        login_html += "<span style='padding: 0px 5px'>Email: <input type='text' id='login_mail' size=20 /></span>";
-        login_html += "<span style='padding-right: 5px'>Password: <input type='password' id='login_pass' size=20 /></span>";
-        login_html += "<span style='padding-right: 5px'><a class='joblink' href='#' onClick='submitLogin(); return false;'>Login</a></span>";
-        login_html += "<a class='joblink' href='#' onClick='setupLoginNew(); return false;'>New User</a>";
-        if (submitLink)
-            submitLink.style.backgroundColor = "#CCCCCC";
-    }
-
-    document.getElementById("login_result").innerHTML = login_html;
-}
-
 function setupResult(job_html)
 {
     setNavLink("reanalyze",0);
@@ -711,11 +614,8 @@ function setupResult(job_html)
     showResult = true;
     refreshHeader();
 
-    document.getElementById("login_result").style.paddingBottom = "5px";
     document.getElementById("job_result").style.paddingBottom = "5px";
     document.getElementById("job_result").innerHTML = job_html;
-
-    setupLogin();
 }
 
 function hideResult()
@@ -729,8 +629,6 @@ function hideResult()
     showResult = false;
     refreshHeader();
 
-    document.getElementById("login_result").innerHTML = "";
-    document.getElementById("login_result").style.paddingBottom = "";
     document.getElementById("job_result").innerHTML = "";
     document.getElementById("job_result").style.paddingBottom = "";
 }
@@ -741,8 +639,6 @@ var refreshJob = function (ext) {
 
 function submitReanalyze()
 {
-    if (login_value == "")
-        return;
 
 EOF
 
@@ -760,7 +656,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../scripts/addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link;
+        script.src = "../scripts/addjob.cgi?report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link;
         head.appendChild(script);
     }
 
@@ -769,8 +665,10 @@ print <<EOF;
 
 function doReanalyze()
 {
-    if (result_reanalyze || result_annotate)
+    if (result_reanalyze || result_annotate) {
+        hideResult();
         return;
+    }
     result_reanalyze = true;
 
     var job_html =
@@ -787,8 +685,6 @@ print <<EOF;
 
 function submitAnnotate()
 {
-    if (login_value == "")
-        return;
 
 EOF
 
@@ -821,7 +717,7 @@ print <<EOF;
         var head = document.getElementsByTagName("head").item(0);
         var script = document.createElement("script");
         script.type = "text/javascript";
-        script.src = "../scripts/addjob.cgi?login=" + login_value + "&report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link + "&hook=" + hook + "&text=" + text + "&trust=" + !trustItem.checked;
+        script.src = "../scripts/addjob.cgi?report=" + report + "&ext=" + ext + "&link=" + link + "&prev=" + prev_link + "&next=" + next_link + "&hook=" + hook + "&text=" + text + "&trust=" + !trustItem.checked;
         head.appendChild(script);
     }
 
@@ -830,8 +726,10 @@ print <<EOF;
 
 function doAnnotate()
 {
-    if (result_reanalyze || result_annotate)
+    if (result_reanalyze || result_annotate) {
+        hideResult();
         return;
+    }
     result_annotate = true;
 
     var job_html =
