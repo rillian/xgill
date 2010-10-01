@@ -33,17 +33,11 @@ use File::Copy;
 # environment specific settings #
 #################################
 
-# directory containing the CGI scripts.
+# directory containing addjob CGI script.
 my $script_dir = "/path/to/www/scripts";
 
 # directory containing report subdirectories.
 my $base_dir = "/path/to/www";
-
-# if web server is remote, URL for getting new jobs to perform.
-my $get_url = "";
-
-# if web server is remote, URL for posting the result of a job.
-my $post_url = "";
 
 # number of worker processes to use.
 my $worker_count = 4;
@@ -150,41 +144,26 @@ sub run_fetch_loop {
 
         my @lines;
 
-        if ($script_dir ne "") {
-            opendir(TODO, "$script_dir/jobs_todo");
-            my @files = readdir(TODO);
-            closedir(TODO);
+        opendir(TODO, "$script_dir/jobs_todo");
+        my @files = readdir(TODO);
+        closedir(TODO);
 
-            while (my $file = shift @files) {
-                chomp $file;
-                if ($file =~ /\.job$/) {
-                    open(JOB, "$script_dir/jobs_todo/$file");
-                    @lines = <JOB>;
-                    chomp @lines;
-                    close(JOB);
+        while (my $file = shift @files) {
+            chomp $file;
+            if ($file =~ /\.job$/) {
+                open(JOB, "$script_dir/jobs_todo/$file");
+                @lines = <JOB>;
+                chomp @lines;
+                close(JOB);
 
-                    move("$script_dir/jobs_todo/$file", "$script_dir/jobs");
-                    last;
-                }
+                move("$script_dir/jobs_todo/$file", "$script_dir/jobs");
+                last;
             }
-        }
-        else {
-            $response = $browser->get($get_url);
-
-            die ("Couldn't get from $get_url: " . $response->status_line)
-                unless ($response->is_success);
-
-            die ("Unexpected content: " . $response->content_type)
-                unless ($response->content_type eq "text/plain");
-
-            @lines = split(/\n/, $response->content);
         }
 
         # if the response is empty there is no job to do.
         my $ext = shift @lines or next;
 
-        my $name = shift @lines or die;
-        my $mail = shift @lines or die;
         my $report = shift @lines or die;
         my $link = shift @lines or die;
         my $prev = shift @lines or die;
@@ -204,8 +183,6 @@ sub run_fetch_loop {
             # shouldn't be contention between multiple workers for this append.
             open(ANNOT, ">> $ann_file");
 
-            print ANNOT "$name\n";
-            print ANNOT "$mail\n";
             print ANNOT "$hook\n";
             print ANNOT "$text\n";
             print ANNOT "$trust\n\n";
@@ -307,36 +284,21 @@ sub run_fetch_loop {
             }
         }
 
-        if ($script_dir ne "") {
-            open(OUT, "> $script_dir/$ext.done");
-            print OUT "$message\n";
-            close(OUT);
+        open(OUT, "> $script_dir/$ext.done");
+        print OUT "$message\n";
+        close(OUT);
 
-            if ($html ne "") {
-                $report =~ /(.*?)\$/ or die;
-                my $dir = $1;
+        if ($html ne "") {
+            $report =~ /(.*?)\$/ or die;
+            my $dir = $1;
 
-                die if (not (-e "$base_dir/$dir"));
+            die if (not (-e "$base_dir/$dir"));
 
-                open(HTML, "> $base_dir/$dir/$link.html");
-                print HTML $html;
-                close(HTML);
-            }
-
-            move("$script_dir/$ext.done", "$script_dir/jobs");
+            open(HTML, "> $base_dir/$dir/$link.html");
+            print HTML $html;
+            close(HTML);
         }
-        else {
-            $response = $browser->post($post_url,
-                [
-                 'report' => $report,
-                 'ext' => $ext,
-                 'message' => $message,
-                 'html' => $html,
-                 'file' => $link,
-                 ]);
 
-            die ("Couldn't post to $post_url: " . $response->status_line)
-                unless ($response->is_success);
-        }
+        move("$script_dir/$ext.done", "$script_dir/jobs");
     }
 }
