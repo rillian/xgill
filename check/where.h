@@ -267,4 +267,11 @@ class WhereInvariant : public Where
   Variable *m_var;
 };
 
+// remove any uses of ExpVal or ExpFrame (for the specified frame) from the
+// list of input exps/bits, storing the result in output.
+void RemoveValExp(FrameId frame, BlockMemory *mcfg,
+                  const GuardExpVector &input, GuardExpVector *output);
+void RemoveValBit(FrameId frame, BlockMemory *mcfg,
+                  const GuardBitVector &input, GuardBitVector *output);
+
 NAMESPACE_XGILL_END

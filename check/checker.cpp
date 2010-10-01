@@ -174,7 +174,7 @@ bool CheckFrameList(CheckerState *state, CheckerFrame *frame,
 
       state->m_stack.PushBack(&propagate);
 
-       // check the frame against this propagation.
+      // check the frame against this propagation.
       if (CheckFrame(state, frame, &propagate))
         return true;
 
@@ -681,6 +681,9 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
     return;
   }
 
+  // it would be nice to remove Val() expressions from this list, but we can't
+  // do that as lvalues in memory assignments can contain Val and we want to
+  // see the effects of those assignments. TODO: fix.
   GuardExpVector lval_res;
   mcfg->TranslateExp(TRK_Point, point, point_lval, &lval_res);
 
@@ -732,13 +735,26 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
 
   frame->SetCalleeHeapFrame(heap_frame);
 
+  TypeCSU *csu = invariant->GetCSU();
+  Bit *bit = invariant->GetBit();
+
+  // if there is already an equivalent known heap invariant, this is direct
+  // recursion and we're done.
+  for (size_t ind = 0; ind < state->m_invariant_list.Size(); ind++) {
+    WhereInvariant *existing = state->m_invariant_list[ind];
+    if (existing->GetCSU() == csu && existing->GetBit() == bit) {
+      if (checker_verbose.IsSpecified())
+        logout << "CHECK: " << frame
+               << ": Direct recursive invariant" << endl;
+      return false;
+    }
+  }
+
   // duplicate the invariant and add it to the state for handling recursive
   // reads. either we will successfully check this invariant and can assume
   // it at all further reads, or we will fail and generate a report. either
   // way we don't need to worry about removing this invariant.
 
-  TypeCSU *csu = invariant->GetCSU();
-  Bit *bit = invariant->GetBit();
   WhereInvariant *dupe_invariant = new WhereInvariant(csu, NULL, bit);
   state->m_invariant_list.PushBack(dupe_invariant);
 

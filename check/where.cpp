@@ -141,20 +141,43 @@ public:
   }
 };
 
-// remove any uses of ExpVal or ExpFrame (for frame itself) from the
-// list of input bits, storing the result in output.
-static void RemoveValBits(CheckerFrame *frame, const GuardBitVector &input,
-                          GuardBitVector *output)
+void RemoveValExp(FrameId frame, BlockMemory *mcfg,
+                  const GuardExpVector &input, GuardExpVector *output)
+{
+  for (size_t iind = 0; iind < input.Size(); iind++) {
+    const GuardExp &igt = input[iind];
+
+    RemoveFrameMapper mapper(frame);
+    Exp *nexp = igt.exp->DoMap(&mapper);
+
+    GuardExpVector remove_res;
+    mcfg->TranslateExp(TRK_RemoveVal, 0, nexp, &remove_res);
+    nexp->DecRef();
+
+    for (size_t rind = 0; rind < remove_res.Size(); rind++) {
+      const GuardExp &rgt = remove_res[rind];
+      rgt.IncRef();
+      igt.guard->IncRef();
+
+      Bit *new_guard = Bit::MakeAnd(igt.guard, rgt.guard);
+      output->PushBack(GuardExp(rgt.exp, new_guard));
+    }
+  }
+
+  output->SortCombine();
+}
+
+void RemoveValBit(FrameId frame, BlockMemory *mcfg,
+                  const GuardBitVector &input, GuardBitVector *output)
 {
   for (size_t iind = 0; iind < input.Size(); iind++) {
     const GuardBit &igb = input[iind];
 
-    RemoveFrameMapper mapper(frame->Id());
+    RemoveFrameMapper mapper(frame);
     Bit *nbit = igb.bit->DoMap(&mapper);
-    Assert(nbit);
 
     GuardBitVector remove_res;
-    frame->Memory()->TranslateBit(TRK_RemoveVal, 0, nbit, &remove_res);
+    mcfg->TranslateBit(TRK_RemoveVal, 0, nbit, &remove_res);
     nbit->DecRef();
 
     for (size_t rind = 0; rind < remove_res.Size(); rind++) {
@@ -175,7 +198,7 @@ void Where::GetAssertBits(CheckerFrame *frame, PPoint point,
 {
   GuardBitVector base_res;
   frame->Memory()->TranslateBit(TRK_Point, point, assert_cond, &base_res);
-  RemoveValBits(frame, base_res, res);
+  RemoveValBit(frame->Id(), frame->Memory(), base_res, res);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -298,7 +321,7 @@ void WherePrecondition::GetCallerBits(CheckerFrame *caller_frame, PPoint point,
 
   GuardBitVector base_res;
   caller_mcfg->TranslateBit(kind, point, m_bit, &base_res);
-  RemoveValBits(caller_frame, base_res, res);
+  RemoveValBit(caller_frame->Id(), caller_frame->Memory(), base_res, res);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -412,7 +435,7 @@ void WherePostcondition::GetSkipLoopBits(Bit **base_bit, GuardBitVector *res)
 
   GuardBitVector base_res;
   mcfg->TranslateBit(TRK_SkipClobber, m_point, m_bit, &base_res);
-  RemoveValBits(m_frame, base_res, res);
+  RemoveValBit(m_frame->Id(), m_frame->Memory(), base_res, res);
 }
 
 void WherePostcondition::GetCalleeBits(CheckerFrame *callee_frame,
@@ -425,7 +448,7 @@ void WherePostcondition::GetCalleeBits(CheckerFrame *callee_frame,
 
   GuardBitVector base_res;
   callee_mcfg->TranslateBit(TRK_Exit, exit_point, m_bit, &base_res);
-  RemoveValBits(callee_frame, base_res, res);
+  RemoveValBit(callee_frame->Id(), callee_frame->Memory(), base_res, res);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -592,7 +615,7 @@ void WhereInvariant::GetHeapBits(CheckerFrame *write_frame,
   mcfg->TranslateBit(TRK_Exit, exit_point, exit_bit, &base_res);
 
   exit_bit->DecRef();
-  RemoveValBits(write_frame, base_res, res);
+  RemoveValBit(write_frame->Id(), write_frame->Memory(), base_res, res);
 }
 
 void WhereInvariant::AssertRecursive(CheckerFrame *frame, Exp *exp)
