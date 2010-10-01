@@ -67,6 +67,9 @@ my $ann_file = "";
 my $old_dir = "";
 die "Need old directory: $old_dir\n" if ($old_dir ne "" && not -d $old_dir);
 
+# prefix directory to strip off source files.
+my $prefix_dir = $build_dir;
+
 ##########################
 # general purpose script #
 ##########################
@@ -162,7 +165,7 @@ sub run_build
 
         # write the configuration file for the wrapper script.
         open(CONFIG, "> $wrap_dir/xgill.config");
-        print CONFIG "$build_dir\n";
+        print CONFIG "$prefix_dir\n";
         print CONFIG "$result_dir/build_xgill.log\n";
         print CONFIG "$address\n";
         print CONFIG "-fplugin-arg-xgill-annfile=$ann_file\n"
