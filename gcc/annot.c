@@ -248,8 +248,10 @@ static const char* XIL_GetTypeName(tree type, bool *pnamespace)
 {
   tree name = TYPE_NAME(type);
   if (!name) {
-    // this must be the 'this' type.
+    // this must be the 'this' type or an anonymous enum.
     *pnamespace = false;
+    if (TREE_CODE(type) == ENUMERAL_TYPE)
+      return "";
     return "__this";
   }
 
@@ -297,11 +299,10 @@ static void XIL_AddDef(tree type)
 
   bool define = true;
 
-  // structs/enums without names are not defined at the top level.
-  // make an exception for the 'this' type on invariants in C, which might
-  // be anonymous.
+  // structs without names are not defined at the top level. make an exception
+  // for the 'this' type on invariants in C, which might be anonymous.
   tree name = TYPE_NAME(type);
-  if (!name) {
+  if (!name && TREE_CODE(type) != ENUMERAL_TYPE) {
     if (!state->type || TREE_CODE(type) != TREE_CODE(state->type) ||
         TYPE_FIELDS(type) != TYPE_FIELDS(state->type))
       define = false;
@@ -1056,6 +1057,15 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
         XIL_PrintDeclaration(file, TREE_TYPE(field),
                              IDENTIFIER_POINTER(DECL_NAME(field)));
         fprintf(file, ";\n");
+      }
+    }
+    else if (TREE_CODE(field) == CONST_DECL) {
+      // maybe a member of an anonymous enum.
+      tree initial = DECL_INITIAL(field);
+      gcc_assert(initial);
+      if (TREE_CODE(initial) == INTEGER_CST) {
+        const char *str = XIL_TreeIntString(initial);
+        fprintf(file, "enum { %s = %s };\n", IDENTIFIER_POINTER(DECL_NAME(field)), str);
       }
     }
 
