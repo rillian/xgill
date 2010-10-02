@@ -37,7 +37,7 @@ struct XIL_AnnotationMacro
 // names from the program so that they can be referred to in annotations.
 
 // for any struct/enum/typedef name we encounter in the program, there are
-// four possibilities.
+// severalx possibilities.
 // 1. the name is in global scope. declare, define and refer to the name as is.
 // 2. the name is in a namespace. wrap the declare/define in namespace { ... }
 //    qualifiers and refer to it via the explicit namespace path.
@@ -48,6 +48,7 @@ struct XIL_AnnotationMacro
 // 4. the name is a template instantiation. make an artificial __templateN
 //    name to declare/define/refer to it. don't do anything else, annotations
 //    can't yet use template instantiations explicitly.
+// 5. the name is for a type we are annotating an invariant on.
 
 // declarations must be ordered such that if one declaration depends on another
 // (i.e. from a typedef), the other declaration appears first.
@@ -154,10 +155,26 @@ struct XIL_AnnotationState
 // the active annotation state.
 static struct XIL_AnnotationState *state;
 
+// whether a type needs a top-level declaration. this includes any non-anonymous
+// type as well as the 'this' type for invariants on anonymous types.
+static inline bool TypeNeedsDecl(tree type)
+{
+  tree name = TYPE_NAME(type);
+  if (name && TREE_CODE(name) == TYPE_DECL) {
+    if (!XIL_IsAnonymousCxx(name))
+      return true;
+    if (state->type && TREE_CODE(type) == TREE_CODE(state->type))
+      return TYPE_FIELDS(state->type) == TYPE_FIELDS(type);
+  }
+  return false;
+}
+
 // makes a declaration and appends it to the end of the state.
 // ignores duplicate additions.
 static void XIL_AddDecl(tree decl)
 {
+  gcc_assert(decl);
+
   // check to make sure this is not a duplicate addition.
   struct XIL_AnnotationDecl *last = state->decls;
   while (last) {
@@ -170,8 +187,14 @@ static void XIL_AddDecl(tree decl)
   const char *name = NULL;
   bool artificial = false;
 
+  // if decl is anonymous, we are handling the 'this' type.
+  if (c_dialect_cxx() && XIL_IsAnonymousCxx(decl)) {
+    name = "__anonymous_this";
+    artificial = true;
+  }
+
   // make an artificial name for declarations inside a structure.
-  if (c_dialect_cxx() && DECL_CONTEXT(decl) &&
+  if (!name && c_dialect_cxx() && DECL_CONTEXT(decl) &&
       TREE_CODE(DECL_CONTEXT(decl)) != NAMESPACE_DECL) {
     name = malloc(30); artificial = true;
     sprintf((char*)name, "__inner%d", ++state->artificial_count);
@@ -224,7 +247,11 @@ static struct XIL_AnnotationDecl* XIL_GetDecl(tree decl)
 static const char* XIL_GetTypeName(tree type, bool *pnamespace)
 {
   tree name = TYPE_NAME(type);
-  gcc_assert(name);
+  if (!name) {
+    // this must be the 'this' type.
+    *pnamespace = false;
+    return "__this";
+  }
 
   if (TREE_CODE(name) == TYPE_DECL) {
     struct XIL_AnnotationDecl *decl = XIL_GetDecl(name);
@@ -271,16 +298,21 @@ static void XIL_AddDef(tree type)
   bool define = true;
 
   // structs/enums without names are not defined at the top level.
+  // make an exception for the 'this' type on invariants in C, which might
+  // be anonymous.
   tree name = TYPE_NAME(type);
-  if (name == NULL)
-    define = false;
+  if (!name) {
+    if (!state->type || TREE_CODE(type) != TREE_CODE(state->type) ||
+        TYPE_FIELDS(type) != TYPE_FIELDS(state->type))
+      define = false;
+  }
 
-  // structs/enums with C++ fake names are not defined at the top level.
-  if (c_dialect_cxx() && XIL_IsAnonymousCxx(TYPE_NAME(type)))
+  // non-this structs/enums with C++ fake names are not defined at the top level.
+  if (c_dialect_cxx() && !TypeNeedsDecl(type))
     define = false;
 
   // make sure that definitions with names have existing declarations.
-  if (define && TREE_CODE(name) == TYPE_DECL) {
+  if (define && name && TREE_CODE(name) == TYPE_DECL) {
     gcc_assert(XIL_GetDecl(name));
     gcc_assert(DECL_RESULT_FLD(name) == NULL);
   }
@@ -318,7 +350,7 @@ void XIL_ScanPrintType(tree type, bool from_decl)
   tree name = TYPE_NAME(type);
 
   // add a declaration for named types.
-  if (name && TREE_CODE(name) == TYPE_DECL && !XIL_IsAnonymousCxx(name)) {
+  if (TypeNeedsDecl(type)) {
     // if this is a typedef then scan the target so any declarations
     // it uses are generated first.
     tree target_type = DECL_RESULT_FLD(name);
@@ -342,7 +374,7 @@ void XIL_ScanPrintType(tree type, bool from_decl)
   // add a definition for unnamed anonymous structures. the contents will have
   // to be printed out explicitly.
   if (TREE_CODE(type) == RECORD_TYPE || TREE_CODE(type) == UNION_TYPE) {
-    if (!name || (c_dialect_cxx() && XIL_IsAnonymousCxx(name)))
+    if (!TypeNeedsDecl(type))
       XIL_ScanDefineType(type);
   }
 
@@ -760,7 +792,8 @@ void XIL_PrintType(FILE *file, tree type)
   gcc_assert(*scanned);
 
   tree name = TYPE_NAME(type);
-  if (name && TREE_CODE(name) == TYPE_DECL && !XIL_IsAnonymousCxx(name)) {
+
+  if (TypeNeedsDecl(type)) {
     // use the name from the declaration we added earlier. if there is no
     // declaration then use the type's name as is.
     bool use_namespace = false;
@@ -1310,7 +1343,6 @@ void WriteAnnotationFile(FILE *file)
     }
 
     tree target_type = DECL_RESULT_FLD(decl->decl);
-
     // skip non-typedef enum declarations, these were already defined.
     if (!target_type && TREE_CODE(TREE_TYPE(decl->decl)) == ENUMERAL_TYPE) {
       decl = decl->next;

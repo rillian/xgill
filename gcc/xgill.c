@@ -54,7 +54,9 @@ struct XIL_ParamDecl *xil_pending_param_decls = NULL;
 
 void XIL_DebugPrint(tree node)
 {
+  fflush(stdout);
   print_node(stdout, "", node, 0);
+  fflush(stdout);
 }
 
 void XIL_ActivePushScope()
