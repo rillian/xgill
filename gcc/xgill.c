@@ -622,30 +622,6 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
   XIL_Var var = XIL_TranslateVar(decl);
   const char *name = XIL_GetVarName(var);
 
-  // this is a function or global, process any annotation attributes.
-  tree attr = DECL_ATTRIBUTES(decl);
-  while (attr) {
-    XIL_ProcessAnnotationAttr(decl, attr, NULL, NULL);
-    attr = TREE_CHAIN(attr);
-  }
-
-  // also look for annotations read in from file.
-  int ind = 0;
-  for (; ind < XIL_GetAnnotationCount(name, !is_function, false); ind++) {
-    const char *where;
-    const char *point_text, *annot_text;
-    int trusted;
-    XIL_GetAnnotation(name, !is_function, false, ind, &where,
-                      &point_text, &annot_text, &trusted);
-
-    // we'll handle loop invariants and point assertions after seeing the
-    // function's definition.
-    if (!strncmp(where, "loop", 4) || point_text)
-      continue;
-
-    XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
-  }
-
   // future parameter declarations will be for a different function.
   xil_pending_param_decls = NULL;
 
@@ -661,6 +637,7 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     "const char _ZTS",
     NULL
   };
+  int ind;
   for (ind = 0; bad_prefix_list[ind]; ind++) {
     const char *bad_prefix = bad_prefix_list[ind];
     if (!strncmp(name, bad_prefix, strlen(bad_prefix)))
@@ -679,6 +656,29 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
         DECL_TEMPLATE_INFO(context) != NULL)
       return;
     context = DECL_CONTEXT(context);
+  }
+
+  // this is a function or global, process any annotation attributes.
+  tree attr = DECL_ATTRIBUTES(decl);
+  while (attr) {
+    XIL_ProcessAnnotationAttr(decl, attr, NULL, NULL);
+    attr = TREE_CHAIN(attr);
+  }
+
+  // also look for annotations read in from file.
+  for (ind = 0; ind < XIL_GetAnnotationCount(name, !is_function, false); ind++) {
+    const char *where;
+    const char *point_text, *annot_text;
+    int trusted;
+    XIL_GetAnnotation(name, !is_function, false, ind, &where,
+                      &point_text, &annot_text, &trusted);
+
+    // we'll handle loop invariants and point assertions after seeing the
+    // function's definition.
+    if (!strncmp(where, "loop", 4) || point_text)
+      continue;
+
+    XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
   }
 
   XIL_GenerateBlock(decl);
