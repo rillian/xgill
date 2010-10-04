@@ -619,6 +619,98 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
   return true;
 }
 
+static bool HandleMissingDeclaration(const char *name)
+{
+  tree idnode = get_identifier(name);
+  tree decl = lookup_name(idnode);
+
+  if (decl) {
+    if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
+      // the missing declaration is a function or global variable.
+      XIL_ScanPrintType(TREE_TYPE(decl), true);
+
+      struct XIL_AnnotationVar *info =
+        calloc(1, sizeof(struct XIL_AnnotationVar));
+      info->decl = decl;
+      info->next = state->vars;
+      state->vars = info;
+      return true;
+    }
+
+    if (TREE_CODE(decl) == OVERLOAD) {
+      // the missing declaration is one of a number of overloaded functions.
+      while (decl) {
+        tree function = OVL_CURRENT(decl);
+        if (TREE_CODE(function) == FUNCTION_DECL) {
+          XIL_ScanPrintType(TREE_TYPE(function), true);
+
+          struct XIL_AnnotationVar *info =
+            calloc(1, sizeof(struct XIL_AnnotationVar));
+          info->decl = function;
+          info->next = state->vars;
+          state->vars = info;
+        }
+
+        decl = OVL_NEXT(decl);
+      }
+      return true;
+    }
+
+    if (TREE_CODE(decl) == TYPE_DECL) {
+      // the missing declaration is a typedef. scanning the type will
+      // add the appropriate declaration.
+      gcc_assert(TYPE_NAME(TREE_TYPE(decl)) == decl);
+      XIL_ScanPrintType(TREE_TYPE(decl), false);
+      return true;
+    }
+
+    if (TREE_CODE(decl) == CONST_DECL) {
+      // the missing declaration is an enum constant. define the whole enum.
+      tree type = TREE_TYPE(decl);
+      TREE_CHECK(type, ENUMERAL_TYPE);
+      XIL_ScanPrintType(type, false);
+      return true;
+    }
+
+    if (TREE_CODE(decl) == TEMPLATE_DECL)
+      TREE_UNHANDLED(decl);
+
+    TREE_UNEXPECTED(decl);
+  }
+
+  return false;
+}
+
+static bool HandleMissingDefinition(const char *name)
+{
+  // find a matching typedef or struct.
+  struct XIL_AnnotationDecl *info = state->decls;
+  while (info) {
+    if (!strcmp(name, info->name))
+      break;
+    info = info->next;
+  }
+
+  if (!info) {
+    if (!HandleMissingDeclaration(name))
+      return false;
+
+    // try again.
+    info = state->decls;
+    while (info) {
+      if (!strcmp(name, info->name))
+        break;
+      info = info->next;
+    }
+
+    if (!info)
+      return false;
+  }
+
+  XIL_ScanDefineType(TREE_TYPE(info->decl));
+  return true;
+}
+
 // returns true if the error message was interpreted successfully and the
 // state was changed to fix the error.
 bool XIL_ProcessAnnotationError(char *error_message)
@@ -652,62 +744,7 @@ bool XIL_ProcessAnnotationError(char *error_message)
       return true;
     }
 
-    tree idnode = get_identifier(quoted);
-    tree decl = lookup_name(idnode);
-
-    if (decl) {
-      if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
-        // the missing declaration is a function or global variable.
-        XIL_ScanPrintType(TREE_TYPE(decl), true);
-
-        struct XIL_AnnotationVar *info =
-          calloc(1, sizeof(struct XIL_AnnotationVar));
-        info->decl = decl;
-        info->next = state->vars;
-        state->vars = info;
-        return true;
-      }
-
-      if (TREE_CODE(decl) == OVERLOAD) {
-        // the missing declaration is one of a number of overloaded functions.
-        while (decl) {
-          tree function = OVL_CURRENT(decl);
-          if (TREE_CODE(function) == FUNCTION_DECL) {
-            XIL_ScanPrintType(TREE_TYPE(function), true);
-
-            struct XIL_AnnotationVar *info =
-              calloc(1, sizeof(struct XIL_AnnotationVar));
-            info->decl = function;
-            info->next = state->vars;
-            state->vars = info;
-          }
-
-          decl = OVL_NEXT(decl);
-        }
-        return true;
-      }
-
-      if (TREE_CODE(decl) == TYPE_DECL) {
-        // the missing declaration is a typedef. scanning the type will
-        // add the appropriate declaration.
-        gcc_assert(TYPE_NAME(TREE_TYPE(decl)) == decl);
-        XIL_ScanPrintType(TREE_TYPE(decl), false);
-        return true;
-      }
-
-      if (TREE_CODE(decl) == CONST_DECL) {
-        // the missing declaration is an enum constant. define the whole enum.
-        tree type = TREE_TYPE(decl);
-        TREE_CHECK(type, ENUMERAL_TYPE);
-        XIL_ScanPrintType(type, false);
-        return true;
-      }
-
-      if (TREE_CODE(decl) == TEMPLATE_DECL)
-        TREE_UNHANDLED(decl);
-
-      TREE_UNEXPECTED(decl);
-    }
+    return HandleMissingDeclaration(quoted);
   }
 
   // look for an incomplete type.
@@ -716,19 +753,16 @@ bool XIL_ProcessAnnotationError(char *error_message)
 
   if (!strcmp(pre, incomplete_msg_1) ||
       !strcmp(pre, incomplete_msg_2)) {
-    // find a matching typedef or struct.
-    struct XIL_AnnotationDecl *info = state->decls;
-    while (info) {
-      if (!strcmp(quoted, info->name))
-        break;
-      info = info->next;
+    return HandleMissingDefinition(quoted);
+  }
+
+  // look for a use of 'sizeof', which is quoted in error messages.
+  if (!strcmp(pre, "invalid application of ") && !strcmp(quoted, "sizeof")) {
+    char *npre, *nquoted, *npost;
+    if (GetQuoteMessage(post, &npre, &nquoted, &npost)) {
+      if (!strcmp(npre, " to incomplete type "))
+        return HandleMissingDefinition(nquoted);
     }
-
-    if (!info)
-      return false;
-
-    XIL_ScanDefineType(TREE_TYPE(info->decl));
-    return true;
   }
 
   // look for an incomplete type for C frontend hack.

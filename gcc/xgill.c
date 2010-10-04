@@ -726,7 +726,8 @@ int plugin_init (struct plugin_name_args *plugin_info,
   // this as a plugin argument as the command line may include '=' and
   // use both single and double quotes.
   xil_command = getenv("XGILL_COMMAND");
-  gcc_assert(xil_command);
+  if (!xil_command)
+    xil_command = "UNKNOWN";
 
   // process any plugin arguments.
   int arg_ind;
