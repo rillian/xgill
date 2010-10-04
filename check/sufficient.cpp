@@ -151,7 +151,9 @@ struct SufficientTester
       if (satisfiable) {
         logout << "SUFFICIENT: " << frame
                << ": Not a sufficient condition:" << endl;
+        solver->PinAssign();
         solver->PrintRawAssignment();
+        solver->UnpinAssign();
       }
       else {
         logout << "SUFFICIENT: " << frame << ": Success!" << endl;
@@ -409,6 +411,21 @@ class EqualityMapper : public ExpMultiMapper
   }
 };
 
+// if exp is a subtraction (exp0 - exp1) and exp1 is an lvalue, return exp1.
+static inline Exp* GetSubtractedExp(Exp *exp)
+{
+  ExpBinop *nexp = exp->IfBinop();
+  if (!nexp)
+    return NULL;
+  BinopKind kind = nexp->GetBinopKind();
+  if (kind != B_Minus && kind != B_MinusPP)
+    return NULL;
+  Exp *right = nexp->GetRightOperand();
+  if (right->IsLvalue())
+    return right;
+  return NULL;
+}
+
 // bit0 and bit1 are plain comparisons which establish an upper and lower
 // bound on the same term. bit0 is from a candidate sufficient condition,
 // bit1 is from an assumption on the contained frame.
@@ -435,36 +452,54 @@ bool BitShareOperands(Bit *bit0, Bit *bit1)
   if (kind1 != B_LessThan && kind1 != B_LessEqual)
     return false;
 
-  // there are two patterns we are looking for here. for scalars,
-  // check the exact term being on opposite sides of the binops,
-  // 'a <= b' and 'c <= a'. this could be relaxed further to recognize,
-  // e.g. 'a <= b' and 'c <= a + 1'. for pointers, check for a pointer
-  // bound and its target being on the same sides of the binops.
-  // (the bound can only appear in bit0, which came from a sufficient cond).
-
   Exp *left0 = nexp0->GetLeftOperand();
   Exp *left1 = nexp1->GetLeftOperand();
 
   Exp *right0 = nexp0->GetRightOperand();
   Exp *right1 = nexp1->GetRightOperand();
 
+  // check for a pointer bound and its target on the same sides of the binops.
+  // (the bound can only appear in bit0, which came from a sufficient cond).
+
+  // bound(A) <= *, A <= *
   if (ExpBound *nleft0 = left0->IfBound()) {
     if (nleft0->GetTarget() == left1)
       return true;
   }
-  else if (left0->IsLvalue()) {
-    if (left0 == right1)
-      return true;
-  }
 
+  // * <= bound(A), * <= A
   if (ExpBound *nright0 = right0->IfBound()) {
     if (nright0->GetTarget() == right1)
       return true;
   }
-  else if (right0->IsLvalue()) {
-    if (right0 == left1)
-      return true;
-  }
+
+  // check the exact term being on opposite sides of the binops.
+
+  // A <= *, * <= A
+  if (left0->IsLvalue() && left0 == right1)
+    return true;
+
+  // * <= A, A <= *
+  if (right0->IsLvalue() && right0 == left1)
+    return true;
+
+  // check the term being on both sides of the binop, in opposite phases.
+
+  Exp *negleft0 = GetSubtractedExp(left0);
+  Exp *negleft1 = GetSubtractedExp(left1);
+
+  Exp *negright0 = GetSubtractedExp(right0);
+  Exp *negright1 = GetSubtractedExp(right1);
+
+  // * - A <= *, A <= *
+  // * <= * - A, * <= A
+  if (negleft0 == left1 || negright0 == right1)
+    return true;
+
+  // A <= *, * - A <= *
+  // * <= A, * <= * - A
+  if (left0 == negleft1 || right0 == negright1)
+    return true;
 
   return false;
 }

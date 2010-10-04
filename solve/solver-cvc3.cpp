@@ -251,6 +251,7 @@ void SolverCVC3::GetAssignment(SolverDeclTable &decl_table,
                                SolverAssignment &assign)
 {
   Assert(m_vc);
+  Assert(assign.IsEmpty());
 
   // get the assignment. because of the push/pop in BaseCheck,
   // the assignment is no longer around when we get here so we have

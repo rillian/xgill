@@ -1299,6 +1299,7 @@ void Solver::UnpinAssign()
 
   HashIterate(m_assign)
     mpz_clear(m_assign.ItValueSingle().n);
+  m_assign.Clear();
 }
 
 void Solver::AsnCheckPointReached(FrameId frame, PPoint point)
