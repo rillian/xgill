@@ -1364,12 +1364,6 @@ bool XIL_TranslateAnnotationCall(struct XIL_TreeEnv *env, tree node)
 
   // figure out the stride type to use for this bound.
 
-  // if there is a leading cast then remove it. the annotation functions
-  // have a fake __bound__* argument type and casts to this type should
-  // be inserted for every use.
-  if (TREE_CODE(arg) == NOP_EXPR)
-    arg = TREE_OPERAND(arg, 0);
-
   tree type = TREE_TYPE(arg);
   if (TREE_CODE(type) != POINTER_TYPE) return false;
 

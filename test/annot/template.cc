@@ -11,8 +11,11 @@ struct str
 
   //invariant(field == SizeOfType())
   //invariant(field == sizeof(TEMPLATE))
-  invariant(field == sizeof(ThisType))
+  //invariant(field == sizeof(ThisType))
   int field;
+
+  invariant(ubound((ThisType *) buf) >= 10)
+  int *buf;
 };
 
 int foo()
