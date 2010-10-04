@@ -56,6 +56,7 @@ void XIL_DebugPrint(tree node)
 {
   fflush(stdout);
   print_node(stdout, "", node, 0);
+  printf("\n\n");
   fflush(stdout);
 }
 

@@ -453,6 +453,22 @@ void XIL_ScanPrintType(tree type, bool from_decl)
   }
 }
 
+void XIL_ScanTemplateInfo(tree node)
+{
+  tree tinfo = get_template_info(node);
+  gcc_assert(tinfo);
+
+  tree arguments = TI_ARGS(tinfo);
+  int arg_count = TREE_VEC_LENGTH(arguments);
+
+  size_t ind;
+  for (ind = 0; ind < arg_count; ind++) {
+    tree arg = TREE_VEC_ELT(arguments, ind);
+    if (TYPE_P(arg))
+      XIL_ScanPrintType(arg, false);
+  }
+}
+
 void XIL_ScanDefineType(tree type)
 {
   // if the type is an inner structure then define the parent structure too.
@@ -513,18 +529,8 @@ void XIL_ScanDefineType(tree type)
 
   if (c_dialect_cxx()) {
     // scan the types of any template arguments.
-    if (CLASSTYPE_USE_TEMPLATE(type)) {
-      tree tinfo = get_template_info(type);
-      tree arguments = TI_ARGS(tinfo);
-      int arg_count = TREE_VEC_LENGTH(arguments);
-
-      size_t ind;
-      for (ind = 0; ind < arg_count; ind++) {
-        tree arg = TREE_VEC_ELT(arguments, ind);
-        if (TYPE_P(arg))
-          XIL_ScanPrintType(arg, false);
-      }
-    }
+    if (CLASSTYPE_USE_TEMPLATE(type))
+      XIL_ScanTemplateInfo(type);
 
     // scan the types of any methods.
     VEC(tree,gc) *methods = CLASSTYPE_METHOD_VEC(type);
@@ -1009,6 +1015,37 @@ void XIL_PrintDeclaration(FILE *file, tree type, const char *name)
   fprintf(file, " %s", name);
 }
 
+void XIL_PrintTemplateInfo(FILE *file, tree node)
+{
+  tree tinfo = get_template_info(node);
+  gcc_assert(tinfo);
+
+  tree parameters = DECL_INNERMOST_TEMPLATE_PARMS(TI_TEMPLATE(tinfo));
+  tree arguments = TI_ARGS(tinfo);
+
+  // TODO: handle default arguments?
+  int parm_count = TREE_VEC_LENGTH(parameters);
+  int arg_count = TREE_VEC_LENGTH(arguments);
+  int count = MIN(parm_count, arg_count);
+
+  size_t ind;
+  for (ind = 0; ind < count; ind++) {
+    // TODO: handle template parameters which aren't typedefs.
+    tree parm = TREE_VEC_ELT(parameters, ind);
+    tree decl = TREE_VALUE(parm);
+    if (TREE_CODE(decl) != TYPE_DECL)
+      continue;
+
+    tree arg = TREE_VEC_ELT(arguments, ind);
+    if (!TYPE_P(arg))
+      continue;
+
+    fprintf(file, "typedef ");
+    XIL_PrintType(file, arg);
+    fprintf(file, " %s;\n", IDENTIFIER_POINTER(DECL_NAME(decl)));
+  }
+}
+
 void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
 {
   gcc_assert(state);
@@ -1120,33 +1157,8 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
     field = TREE_CHAIN(field);
   }
 
-  if (c_dialect_cxx() && CLASSTYPE_USE_TEMPLATE(type)) {
-    tree tinfo = get_template_info(type);
-    tree parameters = DECL_INNERMOST_TEMPLATE_PARMS(TI_TEMPLATE(tinfo));
-    tree arguments = TI_ARGS(tinfo);
-
-    // TODO: handle default arguments?
-    int parm_count = TREE_VEC_LENGTH(parameters);
-    int arg_count = TREE_VEC_LENGTH(arguments);
-    int count = MIN(parm_count, arg_count);
-
-    size_t ind;
-    for (ind = 0; ind < count; ind++) {
-      // TODO: handle template parameters which aren't typedefs.
-      tree parm = TREE_VEC_ELT(parameters, ind);
-      tree decl = TREE_VALUE(parm);
-      if (TREE_CODE(decl) != TYPE_DECL)
-        continue;
-
-      tree arg = TREE_VEC_ELT(arguments, ind);
-      if (!TYPE_P(arg))
-        continue;
-
-      fprintf(file, "typedef ");
-      XIL_PrintType(file, arg);
-      fprintf(file, " %s;\n", IDENTIFIER_POINTER(DECL_NAME(decl)));
-    }
-  }
+  if (c_dialect_cxx() && CLASSTYPE_USE_TEMPLATE(type))
+    XIL_PrintTemplateInfo(file, type);
 
   if (c_dialect_cxx() && !XIL_IsAnonymousCxx(TYPE_NAME(type))) {
     // print out the methods as well. start at index 2 in the methods vector,
@@ -1571,6 +1583,9 @@ void WriteAnnotationFile(FILE *file)
       XIL_PrintDeclaration(file, result_type, "return");
       fprintf(file, ";\n");
     }
+
+    if (c_dialect_cxx() && DECL_USE_TEMPLATE(state->decl))
+      XIL_PrintTemplateInfo(file, state->decl);
   }
 
   if (state->decl && TREE_CODE(state->decl) == VAR_DECL) {
@@ -1782,6 +1797,9 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
     tree result_type = TREE_TYPE(TREE_TYPE(state->decl));
     if (TREE_CODE(result_type) != VOID_TYPE)
       XIL_ScanDefineType(result_type);
+
+    if (c_dialect_cxx() && DECL_USE_TEMPLATE(state->decl))
+      XIL_ScanTemplateInfo(state->decl);
 
 // maximum number of locals we will consider for a function.
 #define MAX_LOCALS 500
