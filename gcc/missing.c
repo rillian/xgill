@@ -11,3 +11,4 @@ void type_as_string() { abort(); }
 void decl_as_string() { abort(); }
 void cp_type_quals() { abort(); }
 void look_for_overrides_here() { abort(); }
+void get_template_info() { abort(); }

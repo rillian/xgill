@@ -512,6 +512,20 @@ void XIL_ScanDefineType(tree type)
   }
 
   if (c_dialect_cxx()) {
+    // scan the types of any template arguments.
+    if (CLASSTYPE_USE_TEMPLATE(type)) {
+      tree tinfo = get_template_info(type);
+      tree arguments = TI_ARGS(tinfo);
+      int arg_count = TREE_VEC_LENGTH(arguments);
+
+      size_t ind;
+      for (ind = 0; ind < arg_count; ind++) {
+        tree arg = TREE_VEC_ELT(arguments, ind);
+        if (TYPE_P(arg))
+          XIL_ScanPrintType(arg, false);
+      }
+    }
+
     // scan the types of any methods.
     VEC(tree,gc) *methods = CLASSTYPE_METHOD_VEC(type);
     int ind = 2;
@@ -1070,6 +1084,34 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
     }
 
     field = TREE_CHAIN(field);
+  }
+
+  if (c_dialect_cxx() && CLASSTYPE_USE_TEMPLATE(type)) {
+    tree tinfo = get_template_info(type);
+    tree parameters = DECL_INNERMOST_TEMPLATE_PARMS(TI_TEMPLATE(tinfo));
+    tree arguments = TI_ARGS(tinfo);
+
+    // TODO: handle default arguments?
+    int parm_count = TREE_VEC_LENGTH(parameters);
+    int arg_count = TREE_VEC_LENGTH(arguments);
+    int count = MIN(parm_count, arg_count);
+
+    size_t ind;
+    for (ind = 0; ind < count; ind++) {
+      // TODO: handle template parameters which aren't typedefs.
+      tree parm = TREE_VEC_ELT(parameters, ind);
+      tree decl = TREE_VALUE(parm);
+      if (TREE_CODE(decl) != TYPE_DECL)
+        continue;
+
+      tree arg = TREE_VEC_ELT(arguments, ind);
+      if (!TYPE_P(arg))
+        continue;
+
+      fprintf(file, "typedef ");
+      XIL_PrintType(file, arg);
+      fprintf(file, " %s;\n", IDENTIFIER_POINTER(DECL_NAME(decl)));
+    }
   }
 
   if (c_dialect_cxx() && !XIL_IsAnonymousCxx(TYPE_NAME(type))) {
