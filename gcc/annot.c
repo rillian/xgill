@@ -121,6 +121,16 @@ struct XIL_AnnotationVar
   struct XIL_AnnotationVar *next;
 };
 
+// information about a namespace to use.
+
+struct XIL_AnnotationNamespace
+{
+  // namespace context for 'using'.
+  tree context;
+
+  struct XIL_AnnotationNamespace *next;
+};
+
 // all state for processing an annotation.
 
 struct XIL_AnnotationState
@@ -147,6 +157,7 @@ struct XIL_AnnotationState
   struct XIL_AnnotationDef *defs;
   struct XIL_AnnotationEmptyDef *emptydefs;
   struct XIL_AnnotationVar *vars;
+  struct XIL_AnnotationNamespace *namespaces;
 
   // number of artificial names that have been declared.
   int artificial_count;
@@ -631,6 +642,17 @@ static bool HandleMissingDeclaration(const char *name)
   tree decl = lookup_name(idnode);
 
   if (decl) {
+    // use any namespace for this declaration.
+    if (c_dialect_cxx() && DECL_CONTEXT(decl) &&
+        TREE_CODE(DECL_CONTEXT(decl)) == NAMESPACE_DECL &&
+        DECL_NAME(DECL_CONTEXT(decl))) {
+      struct XIL_AnnotationNamespace *namespace =
+        calloc(1, sizeof(struct XIL_AnnotationNamespace));
+      namespace->context = DECL_CONTEXT(decl);
+      namespace->next = state->namespaces;
+      state->namespaces = namespace;
+    }
+
     if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
       // the missing declaration is a function or global variable.
       XIL_ScanPrintType(TREE_TYPE(decl), true);
@@ -827,6 +849,14 @@ void XIL_PrintContext(FILE *file, tree decl)
       fprintf(file, "::");
     }
   }
+}
+
+// print a namespace to file, without a trailing '::'.
+void XIL_PrintBaseContext(FILE *file, tree context)
+{
+  TREE_CHECK(context, NAMESPACE_DECL);
+  XIL_PrintContext(file, context);
+  fprintf(file, IDENTIFIER_POINTER(DECL_NAME(context)));
 }
 
 // print any struct/union/enum prefix for type.
@@ -1134,21 +1164,35 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
       fprintf(file, ";\n");
     }
     else if (TREE_CODE(field) == TYPE_DECL) {
-      // structure or typedef. inner structures were already marked
-      // for definition with an artificial name, so we can do both
-      // cases here with typedefs.
+      // structure or typedef. inner structures were already marked for
+      // definition with an artificial name, so we can do both cases here with
+      // typedefs. scan the previous fields of the structure for any other type
+      // with the same name (one must be a struct, the other must be a typedef)
+      // and skip if this is a duplicate.
       if (!XIL_IsSelfTypeDecl(field) && !XIL_IsAnonymousCxx(field)) {
-        fprintf(file, "typedef ");
-        XIL_PrintDeclaration(file, TREE_TYPE(field),
-                             IDENTIFIER_POINTER(DECL_NAME(field)));
-        fprintf(file, ";\n");
+        const char *name = IDENTIFIER_POINTER(DECL_NAME(field));
+        bool duplicate = false;
+        tree ofield = TYPE_FIELDS(type);
+        while (ofield) {
+          if (TREE_CODE(ofield) == TYPE_DECL &&
+              !strcmp(IDENTIFIER_POINTER(DECL_NAME(ofield)), name))
+            duplicate = true;
+          ofield = TREE_CHAIN(ofield);
+        }
+
+        if (!duplicate) {
+          fprintf(file, "typedef ");
+          XIL_PrintDeclaration(file, TREE_TYPE(field),
+                               name);
+          fprintf(file, ";\n");
+        }
       }
     }
     else if (TREE_CODE(field) == CONST_DECL) {
-      // maybe a member of an anonymous enum.
       tree initial = DECL_INITIAL(field);
       gcc_assert(initial);
       if (TREE_CODE(initial) == INTEGER_CST) {
+        // maybe a member of an anonymous enum.
         const char *str = XIL_TreeIntString(initial);
         fprintf(file, "enum { %s = %s };\n", IDENTIFIER_POINTER(DECL_NAME(field)), str);
       }
@@ -1636,6 +1680,15 @@ void WriteAnnotationFile(FILE *file)
       }
       field = TREE_CHAIN(field);
     }
+  }
+
+  // print any namespace 'using' declarations.
+  struct XIL_AnnotationNamespace *namespace = state->namespaces;
+  while (namespace) {
+    fprintf(file, "using namespace ");
+    XIL_PrintBaseContext(file, namespace->context);
+    fprintf(file, ";\n");
+    namespace = namespace->next;
   }
 
   fprintf(file, "int __value__ = 0 != (%s);\n", state->text);
