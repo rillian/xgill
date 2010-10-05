@@ -213,8 +213,6 @@ extern "C" void XIL_ReadAnnotationFile(const char *file)
 {
   // annotation files are lists of blank-separated entries of the form:
   //
-  // name
-  // email
   // hook (per Where::PrintHook. may be prepended with "point '...'").
   // text
   // trusted
@@ -232,12 +230,6 @@ extern "C" void XIL_ReadAnnotationFile(const char *file)
   SplitBufferStrings(&file_buf, '\n', &strings);
 
   for (size_t ind = 0; ind < strings.Size(); ind++) {
-    char *name = strings[ind];
-    if (*name == 0) continue;
-
-    char *email = strings[++ind];
-    if (*email == 0) continue;
-
     char *hook = strings[++ind];
     if (*hook == 0) continue;
 

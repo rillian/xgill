@@ -60,9 +60,10 @@ void DisplayValue::WriteXML(Buffer *buf)
   case BND_Invalid:
     print_exp->PrintUI(out, false); break;
   default:
+    Assert(m_bound_type);
     out << BoundString(m_bound_kind) << "(";
     print_exp->PrintUI(out, false);
-    out << ")";
+    out << "," << m_bound_type << ")";
   }
 
   print_exp->DecRef();
