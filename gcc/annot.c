@@ -1222,6 +1222,18 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
         }
 
         tree method_type = TREE_TYPE(method);
+        const char *name = IDENTIFIER_POINTER(DECL_NAME(method));
+
+        // skip printing for assignment operators, these can't be in unions.
+        // TODO: use of assignment operators in annotations is problematic.
+        // if the annotation uses this and it is a non-default operator,
+        // the annotation won't compile. if it is a default operator,
+        // GCC will fabricate a new one with the wrong name while processing
+        // the annotation file.
+        if (!strcmp(name, "operator=")) {
+          node = OVL_NEXT(node);
+          continue;
+        }
 
         const char *full_name = XIL_GlobalName(method);
         fprintf(file, "__attribute__((annot_global(\"%s\")))\n",
@@ -1230,7 +1242,6 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
         if (DECL_STATIC_FUNCTION_P(method))
           fprintf(file, "static ");
 
-        const char *name = IDENTIFIER_POINTER(DECL_NAME(method));
         XIL_PrintDeclaration(file, method_type, name);
         fprintf(file, ";\n");
 
