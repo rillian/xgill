@@ -137,6 +137,23 @@ struct AssumeInfo
   }
 };
 
+// remove duplicates in a list of assumptions.
+inline void CombineAssumeList(Vector<AssumeInfo> *assumes)
+{
+  for (size_t ind = 0; ind < assumes->Size(); ind++) {
+    bool duplicate = false;
+    for (size_t xind = 0; xind < ind; xind++) {
+      if (assumes->At(ind).bit == assumes->At(xind).bit)
+        duplicate = true;
+    }
+    if (duplicate) {
+      assumes->At(ind) = assumes->Back();
+      assumes->PopBack();
+      ind--;
+    }
+  }
+}
+
 class BlockSummary : public HashObject
 {
  public:

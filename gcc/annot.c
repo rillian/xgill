@@ -135,6 +135,10 @@ struct XIL_AnnotationNamespace
 
 struct XIL_AnnotationState
 {
+  // previous state in active stack. annotations are reentrant as we force
+  // translation of types referred to, which may discover new invariants.
+  struct XIL_AnnotationState *prev;
+
   // function/global declaration the annotation is attached to.
   tree decl;
 
@@ -164,7 +168,7 @@ struct XIL_AnnotationState
 };
 
 // the active annotation state.
-static struct XIL_AnnotationState *state;
+static struct XIL_AnnotationState *state = NULL;
 
 // whether a type needs a top-level declaration. this includes any non-anonymous
 // type as well as the 'this' type for invariants on anonymous types.
@@ -352,6 +356,9 @@ void XIL_ScanDefineType(tree type);
 void XIL_ScanPrintType(tree type, bool from_decl)
 {
   gcc_assert(type);
+
+  // construct the XIL representation, to ensure structs/etc. have names.
+  XIL_TranslateType(type);
 
   // see if we scanned this type before. associate a flag with each type.
   // we can rescan the same type, we might see it both with and without
@@ -1081,6 +1088,11 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
   gcc_assert(state);
   XIL_PrintStructPrefix(file, type);
 
+  // tag the structure with its real name.
+  const char *full_name = XIL_CSUName(type, NULL);
+  gcc_assert(full_name);
+  fprintf(file, " __attribute__((annot_global(\"%s\")))", full_name);
+
   // whether we are printing the 'this' structure.
   bool this_struct = false;
 
@@ -1092,12 +1104,8 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
 
     // type invariants in C always use a special '__this' name in case they
     // are anonymous. an annot_global attribute indicates the real type name.
-    if (!c_dialect_cxx()) {
-      const char *full_name = XIL_CSUName(type, NULL);
-      gcc_assert(full_name);
-      fprintf(file, " __attribute__((annot_global(\"%s\")))", full_name);
+    if (!c_dialect_cxx())
       csu_name = "__this";
-    }
   }
 
   if (csu_name)
@@ -1805,9 +1813,12 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
   // add the proper extension to the annotation source file.
   strcat(annotation_file, c_dialect_cxx() ? ".cc" : ".c");
 
-  state = calloc(1, sizeof(struct XIL_AnnotationState));
-  state->name = annot_name;
-  state->text = annot_text;
+  struct XIL_AnnotationState *nstate =
+    calloc(1, sizeof(struct XIL_AnnotationState));
+  nstate->name = annot_name;
+  nstate->text = annot_text;
+  nstate->prev = state;
+  state = nstate;
 
   if (annot_type) {
     state->type = node;
@@ -1939,12 +1950,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
       // successfully processed the annotation file.
       XIL_ClearAssociate(XIL_AscAnnotate);
 
-      /*
-      remove(out_file);
-      remove(annotation_file);
-      */
-
-      state = NULL;
+      state = state->prev;
       return;
     }
 
@@ -2015,14 +2021,8 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
   XIL_AddAnnotationMsg(annot_var, annot_name, annot_kind, annot_type,
                        error_loc, error_buf);
 
-  state = NULL;
+  state = state->prev;
   XIL_ClearAssociate(XIL_AscAnnotate);
-
-  // remove the output files unless we're keeping all failed annotations.
-  /*
-  remove(out_file);
-  remove(annotation_file);
-  */
 }
 
 bool XIL_ProcessAnnotationAttr(tree node, tree attr, XIL_PPoint *point,

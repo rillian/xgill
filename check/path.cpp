@@ -704,8 +704,7 @@ void DisplayPath::AddAnnotations(DisplayFrame *frame,
   }
 }
 
-DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame,
-                                     PPoint cfg_point)
+DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
 {
   Solver *solver = chk_frame->State()->GetSolver();
 

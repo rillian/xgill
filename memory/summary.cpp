@@ -178,25 +178,33 @@ public:
         Variable *this_var = Variable::Make(id, VK_This, NULL, 0, NULL);
         Exp *this_exp = Exp::MakeVar(this_var);
         Exp *this_drf = Exp::MakeDrf(this_exp);
+        Exp *target = nexp->GetTarget();
 
         GuardExpVector lval_res;
-        mcfg->TranslateExp(TRK_Point, point, nexp->GetTarget(), &lval_res);
+        if (mcfg) {
+          mcfg->TranslateExp(TRK_Point, point, target, &lval_res);
+        }
+        else {
+          target->IncRef();
+          lval_res.PushBack(GuardExp(target, Bit::MakeConstant(true)));
+        }
 
         for (size_t lind = 0; lind < lval_res.Size(); lind++) {
+          // ignore the guard component of the result here. this means that
+          // accessing a field of a value means related invariants hold for
+          // the value along all paths. which is normally right, except when
+          // the value is the result of a cast, and could have a different type
+          // along other paths. TODO: sort this out.
           const GuardExp &gs = lval_res[lind];
-
-          gs.guard->IncRef();
-          Bit *not_guard = Bit::MakeNot(gs.guard);
           Bit *new_bit = BitReplaceExp(bit, this_drf, gs.exp);
-          Bit *combine_bit = Bit::MakeOr(not_guard, new_bit);
 
-          combine_bit->MoveRef(NULL, assume_list);
+          new_bit->MoveRef(NULL, assume_list);
           annot_cfg->IncRef(assume_list);
 
           AssumeInfo info;
           info.annot = annot_cfg;
           info.point = 0;
-          info.bit = combine_bit;
+          info.bit = new_bit;
           assume_list->PushBack(info);
         }
 
@@ -526,6 +534,17 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
   }
 
   BodyAnnotCache.Release(id->Function());
+
+  // add assumptions from heap invariants describing values mentioned
+  // in added assumptions. we could keep doing this transitively but don't,
+  // to ensure termination.
+  size_t count = assume_list->Size();
+  for (size_t ind = 0; ind < count; ind++) {
+    InvariantAssumeVisitor visitor(NULL, 0, assume_list);
+    assume_list->At(ind).bit->DoVisit(&visitor);
+  }
+
+  CombineAssumeList(assume_list);
 }
 
 bool BlockSummary::GetAssertFunction(const char *name, Buffer *buf)

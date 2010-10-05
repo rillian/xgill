@@ -22,4 +22,5 @@ struct str1 {
   } first, second;
 };
 
-int foo1(str1 *s) { return s->first.b; }
+postcondition(return == s->second.b)
+int foo1(str1 *s) { return s->second.b; }
