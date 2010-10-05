@@ -222,21 +222,18 @@ extern "C" void XIL_ReadAnnotationFile(const char *file)
   Buffer file_buf;
   ReadInStream(in, &file_buf);
 
-  // append blank lines at the end so our empty string tests below
-  // will trip at the end of the list if the file is malformed.
-  file_buf.Append("\n\n", 2);
-
   Vector<char*> strings;
   SplitBufferStrings(&file_buf, '\n', &strings);
 
-  for (size_t ind = 0; ind < strings.Size(); ind++) {
-    char *hook = strings[++ind];
+  size_t ind = 0;
+  while (ind + 3 <= strings.Size()) {
+    char *hook = strings[ind++];
     if (*hook == 0) continue;
 
-    char *annot_text = strings[++ind];
+    char *annot_text = strings[ind++];
     if (*annot_text == 0) continue;
 
-    char *trusted = strings[++ind];
+    char *trusted = strings[ind++];
     if (*trusted == 0) continue;
 
     String *new_annot_text = String::Make(annot_text);
