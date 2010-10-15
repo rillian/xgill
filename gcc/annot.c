@@ -1453,9 +1453,9 @@ void WriteAnnotationFile(FILE *file)
   // in macros to ensure they can be passed any type without casts and that
   // we see whichever type was used for the bound functions.
   fprintf(file,
-"#define ubound(X) ({ typeof((X)[0]) __data; extern long __ubound(typeof((X)[0]) *ptr); __ubound(X); })\n"
-"#define lbound(X) ({ typeof((X)[0]) __data; extern long __lbound(typeof((X)[0]) *ptr); __lbound(X); })\n"
-"#define zterm(X) ({ typeof((X)[0]) __data; extern long __zterm(typeof((X)[0]) *ptr); __zterm(X); })\n"
+"#define ubound(X) ({ extern typeof((X)[0]) __data; extern long __ubound(typeof((X)[0]) *ptr); __ubound(X); })\n"
+"#define lbound(X) ({ extern typeof((X)[0]) __data; extern long __lbound(typeof((X)[0]) *ptr); __lbound(X); })\n"
+"#define zterm(X) ({ extern typeof((X)[0]) __data; extern long __zterm(typeof((X)[0]) *ptr); __zterm(X); })\n"
 "#define initial(X) ({ typeof(X) __initial = (X); __initial; })\n"
 "int skip_inference();\n"
   );
