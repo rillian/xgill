@@ -219,13 +219,13 @@ void WhereNone::PrintUI(OutStream &out) const
   out << "Report: ";
   switch (m_report_kind) {
   case RK_Finished:
-    out << "Finished exploration, no further dependents"; break;
+    out << "Finished exploration"; break;
   case RK_Timeout:
     out << "Timed out during exploration"; break;
   case RK_Recursion:
-    out << "Recursion blocked, too many dependents at the same point"; break;
+    out << "Too much recursion"; break;
   case RK_Unexpected:
-    out << "Unknown lvalue in goal, could not figure out dependent"; break;
+    out << "Could not find dependent"; break;
   case RK_UnknownCSU:
     out << "Could not find base object for type invariant"; break;
   case RK_NoCallee:
