@@ -293,6 +293,7 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
         }
 
         DecRefVector<EscapeAccessSet>(aset_list);
+        scratch_buf.Reset();
       }
 
       DecRefVector<Trace>(heap_traces, &heap_traces);
