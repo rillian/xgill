@@ -168,6 +168,8 @@ static MallocFunctionInfo g_malloc_functions[] =
   // stdlib functions.
   { "malloc", 0 },
   { "realloc", 1 },
+  { "void* operator new", 0 },
+  { "void* operator new []", 0 },
 
   // Linux functions.
 

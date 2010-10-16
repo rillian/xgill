@@ -1748,6 +1748,18 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       Exp *new_exp = MakeBinop(li.b_kind, left_exp, right_exp);
       return SimplifyExp(exp, new_exp);
     }
+
+    // input:  -exp / n
+    // output: -(exp / n)
+
+    if ((i.b_kind == B_Div || i.b_kind == B_DivExact) &&
+        li.u_kind == U_Neg && ri.has_value) {
+      lli.exp->IncRef();
+      ri.exp->IncRef();
+      Exp *right_exp = MakeBinop(i.b_kind, lli.exp, ri.exp);
+      Exp *new_exp = MakeUnop(U_Neg, right_exp);
+      return SimplifyExp(exp, new_exp);
+    }
   }
 
   // fall through simplification cases.
