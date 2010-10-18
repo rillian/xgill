@@ -648,71 +648,73 @@ static bool HandleMissingDeclaration(const char *name)
   tree idnode = get_identifier(name);
   tree decl = lookup_name(idnode);
 
-  if (decl) {
-    // use any namespace for this declaration.
-    if (c_dialect_cxx() && DECL_CONTEXT(decl) &&
-        TREE_CODE(DECL_CONTEXT(decl)) == NAMESPACE_DECL &&
-        DECL_NAME(DECL_CONTEXT(decl))) {
-      struct XIL_AnnotationNamespace *namespace =
-        calloc(1, sizeof(struct XIL_AnnotationNamespace));
-      namespace->context = DECL_CONTEXT(decl);
-      namespace->next = state->namespaces;
-      state->namespaces = namespace;
-    }
+  if (!decl)
+    return false;
 
-    if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
-      // the missing declaration is a function or global variable.
-      XIL_ScanPrintType(TREE_TYPE(decl), true);
-
-      struct XIL_AnnotationVar *info =
-        calloc(1, sizeof(struct XIL_AnnotationVar));
-      info->decl = decl;
-      info->next = state->vars;
-      state->vars = info;
-      return true;
-    }
-
-    if (TREE_CODE(decl) == OVERLOAD) {
-      // the missing declaration is one of a number of overloaded functions.
-      while (decl) {
-        tree function = OVL_CURRENT(decl);
-        if (TREE_CODE(function) == FUNCTION_DECL) {
-          XIL_ScanPrintType(TREE_TYPE(function), true);
-
-          struct XIL_AnnotationVar *info =
-            calloc(1, sizeof(struct XIL_AnnotationVar));
-          info->decl = function;
-          info->next = state->vars;
-          state->vars = info;
-        }
-
-        decl = OVL_NEXT(decl);
-      }
-      return true;
-    }
-
-    if (TREE_CODE(decl) == TYPE_DECL) {
-      // the missing declaration is a typedef. scanning the type will
-      // add the appropriate declaration.
-      gcc_assert(TYPE_NAME(TREE_TYPE(decl)) == decl);
-      XIL_ScanPrintType(TREE_TYPE(decl), false);
-      return true;
-    }
-
-    if (TREE_CODE(decl) == CONST_DECL) {
-      // the missing declaration is an enum constant. define the whole enum.
-      tree type = TREE_TYPE(decl);
-      TREE_CHECK(type, ENUMERAL_TYPE);
-      XIL_ScanPrintType(type, false);
-      return true;
-    }
-
-    if (TREE_CODE(decl) == TEMPLATE_DECL)
-      TREE_UNHANDLED(decl);
-
-    TREE_UNEXPECTED(decl);
+  // use any namespace for this declaration.
+  if (c_dialect_cxx() && DECL_CONTEXT(decl) &&
+      TREE_CODE(DECL_CONTEXT(decl)) == NAMESPACE_DECL &&
+      DECL_NAME(DECL_CONTEXT(decl))) {
+    struct XIL_AnnotationNamespace *namespace =
+      calloc(1, sizeof(struct XIL_AnnotationNamespace));
+    namespace->context = DECL_CONTEXT(decl);
+    namespace->next = state->namespaces;
+    state->namespaces = namespace;
   }
 
+  if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
+    // the missing declaration is a function or global variable.
+    XIL_ScanPrintType(TREE_TYPE(decl), true);
+
+    struct XIL_AnnotationVar *info =
+      calloc(1, sizeof(struct XIL_AnnotationVar));
+    info->decl = decl;
+    info->next = state->vars;
+    state->vars = info;
+    return true;
+  }
+
+  if (TREE_CODE(decl) == OVERLOAD) {
+    // the missing declaration is one of a number of overloaded functions.
+    while (decl) {
+      tree function = OVL_CURRENT(decl);
+      if (TREE_CODE(function) == FUNCTION_DECL) {
+        XIL_ScanPrintType(TREE_TYPE(function), true);
+
+        struct XIL_AnnotationVar *info =
+          calloc(1, sizeof(struct XIL_AnnotationVar));
+        info->decl = function;
+        info->next = state->vars;
+        state->vars = info;
+      }
+
+      decl = OVL_NEXT(decl);
+    }
+    return true;
+  }
+
+  if (TREE_CODE(decl) == TYPE_DECL) {
+    // the missing declaration is a typedef. scanning the type will
+    // add the appropriate declaration.
+    gcc_assert(TYPE_NAME(TREE_TYPE(decl)) == decl);
+    XIL_ScanPrintType(TREE_TYPE(decl), false);
+    return true;
+  }
+
+  if (TREE_CODE(decl) == CONST_DECL) {
+    // the missing declaration is an enum constant. define the whole enum.
+    tree type = TREE_TYPE(decl);
+    TREE_CHECK(type, ENUMERAL_TYPE);
+    XIL_ScanPrintType(type, false);
+    return true;
+  }
+
+  if (TREE_CODE(decl) == TEMPLATE_DECL) {
+    TREE_UNHANDLED(decl);
+    return false;
+  }
+
+  TREE_UNEXPECTED(decl);
   return false;
 }
 
@@ -1165,10 +1167,22 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
     }
     else if (TREE_CODE(field) == VAR_DECL) {
       // static member.
-      const char *name = XIL_GlobalName(field);
-      fprintf(file, "__attribute__((annot_global(\"%s\"))) static\n", name);
-      XIL_PrintDeclaration(file, TREE_TYPE(field),
-                           IDENTIFIER_POINTER(DECL_NAME(field)));
+      const char *name = IDENTIFIER_POINTER(DECL_NAME(field));
+
+      // make a fake ENUM constant for constant static members.
+      if (TYPE_READONLY(TREE_TYPE(field))) {
+        tree initial = DECL_INITIAL(field);
+        if (initial && TREE_CODE(initial) == INTEGER_CST) {
+          const char *str = XIL_TreeIntString(initial);
+          fprintf(file, "enum { %s = %s };\n", name, str);
+          field = TREE_CHAIN(field);
+          continue;
+        }
+      }
+
+      const char *full_name = XIL_GlobalName(field);
+      fprintf(file, "__attribute__((annot_global(\"%s\"))) static\n", full_name);
+      XIL_PrintDeclaration(file, TREE_TYPE(field), name);
       fprintf(file, ";\n");
     }
     else if (TREE_CODE(field) == TYPE_DECL) {
@@ -1190,8 +1204,7 @@ void XIL_PrintStruct(FILE *file, const char *csu_name, tree type)
 
         if (!duplicate) {
           fprintf(file, "typedef ");
-          XIL_PrintDeclaration(file, TREE_TYPE(field),
-                               name);
+          XIL_PrintDeclaration(file, TREE_TYPE(field), name);
           fprintf(file, ";\n");
         }
       }
@@ -1590,11 +1603,22 @@ void WriteAnnotationFile(FILE *file)
   struct XIL_AnnotationVar *var = state->vars;
   while (var) {
     tree type = TREE_TYPE(var->decl);
+    const char *name = IDENTIFIER_POINTER(DECL_NAME(var->decl));
+
+    // make a fake ENUM constant for constant globals.
+    if (TYPE_READONLY(type)) {
+      tree initial = DECL_INITIAL(var->decl);
+      if (initial && TREE_CODE(initial) == INTEGER_CST) {
+        const char *str = XIL_TreeIntString(initial);
+        fprintf(file, "enum { %s = %s };\n", name, str);
+        var = var->next;
+        continue;
+      }
+    }
 
     const char *full_name = XIL_GlobalName(var->decl);
     fprintf(file, "__attribute__((annot_global(\"%s\"))) extern\n",
             full_name);
-    const char *name = IDENTIFIER_POINTER(DECL_NAME(var->decl));
 
     XIL_PrintDeclaration(file, type, name);
     fprintf(file, ";\n");
