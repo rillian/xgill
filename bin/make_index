@@ -70,7 +70,7 @@ foreach my $report (@reports)
     my $kind = $1;
     my $file = $2;
 
-    die unless ($assertkind eq $kind);
+    die "Mismatched report kind: $kind\n" unless ($assertkind eq $kind);
 
     push(@{$file_hash{$file}}, $report);
 

@@ -42,15 +42,7 @@
   } while (0)
 
 // macro to bail out whenever CVC3 generates an exception.
-#define ExceptionFail(EX)                                 \
-  do {                                                    \
-    FILE *log_file = XIL_GetLogFile();                    \
-    std::string exs = (EX).toString();                    \
-    const char *exc = exs.c_str();                        \
-    fprintf(log_file, "%s: %d: %s: CVC3 Exception: %s\n", \
-            __FILE__, __LINE__, __FUNCTION__, exc);       \
-    abort();                                              \
-  } while (0)
+#define ExceptionFail(EX)  Assert(!"CVC3 Exception")
 
 // get the VC from the handle we expose externally.
 #define GetVC  CVC3::ValidityChecker* cvc = (CVC3::ValidityChecker*) vc

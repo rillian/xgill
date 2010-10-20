@@ -1546,6 +1546,19 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       return SimplifyExp(exp, new_exp);
     }
 
+    // input:  exp0 cmp exp0[exp1]
+    // output: 0 cmp exp1
+
+    if ((i.b_kind == B_LessThanP || i.b_kind == B_LessEqualP) &&
+        li.exp == rli.exp && stride_type && ri.element_type &&
+        ri.exp->IsCompatibleStrideType(stride_type)) {
+      Exp *left = MakeInt(0);
+      rri.exp->IncRef();
+      BinopKind binop = (i.b_kind == B_LessThanP) ? B_LessThan : B_LessEqual;
+      Exp *new_exp = MakeBinop(binop, left, rri.exp);
+      return SimplifyExp(exp, new_exp);
+    }
+
     // input: exp / 1
     // output: exp
 
@@ -2434,17 +2447,7 @@ void Exp::PrintUIRval(OutStream &out, bool parens) const
       return;
     }
 
-    bool skip = false;
-
-    // watch for implicit address on array-typed lvalues.
-    if (Type *type = this->GetType()) {
-      if (type->IsArray())
-        skip = true;
-    }
-
-    if (!skip)
-      out << "&";
-
+    out << "&";
     PrintUI(out, true);
   }
 }

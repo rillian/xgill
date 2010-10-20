@@ -142,11 +142,13 @@ inline void CombineAssumeList(Vector<AssumeInfo> *assumes)
 {
   for (size_t ind = 0; ind < assumes->Size(); ind++) {
     bool duplicate = false;
+    const AssumeInfo &info = assumes->At(ind);
     for (size_t xind = 0; xind < ind; xind++) {
-      if (assumes->At(ind).bit == assumes->At(xind).bit)
+      if (info.bit == assumes->At(xind).bit)
         duplicate = true;
     }
     if (duplicate) {
+      info.DecRef(assumes);
       assumes->At(ind) = assumes->Back();
       assumes->PopBack();
       ind--;

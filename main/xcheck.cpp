@@ -40,9 +40,6 @@ ConfigOption check_file(CK_String, "check-file", "",
 ConfigOption xml_file(CK_String, "xml-out", "",
                       "file to receive XML report for single check");
 
-// database receiving display XML for unverified assertions.
-const char *report_database = NULL;
-
 // number of callgraph stages.
 static size_t g_stage_count = 0;
 
@@ -129,7 +126,7 @@ void DoFetchTransaction(Transaction *t, size_t stage_result,
   SubmitTransaction(t);
 }
 
-void StoreDisplayPath(DisplayPath *path, const char *name, BlockId *id)
+void StoreDisplayPath(DisplayPath *path, char *name, BlockId *id)
 {
   static Buffer xml_buf("Buffer_xcheck_xml");
   path->WriteXML(&xml_buf);
@@ -147,14 +144,25 @@ void StoreDisplayPath(DisplayPath *path, const char *name, BlockId *id)
 
     Transaction *t = new Transaction();
 
+    // the output database is in the report's name, up to the first '$'.
+    char *kind_end = strchr(name, '$');
+    Assert(kind_end);
+    *kind_end = 0;
+
+    size_t len = kind_end - name + 20;
+    char *database = new char[len];
+    snprintf(database, len, "report_%s.xdb", name);
+    *kind_end = '$';
+
     TOperand *key_arg = new TOperandString(t, name);
     TOperand *data_arg =
       new TOperandString(t, compress_buf.base,
                          compress_buf.pos - compress_buf.base);
-    t->PushAction(Backend::XdbReplace(t, report_database, key_arg, data_arg));
+    t->PushAction(Backend::XdbReplace(t, database, key_arg, data_arg));
 
     SubmitTransaction(t);
     delete t;
+    delete[] database;
 
     key_buf.Reset();
     compress_buf.Reset();
@@ -322,7 +330,7 @@ void RunAnalysis(const Vector<const char*> &checks)
         assertion_count++;
 
         Assert(info.name_buf);
-        const char *name = (const char*) info.name_buf->base;
+        char *name = (char*) info.name_buf->base;
 
         if (checks.Size()) {
           // the command line assertions are a filter on the checks we do.
@@ -445,13 +453,6 @@ int main(int argc, const char **argv)
   if (!parsed) {
     Config::PrintUsage(USAGE);
     return 1;
-  }
-
-  // get the output database we're writing to.
-  if (!xml_file.IsSpecified()) {
-    const char *kind_str = check_kind.StringValue();
-    report_database = (char*) malloc(20 + strlen(kind_str));
-    sprintf((char*)report_database, "report_%s.xdb", kind_str);
   }
 
   // augment the list of checks by reading from a file if necessary.
