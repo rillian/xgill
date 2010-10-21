@@ -713,6 +713,21 @@ class ConstraintListenerBound : public ConstraintListener
     BoundKind kind = bound->GetBoundKind();
     Type *type = bound->GetStrideType();
 
+    // the upper bound of 'this' is always at least one (would/should be
+    // checked before calling a method on the value).
+    if (target && target->IsDrf() && kind == BND_Upper) {
+      ExpVar *var = target->AsDrf()->GetTarget()->IfVar();
+      if (var && var->GetVariable()->Kind() == VK_This) {
+        Type *this_type = var->GetVariable()->GetType();
+        size_t count = this_type->AsPointer()->GetTargetType()->Width() / type->Width();
+
+        bound->IncRef();
+        Bit *test = Exp::MakeCompareBit(B_GreaterEqual, bound, Exp::MakeInt(count));
+
+        m_solver->AddConstraint(m_key->frame, test);
+      }
+    }
+
     // ignore bounds with a base for non-offsets.
     if (target && kind != BND_Offset)
       return;
