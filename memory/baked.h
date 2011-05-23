@@ -124,4 +124,9 @@ bool GetCallMemoryZero(PEdgeCall *edge, Exp **target, Exp **length);
 void FillBakedModset(BlockModset *mod);
 void FillBakedSummary(BlockSummary *sum);
 
+// GC safety.
+
+// values of the specified type are monitored by a moving GC.
+bool TypeIsGCThing(TypeCSU *type);
+
 NAMESPACE_XGILL_END

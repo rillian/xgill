@@ -874,4 +874,29 @@ void FillBakedSummary(BlockSummary *sum)
   }
 }
 
+/////////////////////////////////////////////////////////////////////
+// GC Safety
+/////////////////////////////////////////////////////////////////////
+
+static const char* g_gcthing_types[] = {
+  "JSObject",
+  "JSString",
+  "js::Shape",
+  NULL
+};
+
+bool TypeIsGCThing(TypeCSU *type)
+{
+  const char *name = type->GetCSUName()->Value();
+
+  const char **pos = g_gcthing_types;
+  while (*pos) {
+    if (!strcmp(*pos, name))
+      return true;
+    pos++;
+  }
+
+  return false;
+}
+
 NAMESPACE_XGILL_END

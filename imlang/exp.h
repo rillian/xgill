@@ -82,7 +82,8 @@ enum ExpKind {
   EK_Directive = 502,
 
   // mutable properties.
-  EK_Terminate = 600
+  EK_Terminate = 600,
+  EK_GCSafe = 602
 };
 
 class ExpEmpty;
@@ -110,6 +111,7 @@ class ExpNullTest;
 class ExpBound;
 class ExpDirective;
 class ExpTerminate;
+class ExpGCSafe;
 
 class Exp : public HashObject
 {
@@ -171,6 +173,7 @@ class Exp : public HashObject
   static Exp* MakeDirective(DirectiveKind kind);
   static Exp* MakeTerminate(Exp *target, Type *stride_type,
                             Exp *terminate_test, ExpInt *terminate_int);
+  static Exp* MakeGCSafe(Exp *target);
 
   // for an lvalue, fills in all the subexpressions and remainders.
   // if either vector is NULL that vector is not computed. if both vectors
@@ -249,6 +252,7 @@ class Exp : public HashObject
   DOWNCAST_TYPE(Exp, EK_, Bound)
   DOWNCAST_TYPE(Exp, EK_, Directive)
   DOWNCAST_TYPE(Exp, EK_, Terminate)
+  DOWNCAST_TYPE(Exp, EK_, GCSafe)
 
   // whether this expression is an lvalue which can be assigned to and/or from
   // which other lvalues may be derived.
@@ -284,6 +288,7 @@ class Exp : public HashObject
     case EK_Bound:
     case EK_Directive:
     case EK_Terminate:
+    case EK_GCSafe:
       return true;
     default:
       return false;
@@ -541,7 +546,7 @@ class ExpClobber : public Exp
 {
  public:
   // get the callee lvalue whose value at callee exit is indicated
-  // by this expression. this is equivalent to EExit(target, value_kind)
+  // by this expression. this is equivalent to ExpExit(target, value_kind)
   // within the callee's scope.
   Exp* GetCallee() const { return m_callee; }
 
@@ -928,6 +933,29 @@ class ExpTerminate : public Exp
 
   ExpTerminate(Exp *target, Type *stride_type,
                Exp *terminate_test, ExpInt *terminate_int);
+  friend class Exp;
+};
+
+class ExpGCSafe : public Exp
+{
+ public:
+  // get the value this indicates GC safety for.
+  Exp* GetTarget() const { return m_target; }
+
+  // inherited methods
+  Exp* GetLvalTarget() const;
+  Exp* ReplaceLvalTarget(Exp *new_target);
+  void DoVisit(ExpVisitor *visitor);
+  Exp* DoMap(ExpMapper *mapper);
+  void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
+  void Print(OutStream &out) const;
+  void PrintUI(OutStream &out, bool parens) const;
+  void DecMoveChildRefs(ORef ov, ORef nv);
+
+ private:
+  Exp *m_target;
+
+  ExpGCSafe(Exp *target);
   friend class Exp;
 };
 

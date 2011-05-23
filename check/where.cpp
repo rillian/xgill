@@ -225,7 +225,7 @@ void WhereNone::PrintUI(OutStream &out) const
   case RK_Recursion:
     out << "Too much recursion"; break;
   case RK_Unexpected:
-    out << "Could not find dependent"; break;
+    out << "Propagation failed"; break;
   case RK_UnknownCSU:
     out << "Could not find base object for type invariant"; break;
   case RK_NoCallee:

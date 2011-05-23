@@ -46,7 +46,10 @@ enum AssertKind {
 
   // checking for an overflow/underflow in an integer operation.
   ASK_IntegerOverflow = 14,
-  ASK_IntegerUnderflow = 15
+  ASK_IntegerUnderflow = 15,
+
+  // GC-safe memory access.
+  ASK_GCSafe = 20
 };
 
 // classes of program assertions.
@@ -67,18 +70,20 @@ enum AssertClass {
 inline const char* AssertKindString(AssertKind kind)
 {
   switch (kind) {
-  case ASK_None:             return "none";
+  case ASK_None:               return "none";
 
   case ASK_Annotation:         return "annotation";
   case ASK_AnnotationRuntime:  return "annotation_runtime";
   case ASK_Invariant:          return "invariant";
 
-  case ASK_WriteOverflow:    return "write_overflow";
-  case ASK_WriteUnderflow:   return "write_underflow";
-  case ASK_ReadOverflow:     return "read_overflow";
-  case ASK_ReadUnderflow:    return "read_underflow";
-  case ASK_IntegerOverflow:  return "integer_overflow";
-  case ASK_IntegerUnderflow: return "integer_underflow";
+  case ASK_WriteOverflow:      return "write_overflow";
+  case ASK_WriteUnderflow:     return "write_underflow";
+  case ASK_ReadOverflow:       return "read_overflow";
+  case ASK_ReadUnderflow:      return "read_underflow";
+  case ASK_IntegerOverflow:    return "integer_overflow";
+  case ASK_IntegerUnderflow:   return "integer_underflow";
+
+  case ASK_GCSafe:             return "gcsafe";
 
   default: Assert(false);
   }

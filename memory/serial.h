@@ -87,12 +87,14 @@
 //   list of TAG_MemoryAssignEntry
 //   list of TAG_MemoryArgumentEntry
 //   list of TAG_MemoryClobberEntry
+//   list of TAG_MemoryGCEntry
 #define TAG_BlockMemory  3100
 
 // children: TAG_UInt32
 #define TAG_MemoryKindSimplify  3110
 #define TAG_MemoryKindAlias     3112
 #define TAG_MemoryKindClobber   3114
+#define TAG_MemoryClobberGCEntry  3116
 
 // children:
 //   TAG_Index
@@ -142,6 +144,9 @@
 //   TAG_Exp x2  (left, right)
 //   TAG_Bit
 #define TAG_ModsetAssign  3204
+
+// children: none
+#define TAG_ModsetCanGC  3206
 
 ///////////////////////////////
 // BlockSummary

@@ -85,6 +85,10 @@ class BlockModset : public HashObject
   // add an assignment to this modset.
   void AddAssign(Exp *left, Exp *right, Bit *guard);
 
+  // whether this can trigger GC.
+  bool CanGC() const { return m_can_gc; }
+  void SetCanGC() { m_can_gc = true; }
+
   // inherited methods
   void Print(OutStream &out) const;
   void DecMoveChildRefs(ORef ov, ORef nv);
@@ -101,6 +105,9 @@ class BlockModset : public HashObject
   // list of assignments this modset models completely. lvalues in this
   // list are included in m_modset_list (other than the return lvalue).
   Vector<GuardAssign> *m_assign_list;
+
+  // may trigger a garbage collection, for GC liveness analysis.
+  bool m_can_gc;
 
  private:
   // helper methods for modset computation.

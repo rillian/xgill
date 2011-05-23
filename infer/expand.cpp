@@ -71,6 +71,11 @@ public:
         exclude = true;
       return;
     }
+
+    if (exp->IsGCSafe() && !exp->AsGCSafe()->GetTarget()) {
+      exclude = true;
+      return;
+    }
   }
 };
 

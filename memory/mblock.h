@@ -614,6 +614,9 @@ class BlockMemory : public HashObject
   // necessarily complete and may be expanded on demand.
   GuardAssignTable *m_clobber_table;
 
+  // table of points for calls and loops which may GC.
+  Vector<PPoint> *m_gc_table;
+
   // derived tables. these are memoization results computed on demand and
   // are thrown away when we are finished with the BlockMemory.
 
@@ -640,6 +643,9 @@ class BlockMemory : public HashObject
   void ComputeEdgeAssign(PEdgeAssign *edge);
   void ComputeEdgeCall(PEdgeCall *edge);
   void ComputeEdgeLoop(PEdgeLoop *edge);
+
+  // whether an edge may induce a GC.
+  bool EdgeCanGC(PEdge *edge);
 
   // fill in assigns with the result of a single assignment from right to left
   // of the specified type. if type is a CSU then it will be split into
@@ -669,6 +675,12 @@ class BlockMemory : public HashObject
   // extra Terminate transfer when lval is clobbered by the 'clobber' exp.
   void TransferClobberTerminate(Exp *lval, ExpTerminate *kind,
                                 ExpClobber *clobber, GuardExpVector *res);
+
+  // transfer function for GCSafe() expressions.
+  void TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
+			   GuardExpVector *res);
+  void TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
+			  GuardExpVector *res);
 
   // create a memory analysis for the specified block and backends.
   // if any of the backends are 0 then a default behavior will be

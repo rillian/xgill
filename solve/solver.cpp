@@ -2162,7 +2162,8 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
   }
 
   case EK_Float:
-  case EK_Val: {
+  case EK_Val:
+  case EK_GCSafe: {
     // make an unconstrained variable for the expression.
     SlvDecl decl = GetDeclaration(state, exp, NULL);
     res = m_base->GetDeclarationExpr(decl);

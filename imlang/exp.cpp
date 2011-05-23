@@ -182,6 +182,12 @@ int Exp::Compare(const Exp *exp0, const Exp *exp1)
                       nexp1->GetTerminateInt(), Exp);
     break;
   }
+  case EK_GCSafe: {
+    const ExpGCSafe *nexp0 = exp0->AsGCSafe();
+    const ExpGCSafe *nexp1 = exp1->AsGCSafe();
+    TryCompareObjects(nexp0->GetTarget(), nexp1->GetTarget(), Exp);
+    break;
+  }
 
   default:
     Assert(false);
@@ -220,6 +226,7 @@ Exp* Exp::Copy(const Exp *exp)
     COPY_EXP(Bound);
     COPY_EXP(Directive);
     COPY_EXP(Terminate);
+    COPY_EXP(GCSafe);
 
   default:
     Assert(false);
@@ -371,6 +378,12 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     Type::Write(buf, nexp->GetStrideType());
     Exp::Write(buf, nexp->GetTerminateTest());
     Exp::Write(buf, nexp->GetTerminateInt());
+    if (Exp *target = nexp->GetTarget())
+      Exp::Write(buf, target);
+    break;
+  }
+  case EK_GCSafe: {
+    const ExpGCSafe *nexp = exp->AsGCSafe();
     if (Exp *target = nexp->GetTarget())
       Exp::Write(buf, target);
     break;
@@ -555,6 +568,9 @@ Exp* Exp::Read(Buffer *buf)
   case EK_Terminate:
     Try(exp1);
     res = MakeTerminate(exp2, type, exp0, exp1->AsInt());
+    break;
+  case EK_GCSafe:
+    res = MakeGCSafe(exp0);
     break;
 
   default:
@@ -2088,6 +2104,12 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
   }
 
   return exp;
+}
+
+Exp* Exp::MakeGCSafe(Exp *target)
+{
+  ExpGCSafe xexp(target);
+  return g_table.Lookup(xexp);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4150,6 +4172,97 @@ void ExpTerminate::DecMoveChildRefs(ORef ov, ORef nv)
   m_stride_type->DecMoveRef(ov, nv);
   m_terminate_test->DecMoveRef(ov, nv);
   m_terminate_int->DecMoveRef(ov, nv);
+}
+
+/////////////////////////////////////////////////////////////////////
+// ExpGCSafe
+/////////////////////////////////////////////////////////////////////
+
+ExpGCSafe::ExpGCSafe(Exp *target)
+  : Exp(EK_GCSafe), m_target(target)
+{
+  if (m_target)
+    m_hash = Hash32(m_hash, m_target->Hash());
+}
+
+Exp* ExpGCSafe::GetLvalTarget() const
+{
+  return m_target;
+}
+
+Exp* ExpGCSafe::ReplaceLvalTarget(Exp *new_target)
+{
+  return MakeGCSafe(new_target);
+}
+
+void ExpGCSafe::DoVisit(ExpVisitor *visitor)
+{
+  Exp::DoVisit(visitor);
+
+  if (visitor->IsFinished())
+    return;
+
+  if (visitor->LvalRecurse() && m_target) {
+    bool old_found_term = visitor->SetFoundTerm(true);
+    m_target->DoVisit(visitor);
+    visitor->SetFoundTerm(old_found_term);
+  }
+}
+
+Exp* ExpGCSafe::DoMap(ExpMapper *mapper)
+{
+  if (!mapper->LvalRecurse() || !m_target)
+    return Exp::DoMap(mapper);
+
+  Exp *new_this = NULL;
+  Exp *new_target = m_target->DoMap(mapper);
+  if (new_target)
+    new_this = MakeGCSafe(new_target);
+  return BaseMap(new_this, mapper);
+}
+
+void ExpGCSafe::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
+{
+  if (!mapper->LvalRecurse() || !m_target)
+    return Exp::DoMultiMap(mapper, res);
+
+  BaseMultiMap(mapper, res);
+
+  Vector<Exp*> target_res;
+  m_target->DoMultiMap(mapper, &target_res);
+
+  for (size_t ind = 0; ind < target_res.Size(); ind++) {
+    target_res[ind]->IncRef();
+    Exp *new_this = MakeGCSafe(target_res[ind]);
+    ExpAddResult(new_this, res);
+
+    if (LimitRevertResult(mapper, res, this))
+      break;
+  }
+
+  DecRefVector<Exp>(target_res, &target_res);
+}
+
+void ExpGCSafe::Print(OutStream &out) const
+{
+  out << "gcsafe(";
+  if (m_target)
+    out << m_target;
+  out << ")";
+}
+
+void ExpGCSafe::PrintUI(OutStream &out, bool parens) const
+{
+  out << "gcsafe(";
+  if (m_target)
+    m_target->PrintUIRval(out, false);
+  out << ")";
+}
+
+void ExpGCSafe::DecMoveChildRefs(ORef ov, ORef nv)
+{
+  if (m_target)
+    m_target->DecMoveRef(ov, nv);
 }
 
 /////////////////////////////////////////////////////////////////////

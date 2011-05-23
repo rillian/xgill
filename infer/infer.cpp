@@ -286,6 +286,50 @@ class IntegerScanVisitor : public ExpVisitor
   }
 };
 
+// visitor for adding assertions at each access on a type whose
+// contents or value may be affected by GC.
+class GCScanVisitor : public ExpVisitor
+{
+ public:
+  Vector<AssertInfo> &asserts;
+  PPoint point;
+
+  GCScanVisitor(Vector<AssertInfo> &_asserts, PPoint _point)
+    : ExpVisitor(VISK_Lval),
+      asserts(_asserts), point(_point)
+  {}
+
+  void Visit(Exp *lval)
+  {
+    // peel off any leading field or index accesses.
+    while (true) {
+      if (ExpFld *nlval = lval->IfFld())
+        lval = nlval->GetTarget();
+      else if (ExpIndex *nlval = lval->IfIndex())
+        lval = nlval->GetTarget();
+      else
+        break;
+    }
+
+    if (ExpDrf *nlval = lval->IfDrf()) {
+      Type *type = nlval->GetType();
+      if (type && type->IsCSU() && TypeIsGCThing(type->AsCSU())) {
+        AssertInfo info;
+        info.kind = ASK_GCSafe;
+        info.cls = ASC_Check;
+        info.point = point;
+
+        lval->IncRef();
+
+        Exp *gcsafe = Exp::MakeGCSafe(lval);
+        info.bit = Bit::MakeVar(gcsafe);
+
+        asserts.PushBack(info);
+      }
+    }
+  }
+};
+
 // mark the trivial/redundant assertions in the specified list.
 void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
 {
@@ -698,6 +742,7 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
       BufferScanVisitor write_visitor(asserts, arithmetic_list, point, true);
       BufferScanVisitor read_visitor(asserts, arithmetic_list, point, false);
       IntegerScanVisitor integer_visitor(asserts, point);
+      GCScanVisitor gcsafe_visitor(asserts, point);
 
       // only look at the written lvalues for the write visitor.
       if (PEdgeAssign *assign = edge->IfAssign())
@@ -711,6 +756,8 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
 
       // disable integer overflow visitor for now.
       // edge->DoVisit(&integer_visitor);
+
+      edge->DoVisit(&gcsafe_visitor);
     }
 
     MarkRedundantAssertions(mcfg, asserts);

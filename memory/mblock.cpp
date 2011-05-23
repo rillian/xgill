@@ -169,6 +169,11 @@ void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
                      mcfg->m_clobber_table->ItKey(),
                      mcfg->m_clobber_table->ItValues());
 
+  if (mcfg->m_gc_table) {
+    for (size_t ind = 0; ind < mcfg->m_gc_table->Size(); ind++)
+      WriteTagUInt32(buf, TAG_MemoryClobberGCEntry, mcfg->m_gc_table->At(ind));
+  }
+
   WriteCloseTag(buf, TAG_BlockMemory);
 }
 
@@ -306,6 +311,11 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
       TryMoveRef(guard, entries);
       if (kind)
         kind->MoveRef(NULL, entries);
+      break;
+    }
+    case TAG_MemoryClobberGCEntry: {
+      Try(ReadTagUInt32(buf, TAG_MemoryClobberGCEntry, &point));
+      res->m_gc_table->PushBack(point);
       break;
     }
     default:
@@ -518,7 +528,8 @@ BlockMemory::BlockMemory(BlockId *id,
     m_guard_table(NULL), m_assume_table(NULL),
     m_return_table(NULL), m_target_table(NULL),
     m_assign_table(NULL), m_argument_table(NULL),
-    m_clobber_table(NULL), m_val_table(NULL), m_translate_table(NULL)
+    m_clobber_table(NULL), m_gc_table(NULL),
+    m_val_table(NULL), m_translate_table(NULL)
 {
   Assert(m_id);
   m_hash = m_id->Hash();
@@ -1511,6 +1522,28 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     break;
   }
 
+  case EK_GCSafe: {
+    ExpGCSafe *nexp = exp->AsGCSafe();
+    Exp *target = nexp->GetTarget();
+
+    if (target) {
+      GuardExpVector target_res;
+      TranslateExp(kind, point, target, &target_res);
+
+      Exp *value_kind = Exp::MakeGCSafe(NULL);
+      bool get_value = (kind == TRK_Point || kind == TRK_Callee);
+      bool get_edge = (kind == TRK_CalleeExit);
+
+      TranslateExpVal(point, value_kind, target_res, get_value, get_edge, res);
+      value_kind->DecRef();
+    } else {
+      exp->IncRef();
+      Bit *guard = Bit::MakeConstant(true);
+      res->PushBack(GuardExp(exp, guard));
+    }
+    break;
+  }
+
   default:
     Assert(false);
   }
@@ -1870,7 +1903,7 @@ bool BlockMemory::IsLvalClobbered(Exp *lval, Exp *kind, PEdge *edge,
     }
     else {
       when = alias;
-    }      
+    }
 
     *inner = gasn.right;
     *guard = when;
@@ -2082,6 +2115,11 @@ void BlockMemory::Print(OutStream &out) const
         out << endl;
       }
     }
+
+    for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
+      if (m_gc_table->At(ind) == point)
+        out << "cangc" << endl;
+    }
   }
 }
 
@@ -2203,6 +2241,7 @@ void BlockMemory::UnPersist()
   delete m_assign_table;
   delete m_argument_table;
   delete m_clobber_table;
+  delete m_gc_table;
   delete m_val_table;
   delete m_translate_table;
 
@@ -2213,6 +2252,7 @@ void BlockMemory::UnPersist()
   m_assign_table = NULL;
   m_argument_table = NULL;
   m_clobber_table = NULL;
+  m_gc_table = NULL;
   m_val_table = NULL;
   m_translate_table = NULL;
 
@@ -2231,6 +2271,7 @@ void BlockMemory::MakeTables()
   m_assign_table = new GuardAssignTable();
   m_argument_table = new GuardAssignTable();
   m_clobber_table = new GuardAssignTable();
+  m_gc_table = new Vector<PPoint>();
   m_val_table = new ValueTable();
   m_translate_table = new TranslateTable();
 
@@ -2436,6 +2477,9 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
   m_clobber->ComputeClobber(this, edge, assigns, clobbered);
 
+  if (EdgeCanGC(edge))
+    m_gc_table->PushBack(point);
+
   // add a return value assignment if there isn't already an explicit one.
 
   if (returns != NULL) {
@@ -2509,6 +2553,47 @@ void BlockMemory::ComputeEdgeLoop(PEdgeLoop *edge)
   Assert(clobbered->Empty());
 
   m_clobber->ComputeClobber(this, edge, NULL, clobbered);
+
+  if (EdgeCanGC(edge))
+    m_gc_table->PushBack(point);
+}
+
+bool BlockMemory::EdgeCanGC(PEdge *edge)
+{
+  bool result = false;
+  if (BlockId *callee = edge->GetDirectCallee()) {
+    BlockModset *modset = GetBlockModset(callee);
+    if (modset->CanGC())
+      result = true;
+    modset->DecRef();
+    callee->DecRef();
+  }
+  else if (edge->IsCall()) {
+    Variable *function = GetId()->BaseVar();
+    CallEdgeSet *indirect_callees = CalleeCache.Lookup(function);
+
+    if (indirect_callees) {
+      for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
+        const CallEdge &cedge = indirect_callees->GetEdge(ind);
+
+        if (cedge.where.version == GetCFG()->GetVersion() &&
+            cedge.where.id == GetId() &&
+            cedge.where.point == edge->GetSource()) {
+          cedge.callee->IncRef();
+          BlockId *callee = BlockId::Make(B_Function, cedge.callee);
+          BlockModset *modset = GetBlockModset(callee);
+          if (modset->CanGC())
+            result = true;
+          modset->DecRef();
+          callee->DecRef();
+        }
+      }
+    }
+
+    CalleeCache.Release(function);
+  }
+
+  return result;
 }
 
 void BlockMemory::ComputeSingleAssign(Type *type,
@@ -2894,12 +2979,50 @@ void BlockMemory::TransferClobberTerminate(Exp *lval, ExpTerminate *kind,
   }
 }
 
+void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
+				      GuardExpVector *res)
+{
+  lval->IncRef();
+  Exp *value = kind->ReplaceLvalTarget(lval);
+  Bit *guard = Bit::MakeConstant(true);
+  res->PushBack(GuardExp(value, guard));
+}
+
+void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
+				     GuardExpVector *res)
+{
+  PPoint point = edge->GetSource();
+
+  bool found = false;
+  for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
+    if (m_gc_table->At(ind) == point)
+      found = true;
+  }
+  if (!found)
+    return;
+
+  // use an empty GCSafe as a standin for any value which may have
+  // been clobbered by a GC.
+
+  Location *location = m_cfg->GetPointLocation(point);
+  location->IncRef();
+
+  lval->IncRef();
+  kind->IncRef();
+  Exp *value = Exp::MakeClobber(kind, NULL, lval, point, location);
+
+  Bit *guard = Bit::MakeConstant(true);
+  res->PushBack(GuardExp(value, guard));
+}
+
 void BlockMemory::TransferEntry(Exp *lval, Exp *kind, GuardExpVector *res)
 {
   if (!kind)
     TransferEntryDrf(lval, res);
   else if (ExpTerminate *nkind = kind->IfTerminate())
     TransferEntryTerminate(lval, nkind, res);
+  else if (ExpGCSafe *nkind = kind->IfGCSafe())
+    TransferEntryGCSafe(lval, nkind, res);
   else
     Assert(false);
 }
@@ -2913,6 +3036,8 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
     TransferEdgeDrf(lval, edge, res);
   else if (ExpTerminate *nkind = kind->IfTerminate())
     TransferEdgeTerminate(lval, nkind, edge, res);
+  else if (ExpGCSafe *nkind = kind->IfGCSafe())
+    TransferEdgeGCSafe(lval, nkind, edge, res);
   else
     Assert(false);
 

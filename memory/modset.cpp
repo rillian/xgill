@@ -19,6 +19,7 @@
 #include "modset.h"
 #include "serial.h"
 #include "mstorage.h"
+#include "baked.h"
 
 NAMESPACE_XGILL_BEGIN
 
@@ -73,6 +74,9 @@ void BlockModset::Write(Buffer *buf, const BlockModset *mod)
     WriteCloseTag(buf, TAG_ModsetAssign);
   }
 
+  if (mod->CanGC())
+    WriteTagEmpty(buf, TAG_ModsetCanGC);
+
   WriteCloseTag(buf, TAG_BlockModset);
 }
 
@@ -91,6 +95,11 @@ BlockModset* BlockModset::Read(Buffer *buf)
       // clear out the modset in case it was in memory so we don't add the
       // same entries multiple times.
       res->ClearModset();
+      break;
+    }
+    case TAG_ModsetCanGC: {
+      res->SetCanGC();
+      Try(ReadTagEmpty(buf, TAG_ModsetCanGC));
       break;
     }
     case TAG_ModsetEntry: {
@@ -150,7 +159,7 @@ void BlockModset::ReadList(Buffer *buf, Vector<BlockModset*> *mods)
 /////////////////////////////////////////////////////////////////////
 
 BlockModset::BlockModset(BlockId *id)
-  : m_id(id), m_modset_list(NULL), m_assign_list(NULL)
+  : m_id(id), m_modset_list(NULL), m_assign_list(NULL), m_can_gc(false)
 {
   Assert(m_id);
   m_hash = m_id->Hash();
@@ -179,6 +188,8 @@ void BlockModset::ClearModset()
     m_assign_list->Clear();
     m_assign_list = NULL;
   }
+
+  m_can_gc = false;
 }
 
 struct compare_PointValue
@@ -281,6 +292,10 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
   if (m_assign_list)
     SortVector<GuardAssign,compare_GuardAssign>(m_assign_list);
 
+  // seed may-GC information.
+  if (!strcmp(m_id->BaseVar()->GetSourceName()->Value(), "js_GC"))
+    SetCanGC();
+
   if (indirect)
     CalleeCache.Release(m_id->BaseVar());
 }
@@ -305,6 +320,9 @@ void BlockModset::ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
       ProcessUpdatedLval(mcfg, gt.exp, cv.kind, false, edge->IsCall());
     }
   }
+
+  if (modset->CanGC())
+    SetCanGC();
 
   modset->DecRef();
 }
@@ -345,11 +363,16 @@ bool BlockModset::MergeModset(BlockModset *omod)
   if (m_assign_list)
     SortVector<GuardAssign,compare_GuardAssign>(m_assign_list);
 
+  if (omod->CanGC())
+    SetCanGC();
+
   // check if this modset is bigger than omod. since everything in omod is
   // also in this modset, this will determine if the two are different.
   if (GetModsetCount() != omod->GetModsetCount())
     return true;
   if (GetAssignCount() != omod->GetAssignCount())
+    return true;
+  if (CanGC() && !omod->CanGC())
     return true;
   return false;
 }
@@ -410,6 +433,9 @@ void BlockModset::Print(OutStream &out) const
       out << " [" << v.kind << "]";
     out << endl;
   }
+
+  if (CanGC())
+    out << "  canGC" << endl;
 }
 
 void BlockModset::DecMoveChildRefs(ORef ov, ORef nv)
