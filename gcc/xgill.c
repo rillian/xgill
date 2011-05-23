@@ -18,8 +18,8 @@
 
 #include "xgill.h"
 
-#include <target.h>
 #include <plugin.h>
+#include <target.h>
 #include <cp/cp-tree.h>
 
 // for annotation processing
@@ -62,7 +62,7 @@ void XIL_DebugPrint(tree node)
 
 void XIL_ActivePushScope()
 {
-  struct XIL_ScopeEnv *scope = malloc(sizeof(struct XIL_ScopeEnv));
+  struct XIL_ScopeEnv *scope = xmalloc(sizeof(struct XIL_ScopeEnv));
   memset(scope, 0, sizeof(struct XIL_ScopeEnv));
 
   scope->parent = xil_active_scope;
@@ -389,7 +389,7 @@ void gcc_plugin_start_unit(void *gcc_data, void *user_data)
 
     // figure out the directory containing the log. this will be used for
     // making temporary files (i.e. annotation files).
-    char *log_dir = strdup(log_file);
+    char *log_dir = xstrdup(log_file);
     char *pos = log_dir;
     while (true) {
       char *slash_pos = strchr(pos + 1, '/');
@@ -583,7 +583,7 @@ void gcc_plugin_finish_decl(void *gcc_data, void *user_data)
     struct XIL_ParamDecl *last = xil_pending_param_decls;
     while (last && last->next) last = last->next;
 
-    struct XIL_ParamDecl *param_decl = calloc(1, sizeof(struct XIL_ParamDecl));
+    struct XIL_ParamDecl *param_decl = xcalloc(1, sizeof(struct XIL_ParamDecl));
     param_decl->decl = decl;
     if (last) last->next = param_decl;
     else xil_pending_param_decls = param_decl;
@@ -776,7 +776,7 @@ int plugin_init (struct plugin_name_args *plugin_info,
     else if (!strcmp(arg_key,"annot")) {
       if (arg_value) {
         // the annot argument should have the format class:kind
-        char *new_arg = strdup(arg_value);
+        char *new_arg = xstrdup(arg_value);
         annotation_class = new_arg;
 
         char *colon = strchr(new_arg, ':');

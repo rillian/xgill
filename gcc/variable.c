@@ -74,7 +74,7 @@ const char* XIL_GlobalName(tree decl)
       // dupe the name we get here so that is is not overwritten if we call
       // decl_as_string again.
       int flags = TFF_DECL_SPECIFIERS;
-      name = strdup(decl_as_string(decl, flags));
+      name = xstrdup(decl_as_string(decl, flags));
     }
   }
   else {
@@ -86,7 +86,7 @@ const char* XIL_GlobalName(tree decl)
   tree context = DECL_CONTEXT(decl);
   if (context && TREE_CODE(context) == FUNCTION_DECL) {
     const char *func_name = XIL_GlobalName(context);
-    char *new_name = malloc(strlen(func_name) + strlen(name) + 2);
+    char *new_name = xmalloc(strlen(func_name) + strlen(name) + 2);
     sprintf(new_name, "%s:%s", func_name, name);
     return new_name;
   }
@@ -100,7 +100,7 @@ const char* XIL_GlobalName(tree decl)
     while (strchr(file, '/') != NULL)
       file = strchr(file, '/') + 1;
 
-    char *new_name = malloc(strlen(file) + strlen(name) + 2);
+    char *new_name = xmalloc(strlen(file) + strlen(name) + 2);
     sprintf(new_name, "%s:%s", file, name);
     return new_name;
   }
@@ -168,7 +168,7 @@ XIL_Var XIL_TranslateParam(tree param_decl, const char *name)
   }
 
   if (!name) {
-    name = malloc(10);
+    name = xmalloc(10);
     sprintf((char*)name, "__arg%d", param_index);
   }
 
@@ -204,7 +204,7 @@ XIL_Var generate_TranslateVar(tree decl)
       TREE_CHECK(type, METHOD_TYPE);
       tree base_type = TYPE_METHOD_BASETYPE(type);
       XIL_Type xil_base_type = XIL_TranslateType(base_type);
-      char *new_name = strdup(XIL_GetTypeCSUName(xil_base_type));
+      char *new_name = xstrdup(XIL_GetTypeCSUName(xil_base_type));
 
       char *pos = strchr(new_name,' ');
       if (pos) new_name = pos + 1;
@@ -217,7 +217,7 @@ XIL_Var generate_TranslateVar(tree decl)
 
     // the source name for destructors does not include the '~'. add it here.
     if (XIL_IsDestructor(decl)) {
-      char *new_name = malloc(strlen(name) + 2);
+      char *new_name = xmalloc(strlen(name) + 2);
       *new_name = '~';
       strcpy(new_name + 1, name);
       name = new_name;
@@ -246,7 +246,7 @@ XIL_Var generate_TranslateVar(tree decl)
         // watch out for temporaries with anonymous types and try to assign
         // a name to them. use the index of the temporary.
         if (XIL_IsAnonymous(type)) {
-          char *anon_name = malloc(strlen(xil_active_env.decl_name) + 100);
+          char *anon_name = xmalloc(strlen(xil_active_env.decl_name) + 100);
           sprintf(anon_name, "%s:__temp_%d",
                   xil_active_env.decl_name, xil_active_env.temp_count + 1);
           XIL_CSUName(type, anon_name);
@@ -330,8 +330,8 @@ XIL_Var generate_TranslateVar(tree decl)
       else {
         // use 'function:name' since the structure's name must be
         // globally unique.
-        anon_name = malloc(strlen(xil_active_env.decl_name) +
-                           strlen(full_name) + 2);
+        anon_name = xmalloc(strlen(xil_active_env.decl_name) +
+			    strlen(full_name) + 2);
         sprintf((char*)anon_name, "%s:%s",
                 xil_active_env.decl_name, full_name);
       }
@@ -360,7 +360,7 @@ XIL_Var generate_TranslateVar(tree decl)
       }
 
       if (index) {
-        char *new_name = malloc(strlen(name) + 10);
+        char *new_name = xmalloc(strlen(name) + 10);
         sprintf(new_name, "%s:%d", name, index);
         xil_decl = XIL_VarLocal(new_name, name, false);
       }
@@ -368,7 +368,7 @@ XIL_Var generate_TranslateVar(tree decl)
         xil_decl = XIL_VarLocal(name, name, false);
       }
 
-      local = malloc(sizeof(struct XIL_LocalData));
+      local = xmalloc(sizeof(struct XIL_LocalData));
       memset(local, 0, sizeof(struct XIL_LocalData));
       local->decl = decl;
       local->var = xil_decl;

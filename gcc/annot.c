@@ -1,6 +1,5 @@
 
 #include "xgill.h"
-#include <c-common.h>
 #include <c-pragma.h>
 #include <cpplib.h>
 #include <cp/cp-tree.h>
@@ -211,7 +210,7 @@ static void XIL_AddDecl(tree decl)
   // make an artificial name for declarations inside a structure.
   if (!name && c_dialect_cxx() && DECL_CONTEXT(decl) &&
       TREE_CODE(DECL_CONTEXT(decl)) != NAMESPACE_DECL) {
-    name = malloc(30); artificial = true;
+    name = xmalloc(30); artificial = true;
     sprintf((char*)name, "__inner%d", ++state->artificial_count);
   }
 
@@ -220,7 +219,7 @@ static void XIL_AddDecl(tree decl)
   if (!name && c_dialect_cxx() &&
       (TREE_CODE(type) == RECORD_TYPE || TREE_CODE(type) == UNION_TYPE) &&
       CLASSTYPE_USE_TEMPLATE(TREE_TYPE(decl))) {
-    name = malloc(30); artificial = true;
+    name = xmalloc(30); artificial = true;
     sprintf((char*)name, "__template%d", ++state->artificial_count);
   }
 
@@ -231,7 +230,7 @@ static void XIL_AddDecl(tree decl)
   }
 
   struct XIL_AnnotationDecl *info =
-    calloc(1, sizeof(struct XIL_AnnotationDecl));
+    xcalloc(1, sizeof(struct XIL_AnnotationDecl));
 
   TREE_CHECK(decl, TYPE_DECL);
   info->decl = decl;
@@ -334,7 +333,7 @@ static void XIL_AddDef(tree type)
   }
 
   struct XIL_AnnotationDef *info =
-    calloc(1, sizeof(struct XIL_AnnotationDef));
+    xcalloc(1, sizeof(struct XIL_AnnotationDef));
 
   info->type = type;
   info->define = define;
@@ -411,7 +410,7 @@ void XIL_ScanPrintType(tree type, bool from_decl)
       if (TYPE_FIELDS(empty->type) == TYPE_FIELDS(type)) return;
       empty = empty->next;
     }
-    empty = calloc(1, sizeof(struct XIL_AnnotationEmptyDef));
+    empty = xcalloc(1, sizeof(struct XIL_AnnotationEmptyDef));
     empty->type = type;
     empty->next = state->emptydefs;
     state->emptydefs = empty;
@@ -435,10 +434,10 @@ void XIL_ScanPrintType(tree type, bool from_decl)
         last = last->next;
       }
       struct XIL_AnnotationDecl *info =
-        calloc(1, sizeof(struct XIL_AnnotationDecl));
+        xcalloc(1, sizeof(struct XIL_AnnotationDecl));
       info->fnptr = type;
 
-      info->name = malloc(30);
+      info->name = xmalloc(30);
       sprintf((char*)info->name, "__fnptr%d", ++state->artificial_count);
       info->artificial = true;
 
@@ -600,7 +599,7 @@ char* GetNameQuote(char **str)
     return NULL;
 
   int length = pos - (*str + 3);
-  char *res = malloc(length + 1);
+  char *res = xmalloc(length + 1);
   memcpy(res, *str + 3, length);
   res[length] = 0;
 
@@ -621,7 +620,7 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
   char *str = GetNameQuote(&pos);
   if (!str) return false;
 
-  *pre = malloc(quote_begin - message + 1);
+  *pre = xmalloc(quote_begin - message + 1);
   memcpy(*pre, message, quote_begin - message);
   (*pre)[quote_begin - message] = 0;
 
@@ -639,7 +638,7 @@ bool GetQuoteMessage(char *message, char **pre, char **quoted, char **post)
   }
 
   *quoted = str;
-  *post = strdup(pos);
+  *post = xstrdup(pos);
   return true;
 }
 
@@ -656,7 +655,7 @@ static bool HandleMissingDeclaration(const char *name)
       TREE_CODE(DECL_CONTEXT(decl)) == NAMESPACE_DECL &&
       DECL_NAME(DECL_CONTEXT(decl))) {
     struct XIL_AnnotationNamespace *namespace =
-      calloc(1, sizeof(struct XIL_AnnotationNamespace));
+      xcalloc(1, sizeof(struct XIL_AnnotationNamespace));
     namespace->context = DECL_CONTEXT(decl);
     namespace->next = state->namespaces;
     state->namespaces = namespace;
@@ -667,7 +666,7 @@ static bool HandleMissingDeclaration(const char *name)
     XIL_ScanPrintType(TREE_TYPE(decl), true);
 
     struct XIL_AnnotationVar *info =
-      calloc(1, sizeof(struct XIL_AnnotationVar));
+      xcalloc(1, sizeof(struct XIL_AnnotationVar));
     info->decl = decl;
     info->next = state->vars;
     state->vars = info;
@@ -682,7 +681,7 @@ static bool HandleMissingDeclaration(const char *name)
         XIL_ScanPrintType(TREE_TYPE(function), true);
 
         struct XIL_AnnotationVar *info =
-          calloc(1, sizeof(struct XIL_AnnotationVar));
+          xcalloc(1, sizeof(struct XIL_AnnotationVar));
         info->decl = function;
         info->next = state->vars;
         state->vars = info;
@@ -774,7 +773,7 @@ bool XIL_ProcessAnnotationError(char *error_message)
       const char *macro = (const char*) cpp_macro_definition(parse_in, node);
 
       struct XIL_AnnotationMacro *info =
-        calloc(1, sizeof(struct XIL_AnnotationMacro));
+        xcalloc(1, sizeof(struct XIL_AnnotationMacro));
       info->macro = macro;
       info->next = state->macros;
       state->macros = info;
@@ -1394,7 +1393,7 @@ void XIL_PrintParameter(FILE *file, tree decl, int index)
   tree type = TREE_TYPE(decl);
 
   const char *param_name = NULL;
-  char *index_name = malloc(20);
+  char *index_name = xmalloc(20);
   sprintf(index_name, "arg%d", index);
 
   if (DECL_NAME(decl)) {
@@ -1756,7 +1755,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
   // get the class, name and target of the annotation.
   const char *annot_class = NULL;
-  char *annot_name = malloc(strlen(annot_text) + 100);
+  char *annot_name = xmalloc(strlen(annot_text) + 100);
   XIL_Var annot_var = NULL;
   bool annot_type = false;
 
@@ -1820,7 +1819,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
   // get a temporary file for the annotation contents.
   int file_len = xil_log_directory ? strlen(xil_log_directory) + 20 : 20;
-  char *annotation_file = malloc(file_len);
+  char *annotation_file = xmalloc(file_len);
 
   if (xil_log_directory)
     sprintf(annotation_file, "%s/tmp.XXXXXX", xil_log_directory);
@@ -1828,17 +1827,17 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
     strcpy(annotation_file, "tmp.XXXXXX");
   mktemp(annotation_file);
 
-  char *out_file = malloc(strlen(annotation_file) + 10);
+  char *out_file = xmalloc(strlen(annotation_file) + 10);
   sprintf(out_file, "%s.out", annotation_file);
 
-  char *object_file = malloc(strlen(annotation_file) + 10);
+  char *object_file = xmalloc(strlen(annotation_file) + 10);
   sprintf(object_file, "%s.o", annotation_file);
 
   // add the proper extension to the annotation source file.
   strcat(annotation_file, c_dialect_cxx() ? ".cc" : ".c");
 
   struct XIL_AnnotationState *nstate =
-    calloc(1, sizeof(struct XIL_AnnotationState));
+    xcalloc(1, sizeof(struct XIL_AnnotationState));
   nstate->name = annot_name;
   nstate->text = annot_text;
   nstate->prev = state;
@@ -1905,7 +1904,7 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
     // also look at local vars for intermediate assertions.
     if (point || all_locals) {
-      state->locals = calloc(MAX_LOCALS + 1, sizeof(struct XIL_LocalData*));
+      state->locals = xcalloc(MAX_LOCALS + 1, sizeof(struct XIL_LocalData*));
       int ind = 0;
 
       if (point) {

@@ -1455,7 +1455,7 @@ bool BlockWriteFile(Transaction *t, const Vector<TOperand*> &arguments,
 
     static Buffer compare_buf;
     if (XdbFindUncompressed(g_preproc_xdb, file, &compare_buf)) {
-      if (compare_buf.pos - compare_buf.base != (ptrdiff_t) preproc_length)
+      if (compare_buf.pos - compare_buf.base != (int) preproc_length)
         preproc_new = true;
       else if (memcmp(compare_buf.base, preproc_data, preproc_length) != 0)
         preproc_new = true;

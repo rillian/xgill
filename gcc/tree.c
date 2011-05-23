@@ -170,7 +170,7 @@ const char* XIL_TreeIntString(tree node)
   }
 
   int needed = mpz_sizeinbase(mpz, 10) + 2;
-  char *str = malloc(needed);
+  char *str = xmalloc(needed);
 
   mpz_get_str(str, 10, mpz);
   gcc_assert(strlen(str) + 1 <= needed);
@@ -194,7 +194,7 @@ void XIL_TranslateConstant(struct XIL_TreeEnv *env, tree node)
 
 #define REAL_BUF_SIZE 200
 
-    char *buf = malloc(REAL_BUF_SIZE);
+    char *buf = xmalloc(REAL_BUF_SIZE);
     real_to_decimal(buf, value, REAL_BUF_SIZE, 0, 1);
 
 #undef REAL_BUF_SIZE
@@ -912,7 +912,7 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     struct XIL_LabelData **pdata =
       (struct XIL_LabelData**) XIL_Associate(XIL_AscBlock, "Label", label_decl);
     if (!*pdata)
-      *pdata = calloc(1, sizeof(struct XIL_LabelData));
+      *pdata = xcalloc(1, sizeof(struct XIL_LabelData));
     struct XIL_LabelData *label_data = *pdata;
 
     // remember the point we were at when seeing this label. we need to
@@ -944,7 +944,7 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     struct XIL_LabelData **pdata =
       (struct XIL_LabelData**) XIL_Associate(XIL_AscBlock, "Label", label_decl);
     if (!*pdata)
-      *pdata = calloc(1, sizeof(struct XIL_LabelData));
+      *pdata = xcalloc(1, sizeof(struct XIL_LabelData));
     struct XIL_LabelData *label_data = *pdata;
 
     if (label_data->point) {
@@ -955,7 +955,7 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     else {
       // don't know the point or scope of the target, wait until
       // we see the label.
-      struct XIL_GotoData *goto_data = calloc(1, sizeof(struct XIL_GotoData));
+      struct XIL_GotoData *goto_data = xcalloc(1, sizeof(struct XIL_GotoData));
       goto_data->point = *env->point;
       goto_data->scope = xil_active_scope;
       goto_data->next = label_data->gotos;
@@ -2045,7 +2045,7 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     }
 
     int ind = 0, arg_count = TREE_OPERAND_LENGTH(node) - arg_start;
-    XIL_Exp *args = malloc(sizeof(XIL_Exp) * arg_count);
+    XIL_Exp *args = xmalloc(sizeof(XIL_Exp) * arg_count);
 
     for (; ind < arg_count; ind++) {
       tree arg = TREE_OPERAND(node, ind + arg_start);

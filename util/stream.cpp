@@ -27,6 +27,6 @@ OutStreamFlush flush;
 
 PrintOutStream cout(stdout);
 PrintOutStream cerr(stderr);
-PrintOutStream clog(stderr);
+//PrintOutStream clog(stderr);
 
 OutStream *log_stream = &cout;
