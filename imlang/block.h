@@ -158,6 +158,14 @@ struct BlockPPoint
     if (v0.version > v1.version) return 1;
     return 0;
   }
+
+  static bool Similar(const BlockPPoint &v0, const BlockPPoint &v1)
+  {
+    // equality for two blocks, except for two points in the same static
+    // initializer where we want to avoid possible blowup.
+    return (v0.id == v1.id) && (v0.version == v1.version) &&
+      (v0.id->Kind() == B_Initializer || v0.point == v1.point);
+  }
 };
 
 // print block/point identifiers directly to a stream.

@@ -50,8 +50,9 @@ struct EscapeEdge
   {}
 
   bool operator == (const EscapeEdge &o) const {
-    return target == o.target && where == o.where &&
-      move_caller == o.move_caller && move_callee == o.move_callee;
+    return target == o.target &&
+      move_caller == o.move_caller && move_callee == o.move_callee &&
+      BlockPPoint::Similar(where, o.where);
   }
 
   void Print(OutStream &out) const
@@ -163,8 +164,8 @@ struct EscapeAccess
     : kind(_kind), target(_target), where(_where), field(_field) {}
 
   bool operator == (const EscapeAccess &o) const {
-    return kind == o.kind && target == o.target &&
-      where == o.where && field == o.field;
+    return kind == o.kind && target == o.target && field == o.field &&
+      BlockPPoint::Similar(where, o.where);
   }
 };
 

@@ -291,7 +291,8 @@ XIL_Var generate_TranslateVar(tree decl)
     bool is_global = false;
 
     tree context = DECL_CONTEXT(decl);
-    if (context && !TREE_STATIC(decl)) {
+    if (context && !TREE_STATIC(decl) &&
+        TREE_CODE(context) != TRANSLATION_UNIT_DECL) {
       if (context == xil_active_env.decl) {
         // local variable.
         full_name = name;
