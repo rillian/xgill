@@ -157,10 +157,7 @@ bool DoLookupTransaction(const char *db_name,
       return false;
 
     String *key = String::Make(key_name);
-    bool found = XdbFindUncompressed(xdb, key, buf);
-
-    key->DecRef();
-    return found;
+    return XdbFindUncompressed(xdb, key, buf);
   }
 
   Transaction *t = new Transaction();

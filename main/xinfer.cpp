@@ -195,17 +195,14 @@ void RunAnalysis(const Vector<const char*> &functions)
       if (print_memory.IsSpecified())
         logout << mcfg << endl;
 
-      id->IncRef();
       BlockSummary *sum = BlockSummary::Make(id);
-
       sum->SetMemory(mcfg);
-      mcfg->DecRef();
 
       block_sums.PushBack(sum);
     }
 
     // make sure the cache knows about these summaries.
-    BlockSummaryCacheAddList(block_sums, false);
+    BlockSummaryCacheAddList(block_sums);
 
     InferSummaries(block_sums);
 
@@ -225,12 +222,6 @@ void RunAnalysis(const Vector<const char*> &functions)
                                       body_key, summary_data_arg));
     SubmitTransaction(t);
     t->Clear();
-
-    // clear out held references on CFGs and summaries.
-    for (size_t find = 0; find < block_cfgs.Size(); find++)
-      block_cfgs[find]->DecRef();
-    for (size_t find = 0; find < block_sums.Size(); find++)
-      block_sums[find]->DecRef();
   }
 
   delete t;

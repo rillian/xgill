@@ -47,8 +47,6 @@ void ClearDatabases()
   cleared_databases = true;
   for (size_t dind = 0; dind < databases.Size(); dind++) {
     const XdbInfo &info = databases[dind];
-
-    info.name->DecRef();
     if (info.xdb != NULL)
       delete info.xdb;
   }
@@ -61,7 +59,6 @@ XdbInfo& GetDatabaseInfo(const uint8_t *name, bool do_create)
   String *name_str = String::Make((const char*)name);
   for (size_t dind = 0; dind < databases.Size(); dind++) {
     if (databases[dind].name == name_str) {
-      name_str->DecRef();
       XdbInfo &info = databases[dind];
 
       // create the database if we previously did a non-create access.

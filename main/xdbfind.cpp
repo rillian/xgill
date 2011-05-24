@@ -56,10 +56,8 @@ HashObject* ReadSingleValue(Buffer *buf)
   case TAG_BlockMemory: {
     BlockMemory *mcfg = BlockMemory::Read(buf);
     BlockCFG *cfg = GetBlockCFG(mcfg->GetId());
-    if (cfg) {
+    if (cfg)
       mcfg->SetCFG(cfg);
-      cfg->DecRef();
-    }
     return mcfg;
   }
 
@@ -128,9 +126,7 @@ int main(int argc, const char **argv)
       Buffer read_buf(bdata.base, len);
       while (read_buf.pos != read_buf.base + len) {
         HashObject *value = ReadSingleValue(&read_buf);
-
         logout << value << endl;
-        value->DecRef();
       }
     }
   }

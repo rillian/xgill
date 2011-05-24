@@ -56,16 +56,7 @@ class Where
  public:
   Where(WhereKind kind, Bit *bit)
     : m_kind(kind), m_bit(bit)
-  {
-    if (m_bit)
-      m_bit->IncRef(this);
-  }
-
-  virtual ~Where()
-  {
-    if (m_bit)
-      m_bit->DecRef(this);
-  }
+  {}
 
   WhereKind Kind() const { return m_kind; }
   Bit* GetBit() const { return m_bit; }
@@ -166,7 +157,6 @@ class WherePrecondition : public Where
 
  public:
   WherePrecondition(BlockMemory *mcfg, Bit *bit);
-  ~WherePrecondition();
 
   BlockMemory* GetMemory() const { return m_mcfg; }
   bool IsIgnoreUnroll() const { return m_ignore_unroll; }
@@ -233,7 +223,6 @@ class WhereInvariant : public Where
 
  public:
   WhereInvariant(TypeCSU *csu, Variable *var, Bit *bit);
-  ~WhereInvariant();
 
   TypeCSU* GetCSU() const { return m_csu; }
   void Print(OutStream &out) const;

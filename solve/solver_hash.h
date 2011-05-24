@@ -197,8 +197,6 @@ U* SolverHashTable<T,U>::Lookup(size_t frame, T *o, bool force)
     new_e->source = o;
     new_e->frame = frame;
 
-    o->IncRef(new_e);
-
     LinkedListInsert<HashEntry,__HashEntry_List>(&bucket->e_pend, new_e);
 
     // add this to the topmost context if there is one.
@@ -236,8 +234,6 @@ void SolverHashTable<T,U>::PopContext()
     HashEntry *remove = context;
     context = context->context_next;
 
-    remove->source->DecRef(remove);
-
     // find the bucket the entry is in and disconnect the entry.
     size_t ind = Hash32(remove->frame, remove->source->Hash()) % m_bucket_count;
     HashBucket *bucket = &m_buckets[ind];
@@ -259,7 +255,6 @@ void SolverHashTable<T,U>::Clear()
 
     while (bucket->e_begin != NULL) {
       HashEntry *e = bucket->e_begin;
-      e->source->DecRef(e);
 
       LinkedListRemove<HashEntry,__HashEntry_List>(&bucket->e_pend, e);
 

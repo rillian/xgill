@@ -33,9 +33,6 @@ typedef HashTable<String*,String*,HashObject> BackendStringHash;
 // or NULL if it does not exist.
 BackendStringHash* GetNamedHash(const uint8_t *name);
 
-// for use by other backends, clear the specified hash.
-void ClearStringHash(BackendStringHash *table);
-
 NAMESPACE_BEGIN(Backend)
 
 // returns whether a hash exists. a hash exists after the first time

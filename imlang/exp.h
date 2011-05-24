@@ -179,10 +179,9 @@ class Exp : public HashObject
   // if either vector is NULL that vector is not computed. if both vectors
   // are non-NULL then they will have the same size and subexprs and
   // remainders at each index will correlate with one another.
-  // gets a reference on each value added to remainders, but *NOT*
-  // those added to subexprs. the subexprs will be filled in order
-  // from the base variable downwards, i.e. the last entry in subexprs
-  // will be value and the last entry in remainders will be empty.
+  // the subexprs will be filled in order from the base variable downwards,
+  // i.e. the last entry in subexprs will be value and the last entry
+  // in remainders will be empty.
   static void GetSubExprs(Exp *value,
                           Vector<Exp*> *subexprs,
                           Vector<Exp*> *remainders);
@@ -195,17 +194,14 @@ class Exp : public HashObject
   // the original value.
   static Exp* Compose(Exp *value, Exp *offset);
 
-  // gets a reference on the bit where value is non-zero. this does NOT
-  // consume a reference on value.
+  // gets a bit where value is non-zero.
   static Bit* MakeNonZeroBit(Exp *value);
 
-  // gets a reference on the bit comparing left_op with right_op.
-  // combines MakeBinop and MakeNonZeroBit. if get_references is set then
-  // does *not* consume references on left_op and right_op.
+  // gets a bit comparing left_op with right_op.
+  // combines MakeBinop and MakeNonZeroBit.
   static Bit* MakeCompareBit(BinopKind binop_kind,
                              Exp *left_op, Exp *right_op,
-                             Type *stride_type = NULL,
-                             bool get_references = false);
+                             Type *stride_type = NULL);
 
   // gets an explicit bound for the specified lvalue and stride type,
   // if possible, NULL otherwise.
@@ -345,8 +341,8 @@ class Exp : public HashObject
   // for an lvalue based on another target expression, get that target.
   virtual Exp* GetLvalTarget() const { return NULL; }
 
-  // gets a reference on an exp equal to this one with the lvalue target
-  // replaced by new_target. consumes a reference on new_target.
+  // gets an exp equal to this one with the lvalue target replaced
+  // by new_target.
   virtual Exp* ReplaceLvalTarget(Exp *new_target) {
     Assert(false);
     return NULL;
@@ -368,7 +364,6 @@ class Exp : public HashObject
 
   void BaseMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   {
-    this->IncRef();
     mapper->MultiMap(this, res);
   }
 
@@ -397,7 +392,7 @@ class ExpVar : public Exp
   // inherited methods
   Type* GetType() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Variable *m_var;
@@ -421,7 +416,7 @@ class ExpDrf : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -448,7 +443,7 @@ class ExpFld : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -476,7 +471,7 @@ class ExpRfld : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -508,7 +503,7 @@ class ExpIndex : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -531,7 +526,7 @@ class ExpString : public Exp
   // inherited methods
   Type* GetType() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   // the element type should be char or ushort.
@@ -567,7 +562,7 @@ class ExpClobber : public Exp
   Type* GetType() const;
   Exp* GetLvalTarget() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_callee;
@@ -650,7 +645,7 @@ class ExpUnop : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   UnopKind m_unop_kind;
@@ -694,7 +689,7 @@ class ExpBinop : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   BinopKind m_binop_kind;
@@ -723,7 +718,7 @@ class ExpExit : public Exp
   Exp* ReplaceLvalTarget(Exp *new_target);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -749,7 +744,7 @@ class ExpInitial : public Exp
   Exp* ReplaceLvalTarget(Exp *new_target);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -779,7 +774,7 @@ class ExpVal : public Exp
   // inherited methods
   Type* GetType() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_lval;
@@ -804,7 +799,7 @@ class ExpFrame : public Exp
   // inherited methods
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_value;
@@ -828,7 +823,7 @@ class ExpNullTest : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -861,7 +856,7 @@ class ExpBound : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   BoundKind m_bound_kind;
@@ -923,7 +918,7 @@ class ExpTerminate : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -950,7 +945,7 @@ class ExpGCSafe : public Exp
   void DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res);
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out, bool parens) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_target;
@@ -1105,12 +1100,8 @@ inline Exp* ExpDereference(Exp *exp)
 // add exp to a multimap result vector.
 inline void ExpAddResult(Exp *exp, Vector<Exp*> *res)
 {
-  if (!res->Contains(exp)) {
-    exp->IncRef(res);
+  if (!res->Contains(exp))
     res->PushBack(exp);
-  }
-
-  exp->DecRef();
 }
 
 // if the size of res exceeds the limit for mapper, clears it except for exp,
@@ -1121,10 +1112,8 @@ inline bool LimitRevertResult(ExpMultiMapper *mapper,
   size_t limit = mapper->ResultLimit();
 
   if (limit && res->Size() > limit) {
-    DecRefVector<Exp>(*res, res);
     res->Clear();
 
-    exp->IncRef();
     ExpAddResult(exp, res);
     return true;
   }
@@ -1141,8 +1130,7 @@ Exp* ExpConvertExitClobber(Exp *exp);
 Bit* BitConvertExitClobber(Bit *bit);
 
 // if exp is a bound or terminate, get its target and the kind of bound/term.
-// accounts for clobbered terminate values. gets references on bound/terminate
-// but not on target.
+// accounts for clobbered terminate values.
 inline void GetExpBoundTerminate(Exp *exp, Exp **target,
                                  ExpBound **bound, ExpTerminate **terminate)
 {
@@ -1166,10 +1154,8 @@ inline void GetExpBoundTerminate(Exp *exp, Exp **target,
         if (target)
           *target = nexp->GetLvalTarget();
 
-        if (terminate) {
-          nkind->IncRef();
+        if (terminate)
           *terminate = nkind;
-        }
       }
     }
   }
@@ -1180,7 +1166,7 @@ inline void GetExpBoundTerminate(Exp *exp, Exp **target,
 Exp* ScaleBoundIndex(Type *stride_type, Type *index_type, Exp *index);
 
 // visitor which adds every lvalue expression to an external vector.
-// checks for duplicates and adds a reference for each exp.
+// checks for duplicates.
 class LvalListVisitor : public ExpVisitor
 {
  public:
@@ -1192,10 +1178,8 @@ class LvalListVisitor : public ExpVisitor
 
   void Visit(Exp *exp)
   {
-    if (!lval_list->Contains(exp)) {
-      exp->IncRef(lval_list);
+    if (!lval_list->Contains(exp))
       lval_list->PushBack(exp);
-    }
   }
 };
 

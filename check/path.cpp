@@ -51,7 +51,6 @@ void DisplayValue::WriteXML(Buffer *buf)
   BufferOutStream out(&scratch_buf);
 
   Exp *print_exp = m_lval;
-  print_exp->IncRef();
 
   if (m_kind)
     print_exp = m_kind->ReplaceLvalTarget(print_exp);
@@ -65,8 +64,6 @@ void DisplayValue::WriteXML(Buffer *buf)
     print_exp->PrintUI(out, false);
     out << "," << m_bound_type << ")";
   }
-
-  print_exp->DecRef();
 
   WriteXMLTagString(buf, "lval", out.Base());
   scratch_buf.Reset();
@@ -99,25 +96,17 @@ public:
       Exp *target = nexp->GetOverwrite();
       Exp *new_target = target->DoMap(this);
 
-      if (!new_target) {
-        exp->DecRef();
+      if (!new_target)
         return NULL;
-      }
 
-      Exp *new_exp = NULL;
       if (Exp *kind = nexp->GetValueKind())
-        new_exp = kind->ReplaceLvalTarget(new_target);
-      else
-        new_exp = Exp::MakeDrf(new_target);
-
-      exp->DecRef();
-      return new_exp;
+        return kind->ReplaceLvalTarget(new_target);
+      return Exp::MakeDrf(new_target);
     }
 
     if (exp->IsLvalue() || exp->IsRvalue())
       return exp;
 
-    exp->DecRef();
     return NULL;
   }
 };
@@ -134,7 +123,6 @@ DisplayValue& DisplayPoint::GetDisplayValue(Exp *lval, Exp *kind,
   DisplayMapper mapper;
   Exp *new_lval = lval->DoMap(&mapper);
   Assert(new_lval == lval);
-  new_lval->DecRef();
 
   if (!kind && bound_kind == BND_Invalid) {
     // if the lvalue is a pointer then make this an offset anyways.
@@ -157,12 +145,6 @@ DisplayValue& DisplayPoint::GetDisplayValue(Exp *lval, Exp *kind,
 
   m_values.PushBack(DisplayValue());
   DisplayValue &val = m_values.Back();
-
-  lval->IncRef(this);
-  if (kind)
-    kind->IncRef(this);
-  if (bound_type)
-    bound_type->IncRef(this);
 
   val.m_lval = lval;
   val.m_kind = kind;
@@ -307,33 +289,11 @@ DisplayPath::~DisplayPath()
   for (size_t ind = 0; ind < m_buffers.Size(); ind++)
     delete m_buffers[ind];
 
-  for (size_t ind = 0; ind < m_frames.Size(); ind++) {
-    DisplayFrame *frame = m_frames[ind];
+  for (size_t ind = 0; ind < m_frames.Size(); ind++)
+    delete m_frames[ind];
 
-    if (frame->m_cfg)
-      frame->m_cfg->DecRef(frame);
-
-    delete frame;
-  }
-
-  for (size_t pind = 0; pind < m_points.Size(); pind++) {
-    DisplayPoint *point = m_points[pind];
-
-    for (size_t vind = 0; vind < point->m_values.Size(); vind++) {
-      if (point->m_values[vind].m_lval) {
-        const DisplayValue &value = point->m_values[vind];
-        value.m_lval->DecRef(point);
-        if (value.m_kind)
-          value.m_kind->DecRef(point);
-        if (value.m_lval_use)
-          value.m_lval_use->DecRef(point);
-        if (value.m_bound_type)
-          value.m_bound_type->DecRef(point);
-      }
-    }
-
-    delete point;
-  }
+  for (size_t ind = 0; ind < m_points.Size(); ind++)
+    delete m_points[ind];
 }
 
 void DisplayPath::WriteXML(Buffer *buf)
@@ -370,8 +330,6 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
 
   BlockMemory *mcfg = chk_frame->Memory();
   BlockCFG *cfg = mcfg->GetCFG();
-
-  cfg->IncRef(disp_frame);
   disp_frame->m_cfg = cfg;
 
   // find the propagation to use for this display frame. the propagations for
@@ -486,7 +444,6 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
         AddHook(disp_frame, invariant_where);
         delete invariant_where;
 
-        csu_type->IncRef();
         disp_frame->m_type_hooks.PushBack(csu_type);
       }
 
@@ -499,13 +456,9 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
         AddHook(disp_frame, invariant_where);
         delete invariant_where;
 
-        var->IncRef();
         disp_frame->m_global_hooks.PushBack(var);
       }
     }
-
-    // drop the references added by the LvalListVisitor.
-    DecRefVector<Exp>(lval_list, &lval_list);
 
     if (cur_cfg_point == end_point) {
       // finished generating points for the desired path.
@@ -527,13 +480,7 @@ DisplayFrame* DisplayPath::MakeFrame(CheckerFrame *chk_frame,
     cur_cfg_point = edge->GetTarget();
   }
 
-  for (size_t ind = 0; ind < assume_list.Size(); ind++)
-    assume_list[ind].DecRef(&assume_list);
-
-  DecRefVector<TypeCSU>(disp_frame->m_type_hooks);
   disp_frame->m_type_hooks.Clear();
-
-  DecRefVector<Variable>(disp_frame->m_global_hooks);
   disp_frame->m_global_hooks.Clear();
 
   // make sure the frame contains at least one point.
@@ -755,12 +702,9 @@ DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
           !def.type->IsPointer())
         continue;
 
-      def.var->IncRef();
-      Exp *lval = Exp::MakeVar(def.var);
-
       // create a display value for the variable.
+      Exp *lval = Exp::MakeVar(def.var);
       point->GetDisplayValue(lval, NULL);
-      lval->DecRef();
     }
   }
 
@@ -787,9 +731,6 @@ DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
     // force creation of a display value for the lvalue.
     DisplayValue &lv = point->GetDisplayValue(lval, NULL);
     lv.m_force_display = true;
-
-    // drop the reference added by the LvalListVisitor.
-    lval->DecRef(&lval_list);
   }
 
   // find an edge which may have side effects at this point.
@@ -819,8 +760,6 @@ DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
     GuardExpVector lval_res;
     mcfg->TranslateExp(TRK_Point, cfg_point, lv.m_lval, &lval_res);
     lv.m_lval_use = solver->AsnChooseExp(solver_frame, lval_res);
-    lv.m_lval_use->MoveRef(NULL, point);
-
     lv.m_rval = GetValString(chk_frame, cfg_point, lv, NULL);
 
     if (after_edge) {
@@ -862,24 +801,17 @@ DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
         continue;
 
       DisplayValue value;
-
-      gts.left->IncRef(point);
       value.m_lval = gts.left;
 
       Exp *rval_exp = gts.right;
-      rval_exp->IncRef();
 
       if (Type *type = rval_exp->GetType()) {
-        type->IncRef(point);
-        type->IncRef();
-
         value.m_bound_kind = BND_Offset;
         value.m_bound_type = type;
         rval_exp = Exp::MakeBound(BND_Offset, rval_exp, type);
       }
 
       value.m_rval = GetExpString(chk_frame, rval_exp);
-      rval_exp->DecRef();
 
       // add the new value to the list of lvalues at the point.
       point->m_values.PushBack(value);
@@ -947,16 +879,10 @@ void DisplayPath::AddBaseLvalues(CheckerFrame *chk_frame, DisplayPoint *point)
       bv.m_force_display = true;
     }
 
-    if (bound_kind)
-      bound_kind->DecRef();
-
     if (terminate_kind) {
       DisplayValue &tv = point->GetDisplayValue(base, terminate_kind);
       tv.m_force_display = true;
-      terminate_kind->DecRef();
     }
-
-    new_exp->DecRef();
   }
 
   // also get information from any loop children.
@@ -1008,16 +934,11 @@ const char* DisplayPath::GetValString(CheckerFrame *chk_frame,
   Exp *val_exp = solver->AsnChooseExp(chk_frame->Id(), val_data);
 
   // add an offset/bound if necessary.
-  if (value.m_bound_type) {
-    value.m_bound_type->IncRef();
+  if (value.m_bound_type)
     val_exp = Exp::MakeBound(value.m_bound_kind, val_exp, value.m_bound_type);
-  }
 
   // get the string representation of the value.
-  const char *res = GetExpString(chk_frame, val_exp);
-  val_exp->DecRef();
-
-  return res;
+  return GetExpString(chk_frame, val_exp);
 }
 
 const char* DisplayPath::GetExpString(CheckerFrame *chk_frame, Exp *exp)

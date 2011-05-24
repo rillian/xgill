@@ -73,8 +73,6 @@ void TransactionBackend::FinishBackend()
   ITERATE_BACKENDS(FINISH_BACKEND)
 #undef FINISH_BACKEND
 
-  HashIterate(g_functions)
-    g_functions.ItKey()->DecRef(&g_functions.ItValues());
   g_functions.Clear();
 }
 
@@ -91,7 +89,6 @@ bool TransactionBackend::RunFunction(Transaction *t, const char *name,
 
   String *key = String::Make(name);
   Vector<TFunction> *functions = g_functions.Lookup(key);
-  key->DecRef();
 
   if (functions != NULL) {
     Assert(functions->Size() == 1);
@@ -119,7 +116,6 @@ void TransactionBackend::RegisterFunction(const char *name,
     Assert(false);
   }
 
-  key->MoveRef(NULL, functions);
   functions->PushBack(function);
 }
 

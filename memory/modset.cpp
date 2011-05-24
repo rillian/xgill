@@ -168,24 +168,12 @@ BlockModset::BlockModset(BlockId *id)
 void BlockModset::ClearModset()
 {
   if (m_modset_list) {
-    for (size_t ind = 0; ind < m_modset_list->Size(); ind++) {
-      const PointValue &v = m_modset_list->At(ind);
-      v.lval->DecRef(this);
-      if (v.kind)
-        v.kind->DecRef(this);
-    }
-    m_modset_list->Clear();
+    delete m_modset_list;
     m_modset_list = NULL;
   }
 
   if (m_assign_list) {
-    for (size_t ind = 0; ind < m_assign_list->Size(); ind++) {
-      const GuardAssign &v = m_assign_list->At(ind);
-      v.left->DecRef(this);
-      v.right->DecRef(this);
-      v.guard->DecRef(this);
-    }
-    m_assign_list->Clear();
+    delete m_assign_list;
     m_assign_list = NULL;
   }
 
@@ -253,10 +241,8 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
           Exp *use_lval = NULL;
           Exp *kind = mcfg->GetTerminateAssign(point, gasn.left, gasn.right,
                                                &use_lval);
-          if (kind) {
+          if (kind)
             ProcessUpdatedLval(mcfg, use_lval, kind, false, false);
-            kind->DecRef();
-          }
         }
       }
     }
@@ -264,7 +250,6 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
     // pull in modsets from the direct and indirect callees of the edge.
     if (BlockId *callee = edge->GetDirectCallee()) {
       ComputeModsetCall(mcfg, edge, callee, NULL);
-      callee->DecRef();
     }
     else if (edge->IsCall() && indirect_callees) {
       for (size_t ind = 0; ind < indirect_callees->GetEdgeCount(); ind++) {
@@ -276,11 +261,8 @@ void BlockModset::ComputeModset(BlockMemory *mcfg, bool indirect)
             cedge.where.point == point &&
             cedge.where.id->Function() == m_id->Function() &&
             cedge.where.id->Loop() == m_id->Loop()) {
-          cedge.callee->IncRef();
           BlockId *callee = BlockId::Make(B_Function, cedge.callee);
-
           ComputeModsetCall(mcfg, edge, callee, cedge.rfld_chain);
-          callee->DecRef();
         }
       }
     }
@@ -313,8 +295,6 @@ void BlockModset::ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
     GuardExpVector caller_res;
     mcfg->TranslateExp(TRK_Callee, point, new_lval, &caller_res);
 
-    new_lval->DecRef();
-
     for (size_t cind = 0; cind < caller_res.Size(); cind++) {
       const GuardExp &gt = caller_res[cind];
       ProcessUpdatedLval(mcfg, gt.exp, cv.kind, false, edge->IsCall());
@@ -323,8 +303,6 @@ void BlockModset::ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
 
   if (modset->CanGC())
     SetCanGC();
-
-  modset->DecRef();
 }
 
 bool BlockModset::MergeModset(BlockModset *omod)
@@ -335,12 +313,8 @@ bool BlockModset::MergeModset(BlockModset *omod)
     if (!m_modset_list)
       m_modset_list = new Vector<PointValue>();
 
-    if (!m_modset_list->Contains(olv)) {
-      olv.lval->IncRef(this);
-      if (olv.kind)
-        olv.kind->IncRef(this);
+    if (!m_modset_list->Contains(olv))
       m_modset_list->PushBack(olv);
-    }
   }
 
   for (size_t ind = 0; ind < omod->GetAssignCount(); ind++) {
@@ -349,12 +323,8 @@ bool BlockModset::MergeModset(BlockModset *omod)
     if (!m_assign_list)
       m_assign_list = new Vector<GuardAssign>();
 
-    if (!m_assign_list->Contains(ogasn)) {
-      ogasn.left->IncRef(this);
-      ogasn.right->IncRef(this);
-      ogasn.guard->IncRef(this);
+    if (!m_assign_list->Contains(ogasn))
       m_assign_list->PushBack(ogasn);
-    }
   }
 
   // resort the modset contents.
@@ -384,17 +354,8 @@ void BlockModset::AddModset(Exp *lval, Exp *kind)
 
   PointValue value(lval, kind, 0);
 
-  if (m_modset_list->Contains(value)) {
-    lval->DecRef();
-    if (kind)
-      kind->DecRef();
-  }
-  else {
+  if (!m_modset_list->Contains(value))
     m_modset_list->PushBack(value);
-    lval->MoveRef(NULL, this);
-    if (kind)
-      kind->MoveRef(NULL, this);
-  }
 }
 
 void BlockModset::AddAssign(Exp *left, Exp *right, Bit *guard)
@@ -404,17 +365,8 @@ void BlockModset::AddAssign(Exp *left, Exp *right, Bit *guard)
 
   GuardAssign assign(left, right, guard);
 
-  if (m_assign_list->Contains(assign)) {
-    left->DecRef();
-    right->DecRef();
-    guard->DecRef();
-  }
-  else {
+  if (!m_assign_list->Contains(assign))
     m_assign_list->PushBack(assign);
-    left->MoveRef(NULL, this);
-    right->MoveRef(NULL, this);
-    guard->MoveRef(NULL, this);
-  }
 }
 
 void BlockModset::Print(OutStream &out) const
@@ -438,29 +390,26 @@ void BlockModset::Print(OutStream &out) const
     out << "  canGC" << endl;
 }
 
-void BlockModset::DecMoveChildRefs(ORef ov, ORef nv)
+void BlockModset::MarkChildren() const
 {
-  m_id->DecMoveRef(ov, nv);
+  m_id->Mark();
 
-  if (!m_modset_list && !m_assign_list)
-    return;
-
-  // we should only be able to get here when we are doing the
-  // final removal of all references in the BlockModset.
-  Assert(nv == NULL && ov == this);
-
-  for (size_t ind = 0; ind < GetModsetCount(); ind++) {
-    const PointValue &v = m_modset_list->At(ind);
-    v.lval->DecRef(this);
-    if (v.kind)
-      v.kind->DecRef(this);
+  if (m_modset_list) {
+    for (size_t ind = 0; ind < m_modset_list->Size(); ind++) {
+      const PointValue &v = m_modset_list->At(ind);
+      v.lval->Mark();
+      if (v.kind)
+        v.kind->Mark();
+    }
   }
 
-  for (size_t ind = 0; ind < GetAssignCount(); ind++) {
-    const GuardAssign &v = m_assign_list->At(ind);
-    v.left->DecRef(this);
-    v.right->DecRef(this);
-    v.guard->DecRef(this);
+  if (m_assign_list) {
+    for (size_t ind = 0; ind < m_assign_list->Size(); ind++) {
+      const GuardAssign &v = m_assign_list->At(ind);
+      v.left->Mark();
+      v.right->Mark();
+      v.guard->Mark();
+    }
   }
 }
 
@@ -591,18 +540,6 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
   // as this modset has a temporary ID.
   BlockId *use_id = mcfg->GetId();
 
-  // hold a reference on the lvalue, drop it at exit.
-  lval->IncRef();
-
-  goto entry;
-
-  // exit label up here to avoid goofy gcc 'crosses initialization' errors.
- exit:
-  lval->DecRef();
-  return;
-
- entry:
-
   ModsetIncludeVisitor visitor(use_id->Kind(), from_call);
 
   // use the base buffer if we are updating a terminator.
@@ -610,11 +547,9 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
     if (ExpTerminate *nkind = kind->IfTerminate()) {
       // ignore field terminator modsets, these are pretty much useless.
       if (nkind->GetTerminateTest()->IsFld())
-        goto exit;
+        return;
 
-      Exp *new_lval = mcfg->GetBaseBuffer(lval, nkind->GetStrideType());
-      lval->DecRef();
-      lval = new_lval;
+      lval = mcfg->GetBaseBuffer(lval, nkind->GetStrideType());
       visitor.buffer = true;
     }
   }
@@ -626,11 +561,11 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
   visitor.rvalue = true;
 
   if (visitor.excluded)
-    goto exit;
+    return;
 
   Variable *root = lval->Root();
   if (!root)
-    goto exit;
+    return;
 
   // argument lvals with zero dereferences are additionally excluded.
   // these updates are local to the current function. also look for updates
@@ -638,42 +573,38 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
   if (use_id->Kind() == B_Function &&
       (root->Kind() == VK_Arg || root->Kind() == VK_This)) {
     if (lval->DrfCount() == 0)
-      goto exit;
+      return;
   }
 
   // add to the modset if this is not the function's return value. we don't
   // need to explicitly add the return value as it is special cased by
   // BlockMemory and is always treated as modified.
-  if (root->Kind() != VK_Return) {
-    lval->IncRef();
-    if (kind)
-      kind->IncRef();
+  if (root->Kind() != VK_Return)
     AddModset(lval, kind);
-  }
 
   if (!consider_assign)
-    goto exit;
+    return;
 
   // should only be generating direct assignments for Drf() updates.
   Assert(kind == NULL);
 
   // don't generate assignments for loop iterations.
   if (use_id->Kind() != B_Function)
-    goto exit;
+    return;
 
   // don't generate assignments for global variables.
   if (root->IsGlobal())
-    goto exit;
+    return;
 
   // see if we already have assignments for this lval.
   for (size_t ind = 0; ind < GetAssignCount(); ind++) {
     if (m_assign_list->At(ind).left == lval)
-      goto exit;
+      return;
   }
 
   PPoint exit_point = mcfg->GetCFG()->GetExitPoint();
   if (!exit_point)
-    goto exit;
+    return;
 
   // temporary vector to hold assignments. if we find a problem with
   // the assigns (bad lvalue, etc.) we will bail out and clear this list.
@@ -691,15 +622,15 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
     const GuardExp &val = exit_values[ind];
 
     if (val.guard->Size() >= ASSIGN_BIT_CUTOFF)
-      goto exit;
+      return;
 
     if (exit_values.Size() <= 2) {
       if (val.exp->TermCountExceeds(ASSIGN_EXP_CUTOFF))
-        goto exit;
+        return;
     }
     else {
       if (!val.exp->IsInt())
-        goto exit;
+        return;
     }
   }
 
@@ -707,28 +638,15 @@ void BlockModset::ProcessUpdatedLval(BlockMemory *mcfg, Exp *lval, Exp *kind,
     const GuardExp &val = exit_values[ind];
     val.exp->DoVisit(&visitor);
     val.guard->DoVisit(&visitor);
-
-    lval->IncRef();
-    val.IncRef();
     assigns.PushBack(GuardAssign(lval, val.exp, val.guard));
   }
 
-  if (visitor.excluded) {
-    for (size_t ind = 0; ind < assigns.Size(); ind++) {
-      const GuardAssign &gasn = assigns[ind];
-      gasn.left->DecRef();
-      gasn.right->DecRef();
-      gasn.guard->DecRef();
-    }
-  }
-  else {
+  if (!visitor.excluded) {
     for (size_t ind = 0; ind < assigns.Size(); ind++) {
       const GuardAssign &gasn = assigns[ind];
       AddAssign(gasn.left, gasn.right, gasn.guard);
     }
   }
-
-  goto exit;
 }
 
 NAMESPACE_XGILL_END

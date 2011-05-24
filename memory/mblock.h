@@ -193,24 +193,6 @@ struct GuardAssign
   }
 };
 
-// macro for structures which will be used with GuardVector below.
-#define GUARD_MAKE_REF(FIELD)                   \
-  void IncRef(ORef pv = NULL) const {           \
-    guard->IncRef(pv);                          \
-    (FIELD)->IncRef(pv);                        \
-  }                                             \
-  void DecRef(ORef pv = NULL) const {           \
-    guard->DecRef(pv);                          \
-    (FIELD)->DecRef(pv);                        \
-  }                                             \
-  void MoveRef(ORef ov, ORef nv) const {        \
-    guard->MoveRef(ov, nv);                     \
-    (FIELD)->MoveRef(ov, nv);                   \
-  }                                             \
-  HashObject* ValueData() const {               \
-    return (FIELD);                             \
-  }
-
 struct GuardExp
 {
   Exp *exp;
@@ -227,7 +209,7 @@ struct GuardExp
     Assert(guard);
   }
 
-  GUARD_MAKE_REF(exp)
+  HashObject* ValueData() { return exp; }
 };
 
 struct GuardBit
@@ -246,10 +228,8 @@ struct GuardBit
     Assert(guard);
   }
 
-  GUARD_MAKE_REF(bit)
+  HashObject* ValueData() { return bit; }
 };
-
-#undef GUARD_MAKE_REF
 
 // vector of guarded objects which manages its own references.
 template <class T, class V>
@@ -271,42 +251,27 @@ class GuardVector
 
   void PushBack(const T &v)
   {
-    if (v.guard->IsFalse()) {
-      v.DecRef();
-    }
-    else {
-      v.MoveRef(NULL, this);
+    if (!v.guard->IsFalse())
       m_vector.PushBack(v);
-    }
   }
 
   void Clear()
   {
-    for (size_t ind = 0; ind < m_vector.Size(); ind++)
-      m_vector[ind].DecRef(this);
     m_vector.Clear();
   }
 
   // add all entries from vector to this guarded vector.
   void FillFromVector(const Vector<T> &ovec)
   {
-    for (size_t ind = 0; ind < ovec.Size(); ind++) {
-      ovec[ind].IncRef();
+    for (size_t ind = 0; ind < ovec.Size(); ind++)
       PushBack(ovec[ind]);
-    }
   }
 
   // add all entries from this guarded vector to the specified vector.
-  // drop_true specifies whether to drop any references on true bits.
-  void FillVector(Vector<T> *ovec, bool drop_true = false)
+  void FillVector(Vector<T> *ovec)
   {
-    for (size_t ind = 0; ind < Size(); ind++) {
-      m_vector[ind].IncRef(ovec);
+    for (size_t ind = 0; ind < Size(); ind++)
       ovec->PushBack(m_vector[ind]);
-
-      if (drop_true && m_vector[ind].guard->IsTrue())
-        m_vector[ind].guard->DecRef(ovec);
-    }
   }
 
   // sort and combine duplicates in this guarded vector. if two entries
@@ -329,12 +294,7 @@ class GuardVector
 
         int res = CompareObjects<V>(v0, v1);
         if (res == 0) {
-          v1->DecRef(this);
-
-          t0.guard->MoveRef(this, NULL);
-          t1.guard->MoveRef(this, NULL);
           t0.guard = Bit::MakeOr(t0.guard, t1.guard);
-          t0.guard->MoveRef(NULL, this);
 
           t1 = m_vector.Back();
           m_vector.PopBack();
@@ -358,11 +318,8 @@ class GuardVector
     // one-value case: drive the answer to true.
     if (Size() == 1) {
       T &v = m_vector[0];
-      if (!v.guard->IsTrue()) {
-        v.guard->DecRef(this);
+      if (!v.guard->IsTrue())
         v.guard = Bit::MakeConstant(true);
-        v.guard->MoveRef(NULL, this);
-      }
     }
 
     // two-value case: if one bit is more complex than the other, make it the
@@ -373,18 +330,10 @@ class GuardVector
       size_t size0 = v0.guard->Size();
       size_t size1 = v1.guard->Size();
 
-      if (size0 + 1 < size1) {
-        v1.guard->DecRef(this);
-        v0.guard->IncRef();
+      if (size0 + 1 < size1)
         v1.guard = Bit::MakeNot(v0.guard);
-        v1.guard->MoveRef(NULL, this);
-      }
-      else if (size1 + 1 < size0) {
-        v0.guard->DecRef(this);
-        v1.guard->IncRef();
+      else if (size1 + 1 < size0)
         v0.guard = Bit::MakeNot(v1.guard);
-        v0.guard->MoveRef(NULL, this);
-      }
     }
   }
 
@@ -549,7 +498,7 @@ class BlockMemory : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -569,15 +518,6 @@ class BlockMemory : public HashObject
   // have we computed the persistent tables?
   // this can be done directly or by reading in their contents from a stream
   bool m_computed;
-
-  // within all the tables, a single reference is held for each exp/bit
-  // referenced in either the domain or range of the table, except for the
-  // constant bit 'true'. only a single reference is held on the true bit,
-  // which is stored in this field. this special casing is needed to allow
-  // the reference tracking debug code to not die, as otherwise we could
-  // accumulate hundreds of thousands of references on 'true' if many
-  // memories are in existence.
-  Bit *m_true_bit;
 
   // persistent tables. these are computed eagerly and are remembered when
   // the BlockMemory is read/written. all other info is directly derived

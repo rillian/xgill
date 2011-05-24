@@ -45,7 +45,7 @@ class HashCache
     // called immediately after the key/value pair v/o are removed from
     // the cache. any references held on these values need to be dropped,
     // and any changes made to v/u flushed, if necessary.
-    virtual void Remove(HashCache<T,U,HT> *cache, T v, U o) = 0;
+    virtual void Remove(HashCache<T,U,HT> *cache, T v, U o) {}
   };
 
  public:

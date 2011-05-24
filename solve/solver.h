@@ -244,8 +244,6 @@ class Solver
   // get a new frame for asserting conditions about the specified memory
   // (which may be NULL). frame zero will not be returned here.
   FrameId MakeFrame(BlockMemory  *mcfg) {
-    if (mcfg)
-      mcfg->IncRef(this);
     m_frames.PushBack(mcfg);
     return m_frames.Size() - 1;
   }
@@ -414,10 +412,8 @@ class Solver
     }
 
     if (state.exp_list) {
-      if (!state.exp_list->Contains(exp)) {
-        exp->IncRef(state.exp_list);
+      if (!state.exp_list->Contains(exp))
         state.exp_list->PushBack(exp);
-      }
     }
   }
 

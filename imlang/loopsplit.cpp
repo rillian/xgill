@@ -339,7 +339,6 @@ void CloneLoopBody(BlockCFG *base_cfg, PPoint loophead,
     Assert(0 < body_point && body_point <= init_points_size);
     Location *loc = base_cfg->GetPointLocation(body_point);
 
-    loc->IncRef();
     PPoint new_point = receive_cfg->AddPoint(loc);
     remapping->Insert(body_point, new_point);
   }
@@ -419,25 +418,19 @@ PPoint FollowSkipEdges(BlockCFG *cfg, PPoint point)
 void CopyCFGLocationsVariables(BlockCFG *old_cfg, BlockCFG *new_cfg)
 {
   String *command = old_cfg->GetCommand();
-  if (command) {
-    command->IncRef();
+  if (command)
     new_cfg->SetCommand(command);
-  }
 
   Location *begin_loc = old_cfg->GetBeginLocation();
-  begin_loc->IncRef();
   new_cfg->SetBeginLocation(begin_loc);
 
   Location *end_loc = old_cfg->GetEndLocation();
-  end_loc->IncRef();
   new_cfg->SetEndLocation(end_loc);
 
   const Vector<DefineVariable> *variables = old_cfg->GetVariables();
   if (variables) {
     for (size_t vind = 0; vind < variables->Size(); vind++) {
       const DefineVariable &dv = variables->At(vind);
-      dv.var->IncRef();
-      dv.type->IncRef();
       new_cfg->AddVariable(dv.var, dv.type);
     }
   }
@@ -448,7 +441,6 @@ void CopyCFGPointsEdges(BlockCFG *old_cfg, BlockCFG *new_cfg)
   // duplicate the CFG's points list.
   for (size_t pind = 0; pind < old_cfg->GetPointCount(); pind++) {
     Location *loc = old_cfg->GetPointLocation(pind + 1);
-    loc->IncRef();
     new_cfg->AddPoint(loc);
   }
 
@@ -459,15 +451,12 @@ void CopyCFGPointsEdges(BlockCFG *old_cfg, BlockCFG *new_cfg)
   // duplicate the CFG's loop heads list.
   for (size_t lind = 0; lind < old_cfg->GetLoopHeadCount(); lind++) {
     const LoopHead &head = old_cfg->GetLoopHead(lind);
-    if (head.end_location)
-      head.end_location->IncRef();
     new_cfg->AddLoopHead(head.point, head.end_location);
   }
 
   // duplicate the CFG's edges list.
   for (size_t eind = 0; eind < old_cfg->GetEdgeCount(); eind++) {
     PEdge *edge = old_cfg->GetEdge(eind);
-    edge->IncRef();
     new_cfg->AddEdge(edge);
   }
 }
@@ -570,7 +559,6 @@ void TrimUnreachable(BlockCFG *cfg, bool flatten_skips)
       }
 
       Location *loc = cfg->GetPointLocation(point);
-      loc->IncRef();
       new_points.PushBack(loc);
       PPoint new_point = new_points.Size();
 
@@ -619,10 +607,6 @@ void TrimUnreachable(BlockCFG *cfg, bool flatten_skips)
     if (new_point_list) {
       Assert(new_point_list->Size() == 1);
       LoopHead new_head(new_point_list->At(0), head.end_location);
-
-      if (head.end_location)
-        head.end_location->IncRef();
-
       new_loop_heads.PushBack(new_head);
     }
   }
@@ -715,7 +699,6 @@ void TopoSortCFG(BlockCFG *cfg)
     Assert(!remapping.Lookup(point, false));
 
     Location *loc = cfg->GetPointLocation(point);
-    loc->IncRef();
     new_points.PushBack(loc);
     old_points.PushBack(point);
 
@@ -876,10 +859,6 @@ void ReduceLoop(BlockCFG *cfg, PPoint loophead,
     if (new_point_list) {
       Assert(new_point_list->Size() == 1);
       LoopHead new_head(new_point_list->At(0), head.end_location);
-
-      if (head.end_location)
-        head.end_location->IncRef();
-
       cfg->AddLoopHead(new_head.point, new_head.end_location);
     }
   }
@@ -902,7 +881,6 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
   Variable *function_info = base_cfg->GetId()->BaseVar();
 
   // make an ID for the split loop.
-  function_info->IncRef();
   String *loop_info = String::Make(loop_name);
   BlockId *loop_id = BlockId::Make(B_Loop, function_info, loop_info);
 
@@ -926,10 +904,7 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
 
   Location *loop_head_loc = base_cfg->GetPointLocation(loophead);
 
-  loop_head_loc->IncRef();
   PPoint summary_point = base_cfg->AddPoint(loop_head_loc);
-
-  loop_id->IncRef();
   PEdge *summary_edge = PEdge::MakeLoop(summary_point, loophead, loop_id);
   base_cfg->AddEdge(summary_edge);
 
@@ -988,7 +963,6 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
   if (!end_location)
     end_location = loop_head_loc;
 
-  end_location->IncRef();
   PPoint split_exit = loop_cfg->AddPoint(end_location);
 
   for (size_t oind = 0; oind < old_back_indexes.Size(); oind++) {
@@ -1023,7 +997,6 @@ BlockCFG* SplitSingleLoop(PPoint loophead, const Vector<PPoint> &all_loops,
     if (loc->FileName() == highest->FileName() && loc->Line() > highest->Line())
       highest = loc;
   }
-  highest->IncRef();
   loop_cfg->SetPointLocation(loop_cfg->GetExitPoint(), highest);
 
   return loop_cfg;
@@ -1141,7 +1114,6 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
   if (base_cfg->GetId()->Kind() == B_FunctionWhole) {
     // make an ID for the outer function body.
     Variable *function_info = base_cfg->GetId()->BaseVar();
-    function_info->IncRef();
     BlockId *outer_id = BlockId::Make(B_Function, function_info);
 
     // make the function CFG by cloning the base CFG with the new ID.
@@ -1156,7 +1128,6 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
   }
   else {
     // just destructively update the original CFG.
-    base_cfg->IncRef();
     func_cfg = base_cfg;
   }
 
@@ -1165,7 +1136,6 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
 
   PPoint entry = func_cfg->GetEntryPoint();
   Location *loc = func_cfg->GetPointLocation(entry);
-  loc->IncRef();
   PPoint new_entry = func_cfg->AddPoint(loc);
 
   PEdge *skip_edge = PEdge::MakeSkip(new_entry, entry);
@@ -1286,7 +1256,6 @@ void SplitLoops(BlockCFG *base_cfg, Vector<BlockCFG*> *result_cfg_list)
           if (xcfg->GetId() == target_id) {
             found_target = true;
 
-            cfg->GetId()->IncRef();
             BlockPPoint where(cfg->GetId(), edge->GetSource());
             xcfg->AddLoopParent(where);
 

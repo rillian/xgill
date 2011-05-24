@@ -118,7 +118,6 @@ const char* BlockId::LoopName() const
   int line = loop_cfg->GetPointLocation(point)->Line();
   snprintf(loop_buf, sizeof(loop_buf), "loop:%d", line);
 
-  loop_cfg->DecRef();
   return loop_buf;
 }
 
@@ -126,7 +125,6 @@ void BlockId::SetWriteLoop(String *name)
 {
   Assert(m_kind == B_Loop);
   Assert(!m_write_loop);
-  name->MoveRef(NULL, this);
   m_write_loop = name;
 }
 
@@ -155,13 +153,13 @@ void BlockId::Print(OutStream &out) const
   }
 }
 
-void BlockId::DecMoveChildRefs(ORef ov, ORef nv)
+void BlockId::MarkChildren() const
 {
-  m_var->DecMoveRef(ov, nv);
+  m_var->Mark();
   if (m_loop)
-    m_loop->DecMoveRef(ov, nv);
+    m_loop->Mark();
   if (m_write_loop)
-    m_write_loop->DecMoveRef(ov, nv);
+    m_write_loop->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -317,12 +315,12 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       Try(res);
       Location *loc = Location::Read(buf);
 
-      if (drop_info)
-        loc->DecRef();
-      else if (!res->m_begin_location)
-        res->SetBeginLocation(loc);
-      else
-        res->SetEndLocation(loc);
+      if (!drop_info) {
+        if (!res->m_begin_location)
+          res->SetBeginLocation(loc);
+        else
+          res->SetEndLocation(loc);
+      }
       break;
     }
     case TAG_Kind: {
@@ -338,13 +336,8 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       Variable *var = Variable::Read(buf);
       Type *type = Type::Read(buf);
 
-      if (drop_info) {
-        var->DecRef();
-        type->DecRef();
-      }
-      else {
+      if (!drop_info)
         res->AddVariable(var, type);
-      }
 
       Try(ReadCloseTag(buf, TAG_DefineVariable));
       break;
@@ -352,9 +345,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
     case TAG_BlockPPoint: {
       BlockPPoint parent = BlockPPoint::Read(buf);
 
-      if (drop_info)
-        parent.id->DecRef();
-      else
+      if (!drop_info)
         res->AddLoopParent(parent);
       break;
     }
@@ -362,9 +353,7 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       Try(ReadOpenTag(buf, TAG_PPoint));
       Location *loc = Location::Read(buf);
 
-      if (drop_info)
-        loc->DecRef();
-      else
+      if (!drop_info)
         res->AddPoint(loc);
 
       Try(ReadCloseTag(buf, TAG_PPoint));
@@ -393,13 +382,8 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
 
       Try(ReadCloseTag(buf, TAG_LoopHead));
 
-      if (drop_info) {
-        if (end_loc)
-          end_loc->DecRef();
-      }
-      else {
+      if (!drop_info)
         res->AddLoopHead(point, end_loc);
-      }
       break;
     }
     case TAG_LoopIsomorphic: {
@@ -419,18 +403,14 @@ BlockCFG* BlockCFG::Read(Buffer *buf, bool clone)
       BlockId *annot = BlockId::Read(buf);
       Try(ReadCloseTag(buf, TAG_PointAnnotation));
 
-      if (drop_info)
-        annot->DecRef();
-      else
+      if (!drop_info)
         res->AddPointAnnotation(point, annot);
       break;
     }
     case TAG_PEdge: {
       PEdge *edge = PEdge::Read(buf);
 
-      if (drop_info)
-        edge->DecRef();
-      else
+      if (!drop_info)
         res->AddEdge(edge);
       break;
     }
@@ -532,25 +512,16 @@ void BlockCFG::SetVersion(VersionId version)
 
 void BlockCFG::SetCommand(String *command)
 {
-  if (m_command != NULL)
-    m_command->DecRef(this);
-  command->MoveRef(NULL, this);
   m_command = command;
 }
 
 void BlockCFG::SetBeginLocation(Location *loc)
 {
-  if (m_begin_location != NULL)
-    m_begin_location->DecRef(this);
-  loc->MoveRef(NULL, this);
   m_begin_location = loc;
 }
 
 void BlockCFG::SetEndLocation(Location *loc)
 {
-  if (m_end_location != NULL)
-    m_end_location->DecRef(this);
-  loc->MoveRef(NULL, this);
   m_end_location = loc;
 }
 
@@ -565,17 +536,11 @@ void BlockCFG::AddVariable(Variable *var, Type *type)
   // check for a duplicate entry on this variable.
   for (size_t ind = 0; ind < m_vars->Size(); ind++) {
     if (var == m_vars->At(ind).var) {
-      var->DecRef();
-
-      type->MoveRef(NULL, this);
-      m_vars->At(ind).type->DecRef(this);
       m_vars->At(ind).type = type;
       return;
     }
   }
 
-  var->MoveRef(NULL, this);
-  type->MoveRef(NULL, this);
   m_vars->PushBack(DefineVariable(var, type));
 }
 
@@ -590,7 +555,6 @@ void BlockCFG::AddLoopParent(BlockPPoint where)
   if (m_loop_parents == NULL)
     m_loop_parents = new Vector<BlockPPoint>();
 
-  where.id->MoveRef(NULL, this);
   m_loop_parents->PushBack(where);
 }
 
@@ -599,8 +563,6 @@ void BlockCFG::ClearBody()
   ClearEdgeInfo();
 
   if (m_points) {
-    for (size_t ind = 0; ind < m_points->Size(); ind++)
-      m_points->At(ind)->DecRef(this);
     delete m_points;
     m_points = NULL;
   }
@@ -613,15 +575,11 @@ void BlockCFG::ClearBody()
   }
 
   if (m_point_annotations) {
-    for (size_t ind = 0; ind < m_point_annotations->Size(); ind++)
-      m_point_annotations->At(ind).annot->DecRef(this);
     delete m_point_annotations;
     m_point_annotations = NULL;
   }
 
   if (m_edges) {
-    for (size_t ind = 0; ind < m_edges->Size(); ind++)
-      m_edges->At(ind)->DecRef(this);
     delete m_edges;
     m_edges = NULL;
   }
@@ -633,11 +591,6 @@ void BlockCFG::ClearBody()
 void BlockCFG::ClearLoopHeads()
 {
   if (m_loop_heads) {
-    for (size_t ind = 0; ind < m_loop_heads->Size(); ind++) {
-      LoopHead head = m_loop_heads->At(ind);
-      if (head.end_location)
-        head.end_location->DecRef(this);
-    }
     delete m_loop_heads;
     m_loop_heads = NULL;
   }
@@ -665,16 +618,13 @@ void BlockCFG::SetAnnotationBit(Bit *bit)
   Assert(!m_annotation_computed);
   m_annotation_computed = true;
 
-  if (bit) {
-    bit->MoveRef(NULL, this);
+  if (bit)
     m_annotation_bit = bit;
-  }
 }
 
 PPoint BlockCFG::AddPoint(Location *loc)
 {
   Assert(loc);
-  loc->MoveRef(NULL, this);
 
   if (m_points == NULL)
     m_points = new Vector<Location*>();
@@ -686,11 +636,9 @@ PPoint BlockCFG::AddPoint(Location *loc)
 void BlockCFG::SetPointLocation(PPoint point, Location *loc)
 {
   Assert(loc);
-  loc->MoveRef(NULL, this);
 
   Assert(m_points);
   Assert(point > 0 && point <= m_points->Size());
-  m_points->At(point - 1)->DecRef(this);
   m_points->At(point - 1) = loc;
 }
 
@@ -723,16 +671,12 @@ void BlockCFG::AddLoopHead(PPoint point, Location *end_location)
         if (head.end_location) {
           // e.g. do { do { ... } while (...); ... } while (...);
           // the inner loop probably has no backedges.
-          if (head.end_location->Line() < end_location->Line()) {
-            head.end_location->DecRef(this);
+          if (head.end_location->Line() < end_location->Line())
             head.end_location = end_location;
-            end_location->MoveRef(NULL, this);
-          }
         }
         else {
           // e.g. Label: while (...) {}
           head.end_location = end_location;
-          end_location->MoveRef(NULL, this);
         }
       }
       return;
@@ -740,9 +684,6 @@ void BlockCFG::AddLoopHead(PPoint point, Location *end_location)
   }
 
   LoopHead head(point, end_location);
-  if (end_location)
-    end_location->MoveRef(NULL, this);
-
   m_loop_heads->PushBack(head);
 }
 
@@ -765,7 +706,6 @@ void BlockCFG::AddEdge(PEdge *edge)
   Assert(edge);
   Assert(edge->GetSource() <= GetPointCount());
   Assert(edge->GetTarget() <= GetPointCount());
-  edge->MoveRef(NULL, this);
 
   if (m_edges == NULL)
     m_edges = new Vector<PEdge*>();
@@ -779,10 +719,8 @@ void BlockCFG::SetEdge(size_t ind, PEdge *edge)
   Assert(edge);
   Assert(edge->GetSource() <= GetPointCount());
   Assert(edge->GetTarget() <= GetPointCount());
-  edge->MoveRef(NULL, this);
 
   Assert(m_edges && ind < m_edges->Size());
-  m_edges->At(ind)->DecRef(this);
   m_edges->At(ind) = edge;
 }
 
@@ -791,7 +729,6 @@ void BlockCFG::AddPointAnnotation(PPoint point, BlockId *annot)
   if (!m_point_annotations)
     m_point_annotations = new Vector<PointAnnotation>();
 
-  annot->MoveRef(NULL, this);
   m_point_annotations->PushBack(PointAnnotation(point, annot));
 }
 
@@ -928,18 +865,55 @@ void BlockCFG::Print(OutStream &out) const
     out << GetEdge(ind) << endl;
 }
 
-void BlockCFG::DecMoveChildRefs(ORef ov, ORef nv)
+void BlockCFG::MarkChildren() const
 {
-  // just drop the reference on the block ID. everything else either hasn't
-  // been setup (initial ::Make found an old value), or was cleared by the
-  // unpersist (last reference went away).
-  m_id->DecMoveRef(ov, nv);
+  m_id->Mark();
 
-  // try another unpersist anyways (this is idempotent) in case we are
-  // being called at exit to find leaking references.
-  if (ov == this) {
-    Assert(nv == NULL);
-    UnPersist();
+  if (m_command)
+    m_command->Mark();
+
+  if (m_begin_location)
+    m_begin_location->Mark();
+
+  if (m_end_location)
+    m_end_location->Mark();
+
+  if (m_vars) {
+    for (size_t ind = 0; ind < m_vars->Size(); ind++) {
+      m_vars->At(ind).var->Mark();
+      m_vars->At(ind).type->Mark();
+    }
+  }
+
+  if (m_loop_parents) {
+    for (size_t ind = 0; ind < m_loop_parents->Size(); ind++)
+      m_loop_parents->At(ind).id->Mark();
+  }
+
+  if (m_annotation_bit)
+    m_annotation_bit->Mark();
+
+  if (m_points) {
+    for (size_t ind = 0; ind < m_points->Size(); ind++)
+      m_points->At(ind)->Mark();
+  }
+
+  if (m_point_annotations) {
+    for (size_t ind = 0; ind < m_point_annotations->Size(); ind++)
+      m_point_annotations->At(ind).annot->Mark();
+  }
+
+  if (m_edges) {
+    for (size_t ind = 0; ind < m_edges->Size(); ind++)
+      m_edges->At(ind)->Mark();
+  }
+
+  if (m_loop_heads) {
+    for (size_t ind = 0; ind < m_loop_heads->Size(); ind++) {
+      LoopHead head = m_loop_heads->At(ind);
+      if (head.end_location)
+        head.end_location->Mark();
+    }
   }
 }
 
@@ -950,36 +924,16 @@ void BlockCFG::Persist()
 
 void BlockCFG::UnPersist()
 {
-  // in addition to deleting allocated data, we also need to drop all the
-  // references other than the block ID and reset the data to NULL.
-
-  if (m_command) {
-    m_command->DecRef(this);
-    m_command = NULL;
-  }
-
-  if (m_begin_location) {
-    m_begin_location->DecRef(this);
-    m_begin_location = NULL;
-  }
-
-  if (m_end_location) {
-    m_end_location->DecRef(this);
-    m_end_location = NULL;
-  }
+  m_command = NULL;
+  m_begin_location = NULL;
+  m_end_location = NULL;
 
   if (m_vars) {
-    for (size_t ind = 0; ind < m_vars->Size(); ind++) {
-      m_vars->At(ind).var->DecRef(this);
-      m_vars->At(ind).type->DecRef(this);
-    }
     delete m_vars;
     m_vars = NULL;
   }
 
   if (m_loop_parents) {
-    for (size_t ind = 0; ind < m_loop_parents->Size(); ind++)
-      m_loop_parents->At(ind).id->DecRef(this);
     delete m_loop_parents;
     m_loop_parents = NULL;
   }
@@ -988,10 +942,7 @@ void BlockCFG::UnPersist()
   ClearBody();
 
   m_annotation_computed = false;
-  if (m_annotation_bit) {
-    m_annotation_bit->DecRef(this);
-    m_annotation_bit = NULL;
-  }
+  m_annotation_bit = NULL;
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -1313,8 +1264,6 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     const PEdgeAssume *ne = e->AsAssume();
 
     Exp *scalar = ne->GetCondition();
-    scalar->IncRef();
-
     bool nonzero = ne->IsNonZero();
 
     return MakeAssume(source, target, scalar, nonzero);
@@ -1323,38 +1272,21 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     const PEdgeAssign *ne = e->AsAssign();
 
     Type *type = ne->GetType();
-    type->IncRef();
-
     Exp *left = ne->GetLeftSide();
-    left->IncRef();
-
     Exp *right = ne->GetRightSide();
-    right->IncRef();
-
     return MakeAssign(source, target, type, left, right);
   }
   case EGK_Call: {
     const PEdgeCall *ne = e->AsCall();
     
     TypeFunction *type = ne->GetType();
-    type->IncRef();
-
     Exp *retval = ne->GetReturnValue();
-    if (retval)
-      retval->IncRef();
-
     Exp *instance_object = ne->GetInstanceObject();
-    if (instance_object)
-      instance_object->IncRef();
-
     Exp *function = ne->GetFunction();
-    if (function)
-      function->IncRef();
 
     Vector<Exp*> arguments;
     for (size_t ind = 0; ind < ne->GetArgumentCount(); ind++) {
       Exp *arg = ne->GetArgument(ind);
-      arg->IncRef();
       arguments.PushBack(arg);
     }
 
@@ -1365,8 +1297,6 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     const PEdgeLoop *ne = e->AsLoop();
 
     BlockId *block = ne->GetLoopId();
-    block->IncRef();
-
     return MakeLoop(source, target, block);
   }
   case EGK_Assembly: {
@@ -1376,8 +1306,6 @@ PEdge* PEdge::ChangeEdge(const PEdge *e, PPoint source, PPoint target)
     const PEdgeAnnotation *ne = e->AsAnnotation();
 
     BlockId *annot = ne->GetAnnotationId();
-    annot->IncRef();
-
     return MakeAnnotation(source, target, annot);
   }
   default:
@@ -1438,14 +1366,13 @@ void PEdgeAssume::PrintUI(OutStream &out) const
     bit = Bit::MakeNot(bit);
 
   bit->PrintUI(out, false);
-  bit->DecRef();
 
   out << ")";
 }
 
-void PEdgeAssume::DecMoveChildRefs(ORef ov, ORef nv)
+void PEdgeAssume::MarkChildren() const
 {
-  m_cond->DecMoveRef(ov, nv);
+  m_cond->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -1477,28 +1404,18 @@ void VisitAssign(ExpVisitor *visitor,
         const DataField &df = csu->GetField(find);
 
         Exp *new_left = NULL;
-        if (left != NULL) {
-          left->IncRef();
-          df.field->IncRef();
+        if (left != NULL)
           new_left = Exp::MakeFld(left, df.field);
-        }
 
         Exp *new_right = NULL;
         if (right && right->IsDrf()) {
           Exp *target = right->AsDrf()->GetTarget();
 
-          target->IncRef();
-          df.field->IncRef();
           Exp *new_target = Exp::MakeFld(target, df.field);
           new_right = Exp::MakeDrf(new_target);
         }
 
         VisitAssign(visitor, new_left, new_right, df.field->GetType());
-
-        if (new_left)
-          new_left->DecRef();
-        if (new_right)
-          new_right->DecRef();
       }
     }
 
@@ -1540,11 +1457,11 @@ void PEdgeAssign::PrintUI(OutStream &out) const
   m_right_side->PrintUIRval(out, false);
 }
 
-void PEdgeAssign::DecMoveChildRefs(ORef ov, ORef nv)
+void PEdgeAssign::MarkChildren() const
 {
-  m_type->DecMoveRef(ov, nv);
-  m_left_side->DecMoveRef(ov, nv);
-  m_right_side->DecMoveRef(ov, nv);
+  m_type->Mark();
+  m_left_side->Mark();
+  m_right_side->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -1584,13 +1501,9 @@ Variable* PEdgeCall::GetDirectFunction() const
 BlockId* PEdgeCall::GetDirectCallee() const
 {
   Variable *function = GetDirectFunction();
-  if (function) {
-    function->IncRef();
+  if (function)
     return BlockId::Make(B_Function, function);
-  }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 void PEdgeCall::DoVisit(ExpVisitor *visitor) const
@@ -1635,8 +1548,6 @@ void PEdgeCall::Print(OutStream &out) const
       Exp *empty = Exp::MakeEmpty();
       Exp *new_function = ExpReplaceExp(m_function, empty, m_instance_object);
       out << new_function;
-      empty->DecRef();
-      new_function->DecRef();
     }
   }
   else {
@@ -1675,8 +1586,6 @@ void PEdgeCall::PrintUI(OutStream &out) const
       Exp *empty = Exp::MakeEmpty();
       Exp *new_function = ExpReplaceExp(m_function, empty, m_instance_object);
       new_function->PrintUI(out, true);
-      empty->DecRef();
-      new_function->DecRef();
     }
   }
   else {
@@ -1692,17 +1601,17 @@ void PEdgeCall::PrintUI(OutStream &out) const
   out << ")";
 }
 
-void PEdgeCall::DecMoveChildRefs(ORef ov, ORef nv)
+void PEdgeCall::MarkChildren() const
 {
-  m_type->DecMoveRef(ov, nv);
+  m_type->Mark();
   if (m_return_value)
-    m_return_value->DecMoveRef(ov, nv);
+    m_return_value->Mark();
   if (m_instance_object)
-    m_instance_object->DecMoveRef(ov, nv);
-  m_function->DecMoveRef(ov, nv);
+    m_instance_object->Mark();
+  m_function->Mark();
 
   for (size_t ind = 0; ind < m_argument_count; ind++)
-    m_arguments[ind]->DecMoveRef(ov, nv);
+    m_arguments[ind]->Mark();
 }
 
 void PEdgeCall::Persist()
@@ -1738,7 +1647,6 @@ PEdgeLoop::PEdgeLoop(PPoint source, PPoint target, BlockId *loop)
 
 BlockId* PEdgeLoop::GetDirectCallee() const
 {
-  m_loop->IncRef();
   return m_loop;
 }
 
@@ -1753,9 +1661,9 @@ void PEdgeLoop::PrintUI(OutStream &out) const
   out << "invoke(" << m_loop->LoopName() << ")";
 }
 
-void PEdgeLoop::DecMoveChildRefs(ORef ov, ORef nv)
+void PEdgeLoop::MarkChildren() const
 {
-  m_loop->DecMoveRef(ov, nv);
+  m_loop->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -1798,9 +1706,9 @@ void PEdgeAnnotation::PrintUI(OutStream &out) const
   out << "annotation";
 }
 
-void PEdgeAnnotation::DecMoveChildRefs(ORef ov, ORef nv)
+void PEdgeAnnotation::MarkChildren() const
 {
-  m_annot->DecMoveRef(ov, nv);
+  m_annot->Mark();
 }
 
 NAMESPACE_XGILL_END

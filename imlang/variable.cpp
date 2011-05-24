@@ -163,11 +163,9 @@ Type* Variable::GetType() const
     // lose the const for adding references to this object.
     Variable *me = (Variable*) this;
 
-    me->IncRef();
     BlockId *func_id = BlockId::Make(B_Function, me);
     BlockCFGCache.Lookup(func_id);
     BlockCFGCache.Release(func_id);
-    func_id->DecRef();
   }
   else if (m_id) {
     // other variables should be defined by the CFG containing the variable.
@@ -199,10 +197,8 @@ void Variable::SetType(Type *type, bool override)
     if (m_type != type && !override)
       logout << "ERROR: Conflicting types for " << this << ": "
              << m_type << " " << type << endl;
-    m_type->DecRef(this);
   }
 
-  type->IncRef(this);
   m_type = type;
 }
 
@@ -254,19 +250,14 @@ void Variable::Print(OutStream &out) const
   }
 }
 
-void Variable::DecMoveChildRefs(ORef ov, ORef nv)
+void Variable::MarkChildren() const
 {
   if (m_id)
-    m_id->DecMoveRef(ov, nv);
+    m_id->Mark();
   if (m_name)
-    m_name->DecMoveRef(ov, nv);
+    m_name->Mark();
   if (m_source_name)
-    m_source_name->DecMoveRef(ov, nv);
-
-  if (m_type) {
-    Assert(nv == NULL);
-    m_type->DecRef(this);
-  }
+    m_source_name->Mark();
 }
 
 NAMESPACE_XGILL_END

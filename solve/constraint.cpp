@@ -92,8 +92,6 @@ bool ConstraintTable::Insert(FrameId source_frame, Exp *source_exp,
   }
 
   m_entry_count++;
-  if (target_exp)
-    target_exp->IncRef(this);
 
   ConstraintEntry *new_entry = track_new_single<ConstraintEntry>(m_alloc);
   new_entry->frame = target_frame;
@@ -151,9 +149,6 @@ ConstraintKey* ConstraintTable::LookupKey(FrameId source_frame,
     return NULL;
 
   // make a key for the association.
-  if (source_exp)
-    source_exp->IncRef(this);
-
   key = track_new_single<ConstraintKey>(m_alloc);
   key->table = this;
   key->frame = source_frame;
@@ -235,8 +230,6 @@ void ConstraintTable::PopContext()
     LinkedListRemove<ConstraintEntry,__ConstraintEntry_KeyList>
       (&entry->key->entries_pend, entry);
 
-    if (entry->exp)
-      entry->exp->DecRef(this);
     track_delete_single<ConstraintEntry>(m_alloc, entry);
     m_entry_count--;
   }
@@ -272,8 +265,6 @@ void ConstraintTable::PopContext()
 
     LinkedListRemove<ConstraintKey,__ConstraintKey_List>(&bucket->key_pend, key);
 
-    if (key->exp)
-      key->exp->DecRef(this);
     track_delete_single<ConstraintKey>(m_alloc, key);
   }
 
@@ -446,7 +437,6 @@ class ConstraintListenerLvalue : public ConstraintListener
 
     // restrict to non-negative values for unsigned integers.
     if (!type->IsSigned()) {
-      exp->IncRef();
       Exp *zero = Exp::MakeInt(0);
       Bit *unsigned_test =
         Exp::MakeCompareBit(B_GreaterEqual, exp, zero);
@@ -459,7 +449,6 @@ class ConstraintListenerLvalue : public ConstraintListener
     // restrict the maximum value according to the type.
     const char *max_value = GetMaximumInteger(bits, sign);
 
-    exp->IncRef();
     Exp *max_exp = Exp::MakeIntStr(max_value);
     Bit *max_test = Exp::MakeCompareBit(B_LessEqual, exp, max_exp);
     m_solver->AddConstraint(frame, max_test);
@@ -508,7 +497,6 @@ class ConstraintListenerLvalue : public ConstraintListener
       CompositeCSUCache.Release(csu_name);
     }
 
-    exp->IncRef();
     Exp *offset_exp = Exp::MakeInt(offset);
     Bit *offset_test = Exp::MakeCompareBit(B_Equal, exp, offset_exp);
     m_solver->AddConstraint(frame, offset_test);
@@ -538,7 +526,6 @@ class ConstraintListenerLvalue : public ConstraintListener
     if (!var_type || !var_type->IsInt())
       return;
 
-    target->IncRef();
     Trace *trace = Trace::MakeGlob(target);
 
     // check if there are writes other than in the initializer.
@@ -576,18 +563,13 @@ class ConstraintListenerLvalue : public ConstraintListener
           const GuardAssign &gts = assigns->At(0);
           Assert(gts.left == target);
 
-          exp->IncRef();
-          gts.right->IncRef();
           Bit *equal_bit = Exp::MakeCompareBit(B_Equal, exp, gts.right);
           m_solver->AddConstraint(frame, equal_bit);
         }
-
-        init_mcfg->DecRef();
       }
     }
 
     EscapeAccessCache.Release(trace);
-    trace->DecRef();
   }
 
   void Visit(ConstraintEntry *entry)
@@ -666,16 +648,12 @@ Exp* GetBoundEquivalent(ExpBound *bound, ExpBound *old_bound)
     if (target != old_target)
       failed = true;
 
-    if (failed) {
-      if (numerator_offset)
-        numerator_offset->DecRef();
+    if (failed)
       return NULL;
-    }
   }
 
   // the result is (old_bound + old_offset) / factor.
 
-  old_bound->IncRef();
   Exp *numerator = old_bound;
 
   if (numerator_offset)
@@ -721,7 +699,6 @@ class ConstraintListenerBound : public ConstraintListener
         Type *this_type = var->GetVariable()->GetType();
         size_t count = this_type->AsPointer()->GetTargetType()->Width() / type->Width();
 
-        bound->IncRef();
         Bit *test = Exp::MakeCompareBit(B_GreaterEqual, bound, Exp::MakeInt(count));
 
         m_solver->AddConstraint(m_key->frame, test);
@@ -741,10 +718,7 @@ class ConstraintListenerBound : public ConstraintListener
       Exp *explicit_bound = Exp::GetExplicitBound(BND_Upper, target, type);
 
       if (explicit_bound) {
-        type->IncRef();
         Exp *abs_bound = Exp::MakeBound(BND_Upper, NULL, type);
-
-        bound->IncRef();
         Exp *abs_diff = Exp::MakeBinop(B_Minus, abs_bound, bound);
         Bit *test = Exp::MakeCompareBit(B_Equal, abs_diff, explicit_bound);
 
@@ -765,7 +739,6 @@ class ConstraintListenerBound : public ConstraintListener
         Exp *bound_equal = GetBoundEquivalent(bound, other_bound);
 
         if (bound_equal) {
-          bound->IncRef();
           Bit *test = Exp::MakeCompareBit(B_Equal, bound, bound_equal);
 
           m_solver->AddConstraint(m_key->frame, test);
@@ -775,9 +748,7 @@ class ConstraintListenerBound : public ConstraintListener
           Exp *other_equal = GetBoundEquivalent(other_bound, bound);
 
           if (other_equal) {
-            other_bound->IncRef();
             Bit *test = Exp::MakeCompareBit(B_Equal, other_bound, other_equal);
-
             m_solver->AddConstraint(m_key->frame, test);
           }
         }
@@ -824,10 +795,7 @@ class ConstraintListenerTerminate : public ConstraintListener
       else {
         // found a new absolute terminator. assert it is less than the
         // absolute upper bound.
-        type->IncRef();
         Exp *abs_bound = Exp::MakeBound(BND_Upper, NULL, type);
-
-        term_exp->IncRef();
         Bit *less_test = Exp::MakeCompareBit(B_LessThan, term_exp, abs_bound);
         m_solver->AddConstraint(0, less_test);
       }
@@ -864,7 +832,6 @@ class ConstraintListenerTerminate : public ConstraintListener
       // this is equivalent to: term(buf) == lval - buf ==> *lval == term_int.
 
       // get the offset into the buffer of the lvalue.
-      lval->IncRef();
       Exp *lval_term = term_exp->ReplaceLvalTarget(lval);
 
       // compare the lvalue terminator with zero.
@@ -878,7 +845,6 @@ class ConstraintListenerTerminate : public ConstraintListener
       // get the termination test on the read expression. note that even
       // if the read expression is a pointer, we don't need to use NotEqualP
       // as the expression is being compared with a constant (i.e. NULL).
-      term_int->IncRef();
       Bit *term_test = Exp::MakeCompareBit(B_Equal, read_exp, term_int);
 
       // make and assert the final implication.
@@ -949,8 +915,8 @@ class ConstraintListenerOffset : public ConstraintListener
       }
 
       if (non_alias) {
-        Bit *bit = Exp::MakeCompareBit(B_NotEqual, entry->exp, cur_entry->exp,
-                                       NULL, true);
+        Bit *bit = Exp::MakeCompareBit(B_NotEqual,
+                                       entry->exp, cur_entry->exp, NULL);
         m_solver->AddConstraint(0, bit);
       }
     }
@@ -1021,32 +987,25 @@ static void GetDivisionConstraints(Exp *left, long right, Exp *result,
 
   if (right == 1) {
     // easy case.
-    bits->PushBack(Exp::MakeCompareBit(B_Equal, left, result, NULL, true));
+    bits->PushBack(Exp::MakeCompareBit(B_Equal, left, result, NULL));
     return;
   }
 
   // get an expression for right * result.
-  result->IncRef();
   Exp *right_int = Exp::MakeInt(right);
   Exp *right_mul = Exp::MakeBinop(B_Mult, right_int, result);
 
   if (align) {
     // handle with a single equality: right * result == left.
-    left->IncRef();
     bits->PushBack(Exp::MakeCompareBit(B_Equal, right_mul, left));
   }
   else {
     // handle with two inequalities: right * result <= left,
     // and right * result + (right - 1) >= left.
 
-    right_mul->IncRef();
     Exp *right_diff = Exp::MakeInt(right - 1);
     Exp *right_sum = Exp::MakeBinop(B_Plus, right_mul, right_diff);
-
-    left->IncRef();
     bits->PushBack(Exp::MakeCompareBit(B_LessEqual, right_mul, left));
-
-    left->IncRef();
     bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, right_sum, left));
   }
 }
@@ -1076,8 +1035,8 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
   // exp0 % exp1 < exp1
 
   if (i.b_kind == B_Mod) {
-    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, li.exp, NULL, true));
-    bits->PushBack(Exp::MakeCompareBit(B_LessThan, exp, ri.exp, NULL, true));
+    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, li.exp, NULL));
+    bits->PushBack(Exp::MakeCompareBit(B_LessThan, exp, ri.exp, NULL));
   }
 
   // exp0 & exp1 <= exp0
@@ -1086,8 +1045,8 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
 
   if (i.b_kind == B_BitwiseAnd || i.b_kind == B_Max) {
     // result is <= the first and second operands.
-    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, li.exp, NULL, true));
-    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, ri.exp, NULL, true));
+    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, li.exp, NULL));
+    bits->PushBack(Exp::MakeCompareBit(B_LessEqual, exp, ri.exp, NULL));
   }
 
   // exp0 min exp1 >= exp0
@@ -1095,17 +1054,14 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
 
   if (i.b_kind == B_Min) {
     // result is >= the first and second operands.
-    bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, li.exp, NULL, true));
-    bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, ri.exp, NULL, true));
+    bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, li.exp, NULL));
+    bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, ri.exp, NULL));
   }
 
   // (exp0 / exp1) * exp1 >= (exp0 - exp1 + 1)
   // exp1 * (exp0 / exp1) >= (exp0 - exp1 + 1)
 
   if (i.b_kind == B_Mult && li.b_kind == B_Div && ri.exp == lri.exp) {
-    exp->IncRef();
-    lli.exp->IncRef();
-    lri.exp->IncRef();
     Exp *one = Exp::MakeInt(1);
     Exp *min_value = Exp::MakeBinop(B_Minus, lli.exp, lri.exp);
     min_value = Exp::MakeBinop(B_Plus, min_value, one);
@@ -1113,9 +1069,6 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
   }
 
   if (i.b_kind == B_Mult && ri.b_kind == B_Div && li.exp == rri.exp) {
-    exp->IncRef();
-    rli.exp->IncRef();
-    rri.exp->IncRef();
     Exp *one = Exp::MakeInt(1);
     Exp *min_value = Exp::MakeBinop(B_Minus, rli.exp, rri.exp);
     min_value = Exp::MakeBinop(B_Plus, min_value, one);
@@ -1126,17 +1079,11 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
   // (~exp1 & exp0) >= exp0 - exp1
 
   if (i.b_kind == B_BitwiseAnd && ri.u_kind == U_BitwiseNot) {
-    exp->IncRef();
-    li.exp->IncRef();
-    rli.exp->IncRef();
     Exp *diff = Exp::MakeBinop(B_Minus, li.exp, rli.exp);
     bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, diff));
   }
 
   if (i.b_kind == B_BitwiseAnd && li.u_kind == U_BitwiseNot) {
-    exp->IncRef();
-    lli.exp->IncRef();
-    ri.exp->IncRef();
     Exp *diff = Exp::MakeBinop(B_Minus, ri.exp, lli.exp);
     bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, diff));
   }
@@ -1154,7 +1101,6 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
         logout << "ERROR: Bitwise operation on negative integer" << endl;
       }
       else {
-        exp->IncRef();
         Exp *zero = Exp::MakeInt(0);
         bits->PushBack(Exp::MakeCompareBit(B_GreaterEqual, exp, zero));
       }
@@ -1162,11 +1108,7 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
 
     // (exp0 >= 0) ==> (exp0 <</>> exp1 >= 0)
     if (i.b_kind == B_ShiftLeft || i.b_kind == B_ShiftRight) {
-      exp->IncRef();
-      li.exp->IncRef();
       Exp *zero = Exp::MakeInt(0);
-      zero->IncRef();
-
       Bit *left = Exp::MakeCompareBit(B_GreaterEqual, li.exp, zero);
       Bit *right = Exp::MakeCompareBit(B_GreaterEqual, exp, zero);
       bits->PushBack(Bit::MakeImply(left, right));
@@ -1182,8 +1124,6 @@ void GetBinopConstraints(ExpBinop *exp, Vector<Bit*> *bits, bool complete)
     // exactly model left shifts by a (small nonnegative) constant.
     if (i.b_kind == B_ShiftLeft && has_right &&
         right_value >= 0 && right_value < 16) {
-      exp->IncRef();
-      li.exp->IncRef();
       Exp *new_right = Exp::MakeInt(1 << (int) right_value);
       Exp *mul_right = Exp::MakeBinop(B_Mult, li.exp, new_right);
       bits->PushBack(Exp::MakeCompareBit(B_Equal, exp, mul_right));
@@ -1297,11 +1237,6 @@ class ConstraintListenerUnintBinop : public ConstraintListener
         // increases precision as the two multiplications will be converted
         // differently, where one is 
 
-        int_exp->IncRef();
-        int_exp->IncRef();
-        left_exp->IncRef();
-        right_exp->IncRef();
-
         if (is_left) {
           equal_int = Exp::MakeCompareBit(B_Equal, int_exp, left_exp);
           subst_exp = Exp::MakeBinop(binop_kind, int_exp, right_exp);
@@ -1311,9 +1246,7 @@ class ConstraintListenerUnintBinop : public ConstraintListener
           subst_exp = Exp::MakeBinop(binop_kind, left_exp, int_exp);
         }
 
-        m_exp->IncRef();
         Bit *equal_binop = Exp::MakeCompareBit(B_Equal, m_exp, subst_exp);
-
         Bit *imply_test = Bit::MakeImply(equal_int, equal_binop);
         m_solver->AddConstraint(m_key->frame, imply_test);
       }
@@ -1434,12 +1367,6 @@ class ConstraintListenerCombineBinop : public ConstraintListener
     // (exp0 > exp1) ==> (exp * exp0) - exp >= (exp * exp1)
     // the equality case is handled by the base uninterpreted function.
 
-    shared_exp->IncRef();
-    differ_exp->IncRef();
-    differ_exp_new->IncRef();
-    old_binop->IncRef();
-    new_binop->IncRef();
-
     Bit *lt_left =
       Exp::MakeCompareBit(B_LessThan, differ_exp, differ_exp_new);
     Exp *lt_diff =
@@ -1447,12 +1374,6 @@ class ConstraintListenerCombineBinop : public ConstraintListener
     Bit *lt_right =
       Exp::MakeCompareBit(B_LessThan, lt_diff, new_binop);
     Bit *lt_imply = Bit::MakeImply(lt_left, lt_right);
-
-    shared_exp->IncRef();
-    differ_exp->IncRef();
-    differ_exp_new->IncRef();
-    old_binop->IncRef();
-    new_binop->IncRef();
 
     Bit *gt_left =
       Exp::MakeCompareBit(B_GreaterThan, differ_exp, differ_exp_new);
@@ -1480,21 +1401,11 @@ class ConstraintListenerCombineBinop : public ConstraintListener
     // (exp0 <= exp1) ==> (exp0 >> exp) <= (exp1 >> exp)
     // (exp0 >= exp1) ==> (exp0 >> exp) >= (exp1 >> exp)
 
-    differ_exp->IncRef();
-    differ_exp_new->IncRef();
-    old_binop->IncRef();
-    new_binop->IncRef();
-
     Bit *le_left =
       Exp::MakeCompareBit(B_LessEqual, differ_exp, differ_exp_new);
     Bit *le_right =
       Exp::MakeCompareBit(B_LessEqual, old_binop, new_binop);
     Bit *le_imply = Bit::MakeImply(le_left, le_right);
-
-    differ_exp->IncRef();
-    differ_exp_new->IncRef();
-    old_binop->IncRef();
-    new_binop->IncRef();
 
     Bit *ge_left =
       Exp::MakeCompareBit(B_GreaterEqual, differ_exp, differ_exp_new);

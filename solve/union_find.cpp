@@ -55,7 +55,6 @@ SolverUnionFind::HashEntry* SolverUnionFind::LookupEntry(size_t frame, Exp *exp)
   }
 
   m_entry_count++;
-  exp->IncRef(this);
 
   HashEntry *new_e = track_new_single<HashEntry>(m_alloc);
   new_e->exp = exp;
@@ -178,7 +177,6 @@ void SolverUnionFind::PopContext()
     HashBucket *bucket = &m_buckets[ind];
 
     LinkedListRemove<HashEntry,__HashEntry_List>(&bucket->e_pend, remove);
-    remove->exp->DecRef(this);
 
     track_delete_single<HashEntry>(m_alloc, remove);
     m_entry_count--;
@@ -196,7 +194,6 @@ void SolverUnionFind::Clear()
       HashEntry *e = bucket->e_begin;
 
       LinkedListRemove<HashEntry,__HashEntry_List>(&bucket->e_pend, e);
-      e->exp->DecRef(this);
 
       track_delete_single<HashEntry>(m_alloc, e);
       m_entry_count--;

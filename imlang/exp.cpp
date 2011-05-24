@@ -697,7 +697,6 @@ static inline bool IsCompatibleNormalizedType(Type *type, Type *normal_type)
 
   if (Type *new_type = NormalizeType(type)) {
     bool equals = (new_type == normal_type);
-    new_type->DecRef();
     return equals;
   }
 
@@ -717,8 +716,6 @@ static inline Exp* SimplifyExp(Exp *exp, Exp *new_exp,
 {
   if (check_equivalent && g_callback_ExpSimplify)
     g_callback_ExpSimplify(exp, new_exp);
-
-  exp->DecRef();
   return new_exp;
 }
 
@@ -759,7 +756,6 @@ Exp* Exp::MakeFld(Exp *target, Field *field)
   if (ExpRfld *ntarget = target->IfRfld()) {
     if (field == ntarget->GetField()) {
       Exp *inner_target = ntarget->GetTarget();
-      inner_target->IncRef();
       return SimplifyExp(exp, inner_target, false);
     }
   }
@@ -778,7 +774,6 @@ Exp* Exp::MakeRfld(Exp *target, Field *field)
   if (ExpFld *ntarget = target->IfFld()) {
     if (field == ntarget->GetField()) {
       Exp *inner_target = ntarget->GetTarget();
-      inner_target->IncRef();
       return SimplifyExp(exp, inner_target, false);
     }
   }
@@ -816,12 +811,6 @@ Exp* Exp::MakeIndex(Exp *target, Type *element_type, Exp *index)
       Exp *inner_target = ntarget->GetTarget();
       Exp *inner_index = ntarget->GetIndex();
 
-      inner_target->IncRef();
-      element_type->IncRef();
-
-      index->IncRef();
-      inner_index->IncRef();
-
       Exp *new_index = MakeBinop(B_Plus, index, inner_index);
       Exp *new_exp = MakeIndex(inner_target, element_type, new_index);
       return SimplifyExp(exp, new_exp, false);
@@ -835,10 +824,7 @@ Exp* Exp::MakeIndex(Exp *target, Type *element_type, Exp *index)
     if (size_t width = SimpleWidth(element_type)) {
       Exp *width_exp = MakeInt(width);
 
-      index->IncRef();
       Exp *mult_exp = MakeBinop(B_Mult, index, width_exp);
-
-      target->IncRef();
       Exp *new_exp = MakeBinop(B_Plus, target, mult_exp);
       return SimplifyExp(exp, new_exp, false);
     }
@@ -862,7 +848,6 @@ Exp* Exp::MakeString(String *str)
   TypeArray *type = Type::MakeArray(elem_type, len + 1);
 
   DataString *nstr = DataString::Make((const uint8_t*) data, len + 1);
-  str->DecRef();
 
   ExpString xexp(type, nstr);
   return g_table.Lookup(xexp);
@@ -1034,7 +1019,6 @@ Exp* Exp::MakeUnop(UnopKind unop_kind, Exp *op, size_t bits, bool sign)
   // is called after this the '!= 0' part will go away.
 
   if (i.u_kind == U_LogicalNot && li.u_kind == U_LogicalNot) {
-    lli.exp->IncRef();
     Exp *zero_op = MakeInt(0);
     Exp *new_exp = MakeBinop(B_NotEqual, lli.exp, zero_op);
     return SimplifyExp(exp, new_exp);
@@ -1043,17 +1027,13 @@ Exp* Exp::MakeUnop(UnopKind unop_kind, Exp *op, size_t bits, bool sign)
   // input:  -(-exp)
   // output: exp
 
-  if (i.u_kind == U_Neg && li.u_kind == U_Neg) {
-    lli.exp->IncRef();
+  if (i.u_kind == U_Neg && li.u_kind == U_Neg)
     return SimplifyExp(exp, lli.exp);
-  }
 
   // input:  -(exp0 - exp1)
   // output: exp1 - exp0
 
   if (i.u_kind == U_Neg && li.b_kind == B_Minus) {
-    lli.exp->IncRef();
-    lri.exp->IncRef();
     Exp *new_exp = MakeBinop(B_Minus, lri.exp, lli.exp,
                              NULL, bits, sign);
     return SimplifyExp(exp, new_exp);
@@ -1061,10 +1041,8 @@ Exp* Exp::MakeUnop(UnopKind unop_kind, Exp *op, size_t bits, bool sign)
 
   // stopgap: remove all coercion unops. TODO: need to settle this
   // and make sure coercions never appear in an lvalue context.
-  if (i.u_kind == U_Coerce) {
-    li.exp->IncRef();
+  if (i.u_kind == U_Coerce)
     return SimplifyExp(exp, li.exp);
-  }
 
   /*
 
@@ -1074,10 +1052,8 @@ Exp* Exp::MakeUnop(UnopKind unop_kind, Exp *op, size_t bits, bool sign)
 
   // remove any coercion unops.
 
-  if (i.u_kind == U_Coerce) {
-    li.exp->IncRef();
+  if (i.u_kind == U_Coerce)
     return SimplifyExp(exp, li.exp);
-  }
 
   */
 
@@ -1140,15 +1116,12 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       Assert(reverse_field_chain.Size());
 
       Exp *cur_exp = li.exp;
-      cur_exp->IncRef();
 
       // generate the Rfld expressions so that we end up reversing the
       // order from the original field chain:
       //   T - Fld(Fld(0,F),G)  ==>  Rfld(Rfld(T,G),F)
       for (size_t find = 0; find < reverse_field_chain.Size(); find++) {
         Field *field = reverse_field_chain[find];
-        field->IncRef();
-
         Exp *new_exp = MakeRfld(cur_exp, field);
         cur_exp = new_exp;
       }
@@ -1161,8 +1134,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
   if (stride_type) {
     if (Type *new_stride_type = NormalizeType(stride_type)) {
-      li.exp->IncRef();
-      ri.exp->IncRef();
       Exp *new_exp = MakeBinop(i.b_kind, li.exp, ri.exp, new_stride_type);
       return SimplifyExp(exp, new_exp);
     }
@@ -1176,10 +1147,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
   if (i.b_kind == B_PlusPI || i.b_kind == B_MinusPI) {
     Assert(stride_type);
-
-    li.exp->IncRef();
-    stride_type->IncRef();
-    ri.exp->IncRef();
 
     Exp *index;
     if (i.b_kind == B_PlusPI)
@@ -1200,12 +1167,7 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       Exp *target = nleft->GetTarget();
       Exp *index = nleft->GetIndex();
 
-      target->IncRef();
-      ri.exp->IncRef();
-      stride_type->IncRef();
       Exp *new_minus = MakeBinop(B_MinusPP, target, ri.exp, stride_type);
-
-      index->IncRef();
       Exp *new_exp = MakeBinop(B_Plus, index, new_minus);
       return SimplifyExp(exp, new_exp);
     }
@@ -1220,12 +1182,7 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
       Exp *target = nright->GetTarget();
       Exp *index = nright->GetIndex();
 
-      target->IncRef();
-      li.exp->IncRef();
-      stride_type->IncRef();
       Exp *new_minus = MakeBinop(B_MinusPP, li.exp, target, stride_type);
-
-      index->IncRef();
       Exp *new_exp = MakeBinop(B_Minus, new_minus, index);
       return SimplifyExp(exp, new_exp);
     }
@@ -1268,24 +1225,20 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if ((i.b_kind == B_Plus || i.b_kind == B_Minus) &&
         ri.has_value && mpz_cmp_si(ri.value, 0) == 0) {
-      li.exp->IncRef();
       return SimplifyExp(exp, li.exp);
     }
 
     // input:  exp * 1
     // output: exp
 
-    if (i.b_kind == B_Mult && ri.has_value && mpz_cmp_si(ri.value, 1) == 0) {
-      li.exp->IncRef();
+    if (i.b_kind == B_Mult && ri.has_value && mpz_cmp_si(ri.value, 1) == 0)
       return SimplifyExp(exp, li.exp);
-    }
 
     // input:  0 - exp
     // output: -exp
 
     if (i.b_kind == B_Minus &&
         li.has_value && mpz_cmp_si(li.value, 0) == 0) {
-      ri.exp->IncRef();
       Exp *new_exp = MakeUnop(U_Neg, ri.exp, bits, sign);
       return SimplifyExp(exp, new_exp);
     }
@@ -1318,7 +1271,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     // output: !null(exp)
 
     if (i.b_kind == B_NotEqualP && ri.has_value) {
-      li.exp->IncRef();
       Exp *null_exp = MakeNullTest(li.exp);
       Exp *new_exp = MakeUnop(U_LogicalNot, null_exp);
       return SimplifyExp(exp, new_exp, false);
@@ -1328,7 +1280,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     // output: null(exp)
 
     if (i.b_kind == B_EqualP && ri.has_value) {
-      li.exp->IncRef();
       Exp *new_exp = MakeNullTest(li.exp);
       return SimplifyExp(exp, new_exp, false);
     }
@@ -1338,9 +1289,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if ((i.b_kind == B_Plus || i.b_kind == B_Minus) && ri.u_kind == U_Neg) {
       BinopKind new_kind = (i.b_kind == B_Plus ? B_Minus : B_Plus);
-
-      li.exp->IncRef();
-      rli.exp->IncRef();
       Exp *new_exp = MakeBinop(new_kind, li.exp, rli.exp, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
     }
@@ -1351,8 +1299,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if ((i.b_kind == B_Plus || i.b_kind == B_Minus) &&
         (ri.has_value && mpz_cmp_si(ri.value, 0) < 0)) {
       BinopKind new_kind = (i.b_kind == B_Plus ? B_Minus : B_Plus);
-      li.exp->IncRef();
-      ri.exp->IncRef();
       Exp *op_exp = MakeUnop(U_Neg, ri.exp);
       Exp *new_exp = MakeBinop(new_kind, li.exp, op_exp, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
@@ -1364,9 +1310,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if ((i.b_kind == B_Plus || i.b_kind == B_Minus) &&
         (li.b_kind == B_Plus || li.b_kind == B_Minus) &&
         lri.has_value && ri.has_value) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *const_left = lri.exp;
       if (li.b_kind == B_Minus)
         const_left = MakeUnop(U_Neg, const_left);
@@ -1380,9 +1323,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_Mult && li.b_kind == B_Mult &&
         lri.has_value && ri.has_value) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *right = MakeBinop(B_Mult, lri.exp, ri.exp);
       Exp *new_exp = MakeBinop(B_Mult, lli.exp, right, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
@@ -1394,9 +1334,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (i.b_kind == B_Minus &&
         (ri.b_kind == B_Plus || ri.b_kind == B_Minus) &&
         li.has_value && rri.has_value) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
       BinopKind left_kind = (ri.b_kind == B_Minus ? B_Plus : B_Minus);
       Exp *left = MakeBinop(left_kind, li.exp, rri.exp);
       Exp *new_exp = MakeBinop(B_Minus, left, rli.exp, NULL, bits, sign);
@@ -1408,9 +1345,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_Minus && ri.b_kind == B_Minus &&
         li.has_value && rli.has_value) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
       Exp *left = MakeBinop(B_Minus, li.exp, rli.exp);
       Exp *new_exp = MakeBinop(B_Plus, left, rri.exp, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
@@ -1424,9 +1358,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if ((i.b_kind == B_Plus || i.b_kind == B_Minus) &&
         (li.b_kind == B_Plus || li.b_kind == B_Minus) && lri.has_value) {
       Assert(!ri.has_value);
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *left = MakeBinop(i.b_kind, lli.exp, ri.exp);
       Exp *new_exp = MakeBinop(li.b_kind, left, lri.exp, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
@@ -1435,18 +1366,14 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     // input:  (exp0 + exp1) - exp1
     // output: exp0
 
-    if (i.b_kind == B_Minus && li.b_kind == B_Plus && lri.exp == ri.exp) {
-      lli.exp->IncRef();
+    if (i.b_kind == B_Minus && li.b_kind == B_Plus && lri.exp == ri.exp)
       return SimplifyExp(exp, lli.exp);
-    }
 
     // input:  (exp0 - exp1) + exp1
     // output: exp0
 
-    if (i.b_kind == B_Plus && li.b_kind == B_Minus && lri.exp == ri.exp) {
-      lli.exp->IncRef();
+    if (i.b_kind == B_Plus && li.b_kind == B_Minus && lri.exp == ri.exp)
       return SimplifyExp(exp, lli.exp);
-    }
 
     // input:  (n * exp0) op (n * exp1)  for op in {+,-}
     // output: n * (exp0 op exp1)
@@ -1455,9 +1382,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         li.b_kind == B_Mult && ri.b_kind == B_Mult &&
         lli.has_value && rli.has_value &&
         mpz_cmp(lli.value, rli.value) == 0) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      rri.exp->IncRef();
       Exp *base_exp = MakeBinop(i.b_kind, lri.exp, rri.exp);
       Exp *new_exp = MakeBinop(B_Mult, lli.exp, base_exp, NULL, bits, sign);
       return SimplifyExp(exp, new_exp);
@@ -1468,10 +1392,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_Mult && (ri.b_kind == B_Plus || ri.b_kind == B_Minus) &&
         li.has_value && rri.has_value) {
-      li.exp->IncRef();
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
       Exp *left_exp = MakeBinop(B_Mult, li.exp, rli.exp);
       Exp *right_exp = MakeBinop(B_Mult, li.exp, rri.exp);
       Exp *new_exp = MakeBinop(ri.b_kind, left_exp, right_exp,
@@ -1488,8 +1408,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_Plus && ri.b_kind == B_Mult &&
         li.exp == rli.exp && !li.has_value) {
-      li.exp->IncRef();
-      rri.exp->IncRef();
       Exp *one = MakeInt(1);
       Exp *right = MakeBinop(B_Plus, rri.exp, one);
       Exp *new_exp = MakeBinop(B_Mult, li.exp, right, NULL, bits, sign);
@@ -1502,7 +1420,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_LessThan &&
         ri.has_value && mpz_cmp_si(ri.value,1) == 0) {
-      li.exp->IncRef();
       Exp *right = MakeInt(0);
       Exp *new_exp = MakeBinop(B_LessEqual, li.exp, right);
       return SimplifyExp(exp, new_exp);
@@ -1513,7 +1430,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_LessThan &&
         li.has_value && mpz_cmp_si(li.value,-1) == 0) {
-      ri.exp->IncRef();
       Exp *left = MakeInt(0);
       Exp *new_exp = MakeBinop(B_LessEqual, left, ri.exp);
       return SimplifyExp(exp, new_exp);
@@ -1525,11 +1441,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (IsCompareBinop(i.b_kind) && stride_type && ri.element_type &&
         (rri.u_kind == U_Neg ||
          (rri.has_value && mpz_cmp_si(rri.value, 0) < 0))) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
-      ri.element_type->IncRef();
-      stride_type->IncRef();
       Exp *new_index = MakeUnop(U_Neg, rri.exp);
       Exp *left = MakeIndex(li.exp, ri.element_type, new_index);
       Exp *new_exp = MakeBinop(i.b_kind, left, rli.exp, stride_type);
@@ -1542,9 +1453,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (i.b_kind == B_LessEqualP && stride_type && li.element_type &&
         li.exp->IsCompatibleStrideType(stride_type) &&
         lri.has_value && mpz_cmp_si(lri.value, 1) == 0) {
-      lli.exp->IncRef();
-      ri.exp->IncRef();
-      stride_type->IncRef();
       Exp *new_exp = MakeBinop(B_LessThanP, lli.exp, ri.exp, stride_type);
       return SimplifyExp(exp, new_exp);
     }
@@ -1555,9 +1463,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (i.b_kind == B_LessThanP && stride_type && ri.element_type &&
         ri.exp->IsCompatibleStrideType(stride_type) &&
         rri.has_value && mpz_cmp_si(rri.value, 1) == 0) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      stride_type->IncRef();
       Exp *new_exp = MakeBinop(B_LessEqualP, li.exp, rli.exp, stride_type);
       return SimplifyExp(exp, new_exp);
     }
@@ -1569,7 +1474,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         li.exp == rli.exp && stride_type && ri.element_type &&
         ri.exp->IsCompatibleStrideType(stride_type)) {
       Exp *left = MakeInt(0);
-      rri.exp->IncRef();
       BinopKind binop = (i.b_kind == B_LessThanP) ? B_LessThan : B_LessEqual;
       Exp *new_exp = MakeBinop(binop, left, rri.exp);
       return SimplifyExp(exp, new_exp);
@@ -1580,7 +1484,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if ((i.b_kind == B_Div || i.b_kind == B_DivExact) &&
         ri.has_value && mpz_cmp_si(ri.value, 1) == 0) {
-      li.exp->IncRef();
       return SimplifyExp(exp, li.exp);
     }
 
@@ -1591,7 +1494,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         (ri.exp->IsBound() || ri.exp->IsTerminate()) &&
         ri.exp->GetLvalTarget() == lri.exp &&
         ri.exp->IsCompatibleStrideType(li.b_stride_type)) {
-      lli.exp->IncRef();
       Exp *left = MakeInt(0);
       Exp *right = ri.exp->ReplaceLvalTarget(lli.exp);
       Exp *new_exp = MakeBinop(i.b_kind, left, right);
@@ -1617,8 +1519,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         lli.has_value && rli.has_value &&
         mpz_cmp(lli.value, rli.value) == 0 &&
         mpz_cmp_si(lli.value, 0) > 0) {
-      lri.exp->IncRef();
-      rri.exp->IncRef();
       Exp *new_exp = MakeBinop(i.b_kind, lri.exp, rri.exp);
       return SimplifyExp(exp, new_exp);
     }
@@ -1629,10 +1529,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (IsCompareBinop(i.b_kind) && !stride_type &&
         li.has_value && rri.has_value &&
         (ri.b_kind == B_Plus || ri.b_kind == B_Minus)) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
-
       BinopKind binop = (ri.b_kind == B_Plus) ? B_Minus : B_Plus;
       Exp *new_left = MakeBinop(binop, li.exp, rri.exp);
       Exp *new_exp = MakeBinop(i.b_kind, new_left, rli.exp);
@@ -1645,10 +1541,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (IsCompareBinop(i.b_kind) &&
         (li.b_kind == B_Plus || li.b_kind == B_Minus) &&
         ri.b_kind == li.b_kind && lri.exp == rri.exp) {
-      lli.exp->IncRef();
-      rli.exp->IncRef();
-      if (stride_type)
-        stride_type->IncRef();
       Exp *new_exp = MakeBinop(i.b_kind, lli.exp, rli.exp, stride_type);
       return SimplifyExp(exp, new_exp);
     }
@@ -1661,7 +1553,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         li.exp == rli.exp) {
       BinopKind compare_kind = NonPointerBinop(i.b_kind);
 
-      rri.exp->IncRef();
       Exp *right = rri.exp;
       if (ri.b_kind == B_Minus)
         right = MakeUnop(U_Neg, rri.exp);
@@ -1675,10 +1566,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     // output: exp0 + exp2 cmp exp1
 
     if (IsCompareBinop(i.b_kind) && !stride_type && ri.b_kind == B_Minus) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
-      rri.exp->IncRef();
-
       Exp *left = MakeBinop(B_Plus, li.exp, rri.exp);
       Exp *new_exp = MakeBinop(i.b_kind, left, rli.exp);
       return SimplifyExp(exp, new_exp);
@@ -1689,8 +1576,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (IsCompareBinop(i.b_kind) && !stride_type &&
         li.u_kind == U_Neg) {
-      lli.exp->IncRef();
-      ri.exp->IncRef();
       Exp *left = MakeInt(0);
       Exp *right = MakeBinop(B_Plus, lli.exp, ri.exp);
       Exp *new_exp = MakeBinop(i.b_kind, left, right);
@@ -1702,8 +1587,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if (i.b_kind == B_LessThan && ri.b_kind == B_Plus &&
         rri.has_value && mpz_cmp_si(rri.value, 1) == 0) {
-      li.exp->IncRef();
-      rli.exp->IncRef();
       Exp *new_exp = MakeBinop(B_LessEqual, li.exp, rli.exp);
       return SimplifyExp(exp, new_exp);
     }
@@ -1714,9 +1597,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     if (i.b_kind == B_LessThan &&
         (li.b_kind == B_Div || li.b_kind == B_DivExact) &&
         lri.has_value && mpz_cmp_si(lri.value, 0) > 0) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *right = MakeBinop(B_Mult, lri.exp, ri.exp);
       Exp *new_exp = MakeBinop(i.b_kind, lli.exp, right);
       return SimplifyExp(exp, new_exp);
@@ -1727,7 +1607,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if ((i.b_kind == B_Div || i.b_kind == B_DivExact) &&
         li.b_kind == B_Mult && ri.exp == lri.exp) {
-      lli.exp->IncRef();
       return SimplifyExp(exp, lli.exp);
     }
 
@@ -1738,9 +1617,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         li.b_kind == B_Mult && lri.has_value && ri.has_value &&
         mpz_cmp_si(ri.value, 0) > 0 &&
         mpz_divisible_p(lri.value, ri.value)) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *op_exp = MakeBinop(i.b_kind, lri.exp, ri.exp);
       Exp *new_exp = MakeBinop(B_Mult, lli.exp, op_exp);
       return SimplifyExp(exp, new_exp);
@@ -1753,9 +1629,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         li.b_kind == B_Mult && lri.has_value && ri.has_value &&
         mpz_cmp_si(ri.value, 0) > 0 &&
         mpz_divisible_p(ri.value, lri.value)) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *op_exp = MakeBinop(i.b_kind, ri.exp, lri.exp);
       Exp *new_exp = MakeBinop(i.b_kind, lli.exp, op_exp);
       return SimplifyExp(exp, new_exp);
@@ -1768,10 +1641,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
         (li.b_kind == B_Plus || li.b_kind == B_Minus) &&
         lri.has_value && ri.has_value && mpz_cmp_si(ri.value, 0) > 0 &&
         mpz_divisible_p(lri.value, ri.value)) {
-      lli.exp->IncRef();
-      lri.exp->IncRef();
-      ri.exp->IncRef();
-      ri.exp->IncRef();
       Exp *left_exp = MakeBinop(i.b_kind, lli.exp, ri.exp);
       Exp *right_exp = MakeBinop(i.b_kind, lri.exp, ri.exp);
       Exp *new_exp = MakeBinop(li.b_kind, left_exp, right_exp);
@@ -1783,8 +1652,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
 
     if ((i.b_kind == B_Div || i.b_kind == B_DivExact) &&
         li.u_kind == U_Neg && ri.has_value) {
-      lli.exp->IncRef();
-      ri.exp->IncRef();
       Exp *right_exp = MakeBinop(i.b_kind, lli.exp, ri.exp);
       Exp *new_exp = MakeUnop(U_Neg, right_exp);
       return SimplifyExp(exp, new_exp);
@@ -1829,10 +1696,6 @@ Exp* Exp::MakeBinop(BinopKind binop_kind,
     }
 
     if (!uninterpreted) {
-      li.exp->IncRef();
-      ri.exp->IncRef();
-      if (stride_type)
-        stride_type->IncRef();
       BinopKind new_kind = ReverseBinop(i.b_kind);
 
       Exp *new_exp =
@@ -1880,15 +1743,12 @@ Exp* ScaleBoundIndex(Type *stride_type, Type *index_type, Exp *index)
   // scaling indexes down via division causes problems when the base of the
   // buffer is not aligned at the stride width.
 
-  if (stride_width == index_width) {
-    index->IncRef();
+  if (stride_width == index_width)
     return index;
-  }
 
   if (stride_width < index_width) {
     size_t factor = index_width / stride_width;
     if (stride_width * factor == index_width) {
-      index->IncRef();
       Exp *factor_exp = Exp::MakeInt(factor);
       return Exp::MakeBinop(B_Mult, index, factor_exp);
     }
@@ -1906,13 +1766,11 @@ Exp* Exp::MakeNullTest(Exp *target)
   case EK_Rfld:
   case EK_Index:
   case EK_String:
-    target->DecRef();
     return MakeInt(0);
 
     // constant integers are always treated as NULL (this is a loose
     // definition of NULL).
   case EK_Int:
-    target->DecRef();
     return MakeInt(1);
 
   default: break;
@@ -1951,8 +1809,6 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
     Exp *new_index = ScaleBoundIndex(stride_type, element_type, index);
 
     if (new_index) {
-      inner_target->IncRef();
-      stride_type->IncRef();
       Exp *new_bound = MakeBound(bound_kind, inner_target, stride_type);
 
       BinopKind combine_op;
@@ -1969,8 +1825,6 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
         // punt and rewrite this expression as a byte bound:
         // bound(x, type) == bound(x, byte) / sizeof(type)
         Type *new_stride_type = Type::MakeInt(1, true);
-        target->IncRef();
-
         Exp *outer_exp = MakeBound(bound_kind, target, new_stride_type);
         ExpInt *divide_exp = Exp::MakeInt(width);
         Exp *new_exp = Exp::MakeBinop(B_Div, outer_exp, divide_exp);
@@ -1990,8 +1844,6 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
   if (target && target->IsUnop() &&
       target->AsUnop()->GetUnopKind() == U_Coerce) {
     Exp *inner_target = target->AsUnop()->GetOperand();
-
-    inner_target->IncRef();
     Exp *new_exp = exp->ReplaceLvalTarget(inner_target);
     return SimplifyExp(exp, new_exp);
   }
@@ -2004,7 +1856,6 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
     Exp *value = ntarget->GetValue();
     FrameId frame = ntarget->GetFrameId();
 
-    value->IncRef();
     Exp *new_value = exp->ReplaceLvalTarget(value);
     Exp *new_exp = MakeFrame(new_value, frame);
     return SimplifyExp(exp, new_exp);
@@ -2013,8 +1864,6 @@ Exp* Exp::MakeBound(BoundKind bound_kind, Exp *target, Type *stride_type)
   // normalize the bound type if necessary.
 
   if (Type *new_stride_type = NormalizeType(stride_type)) {
-    if (target)
-      target->IncRef();
     Exp *new_exp = MakeBound(bound_kind, target, new_stride_type);
     return SimplifyExp(exp, new_exp, false);
   }
@@ -2051,14 +1900,10 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
     else if (Type *new_element_type = NormalizeType(element_type)) {
       if (new_element_type == stride_type)
         compatible_type = true;
-      new_element_type->DecRef();
     }
 
     if (compatible_type) {
-      inner_target->IncRef();
       Exp *new_terminator = exp->ReplaceLvalTarget(inner_target);
-
-      index->IncRef();
       Exp *new_exp = MakeBinop(B_Minus, new_terminator, index);
       return SimplifyExp(exp, new_exp);
     }
@@ -2070,8 +1915,6 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
   if (target && target->IsUnop() &&
       target->AsUnop()->GetUnopKind() == U_Coerce) {
     Exp *inner_target = target->AsUnop()->GetOperand();
-
-    inner_target->IncRef();
     Exp *new_exp = exp->ReplaceLvalTarget(inner_target);
     return SimplifyExp(exp, new_exp);
   }
@@ -2094,10 +1937,6 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
   // normalize the stride type if necessary.
 
   if (Type *new_stride_type = NormalizeType(stride_type)) {
-    if (target)
-      target->IncRef();
-    terminate_test->IncRef();
-    terminate_int->IncRef();
     Exp *new_exp = MakeTerminate(target, new_stride_type,
                                  terminate_test, terminate_int);
     return SimplifyExp(exp, new_exp, false);
@@ -2203,26 +2042,14 @@ Bit* Exp::MakeNonZeroBit(Exp *exp)
   }
 
   // fallthrough: just make a boolean variable for the expression.
-  exp->IncRef();
   return Bit::MakeVar(exp);
 }
 
 Bit* Exp::MakeCompareBit(BinopKind binop_kind,
-                         Exp *left_op, Exp *right_op, Type *stride_type,
-                         bool get_references)
+                         Exp *left_op, Exp *right_op, Type *stride_type)
 {
-  if (get_references) {
-    left_op->IncRef();
-    right_op->IncRef();
-    if (stride_type)
-      stride_type->IncRef();
-  }
-
   Exp *exp = MakeBinop(binop_kind, left_op, right_op, stride_type);
-  Bit *res = MakeNonZeroBit(exp);
-
-  exp->DecRef();
-  return res;
+  return MakeNonZeroBit(exp);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -2254,10 +2081,8 @@ void Exp::GetSubExprs(Exp *exp,
     GetSubExprs(nexp->GetTarget(), subexprs, remainders);
     if (remainders) {
       Field *field = nexp->GetField();
-      for (size_t rind = 0; rind < remainders->Size(); rind++) {
-        field->IncRef();
+      for (size_t rind = 0; rind < remainders->Size(); rind++)
         remainders->At(rind) = MakeFld(remainders->At(rind), field);
-      }
     }
     break;
   }
@@ -2266,10 +2091,8 @@ void Exp::GetSubExprs(Exp *exp,
     GetSubExprs(nexp->GetTarget(), subexprs, remainders);
     if (remainders) {
       Field *field = nexp->GetField();
-      for (size_t rind = 0; rind < remainders->Size(); rind++) {
-        field->IncRef();
+      for (size_t rind = 0; rind < remainders->Size(); rind++)
         remainders->At(rind) = MakeRfld(remainders->At(rind), field);
-      }
     }
     break;
   }
@@ -2280,8 +2103,6 @@ void Exp::GetSubExprs(Exp *exp,
       Type *elem_type = nexp->GetElementType();
       Exp *index = nexp->GetIndex();
       for (size_t rind = 0; rind < remainders->Size(); rind++) {
-        elem_type->IncRef();
-        index->IncRef();
         remainders->At(rind) =
           MakeIndex(remainders->At(rind), elem_type, index);
       }
@@ -2314,11 +2135,6 @@ Exp* Exp::GetSubExprRemainder(Exp *value, Exp *subexpr)
     }
   }
   Assert(res);
-
-  res->IncRef();
-  for (size_t ind = 0; ind < remainders.Size(); ind++)
-    remainders[ind]->DecRef();
-
   return res;
 }
 
@@ -2327,7 +2143,6 @@ Exp* Exp::Compose(Exp *exp, Exp *offset)
   switch (offset->Kind()) {
 
   case EK_Empty:
-    exp->IncRef();
     return exp;
 
   case EK_Drf: {
@@ -2341,8 +2156,6 @@ Exp* Exp::Compose(Exp *exp, Exp *offset)
     Exp *ntarget = Compose(exp, noffset->GetTarget());
 
     Field *field = noffset->GetField();
-    field->IncRef();
-
     return MakeFld(ntarget, field);
   }
 
@@ -2351,8 +2164,6 @@ Exp* Exp::Compose(Exp *exp, Exp *offset)
     Exp *ntarget = Compose(exp, noffset->GetTarget());
 
     Field *field = noffset->GetField();
-    field->IncRef();
-
     return MakeRfld(ntarget, field);
   }
 
@@ -2362,10 +2173,6 @@ Exp* Exp::Compose(Exp *exp, Exp *offset)
 
     Type *element_type = noffset->GetElementType();
     Exp *index = noffset->GetIndex();
-
-    element_type->IncRef();
-    index->IncRef();
-
     return MakeIndex(ntarget, element_type, index);
   }
 
@@ -2415,9 +2222,6 @@ Exp* Exp::GetExplicitBound(BoundKind bound_kind, Exp *target,
           // field itself (which is zero bytes for a zero element array).
           size_t base_width = csu->GetWidth() - target_type->Width();
           size_t base_count = base_width / stride_type->Width();
-
-          inner_target->IncRef();
-          stride_type->IncRef();
 
           Exp *csu_bound = MakeBound(bound_kind, inner_target, stride_type);
           Exp *count = MakeInt(base_count);
@@ -2482,7 +2286,6 @@ void Exp::DoVisit(ExpVisitor *visitor)
 
 Exp* Exp::DoMap(ExpMapper *mapper)
 {
-  this->IncRef();
   return BaseMap(this, mapper);
 }
 
@@ -2690,9 +2493,9 @@ void ExpVar::Print(OutStream &out) const
   out << m_var;
 }
 
-void ExpVar::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpVar::MarkChildren() const
 {
-  m_var->DecMoveRef(ov, nv);
+  m_var->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -2768,15 +2571,12 @@ void ExpDrf::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
     Exp *new_this = MakeDrf(target_res[ind]);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpDrf::Print(OutStream &out) const
@@ -2790,9 +2590,9 @@ void ExpDrf::PrintUI(OutStream &out, bool parens) const
   m_target->PrintUI(out, true);
 }
 
-void ExpDrf::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpDrf::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
+  m_target->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -2820,7 +2620,6 @@ Exp* ExpFld::GetLvalTarget() const
 
 Exp* ExpFld::ReplaceLvalTarget(Exp *new_target)
 {
-  m_field->IncRef();
   return MakeFld(new_target, m_field);
 }
 
@@ -2845,10 +2644,8 @@ Exp* ExpFld::DoMap(ExpMapper *mapper)
 
   Exp *new_this = NULL;
   Exp *new_target = m_target->DoMap(mapper);
-  if (new_target) {
-    m_field->IncRef();
+  if (new_target)
     new_this = MakeFld(new_target, m_field);
-  }
   return BaseMap(new_this, mapper);
 }
 
@@ -2863,16 +2660,12 @@ void ExpFld::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
-    m_field->IncRef();
     Exp *new_this = MakeFld(target_res[ind], m_field);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpFld::Print(OutStream &out) const
@@ -2892,10 +2685,10 @@ void ExpFld::PrintUI(OutStream &out, bool parens) const
   }
 }
 
-void ExpFld::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpFld::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
-  m_field->DecMoveRef(ov, nv);
+  m_target->Mark();
+  m_field->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -2924,7 +2717,6 @@ Exp* ExpRfld::GetLvalTarget() const
 
 Exp* ExpRfld::ReplaceLvalTarget(Exp *new_target)
 {
-  m_field->IncRef();
   return MakeRfld(new_target, m_field);
 }
 
@@ -2949,10 +2741,8 @@ Exp* ExpRfld::DoMap(ExpMapper *mapper)
 
   Exp *new_this = NULL;
   Exp *new_target = m_target->DoMap(mapper);
-  if (new_target) {
-    m_field->IncRef();
+  if (new_target)
     new_this = MakeRfld(new_target, m_field);
-  }
 
   return BaseMap(new_this, mapper);
 }
@@ -2968,16 +2758,12 @@ void ExpRfld::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
-    m_field->IncRef();
     Exp *new_this = MakeRfld(target_res[ind], m_field);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpRfld::Print(OutStream &out) const
@@ -2991,10 +2777,10 @@ void ExpRfld::PrintUI(OutStream &out, bool parens) const
   out << "^" << m_field;
 }
 
-void ExpRfld::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpRfld::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
-  m_field->DecMoveRef(ov, nv);
+  m_target->Mark();
+  m_field->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3030,8 +2816,6 @@ Exp* ExpIndex::GetLvalTarget() const
 
 Exp* ExpIndex::ReplaceLvalTarget(Exp *new_target)
 {
-  m_element_type->IncRef();
-  m_index->IncRef();
   return MakeIndex(new_target, m_element_type, m_index);
 }
 
@@ -3068,23 +2852,14 @@ Exp* ExpIndex::DoMap(ExpMapper *mapper)
   Exp *new_target = m_target->DoMap(mapper);
 
   Exp *new_index;
-  if (mapper->RvalRecurse()) {
+  if (mapper->RvalRecurse())
     new_index = m_index->DoMap(mapper);
-  }
-  else {
-    m_index->IncRef();
+  else
     new_index = m_index;
-  }
 
   Exp *new_this = NULL;
-  if (new_target && new_index) {
-    m_element_type->IncRef();
+  if (new_target && new_index)
     new_this = MakeIndex(new_target, m_element_type, new_index);
-  }
-  else {
-    if (new_target) new_target->DecRef();
-    if (new_index) new_index->DecRef();
-  }
 
   return BaseMap(new_this, mapper);
 }
@@ -3104,7 +2879,6 @@ void ExpIndex::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
     m_index->DoMultiMap(mapper, &index_res);
   }
   else {
-    m_index->IncRef();
     index_res.PushBack(m_index);
   }
 
@@ -3112,23 +2886,14 @@ void ExpIndex::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
     Exp *new_target = target_res[ind];
 
     for (size_t xind = 0; xind < index_res.Size(); xind++) {
-      Exp *new_index = index_res[xind];
-
-      new_target->IncRef();
-      new_index->IncRef();
-      m_element_type->IncRef();
       Exp *new_this = MakeIndex(new_target, m_element_type,
                                 index_res[xind]);
       ExpAddResult(new_this, res);
 
       if (LimitRevertResult(mapper, res, this))
-        goto exit;
+        return;
     }
   }
-
- exit:
-  DecRefVector<Exp>(target_res, &target_res);
-  DecRefVector<Exp>(index_res, &index_res);
 }
 
 void ExpIndex::Print(OutStream &out) const
@@ -3149,11 +2914,11 @@ void ExpIndex::PrintUI(OutStream &out, bool parens) const
   out << "]";
 }
 
-void ExpIndex::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpIndex::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
-  m_element_type->DecMoveRef(ov, nv);
-  m_index->DecMoveRef(ov, nv);
+  m_target->Mark();
+  m_element_type->Mark();
+  m_index->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3213,10 +2978,10 @@ void ExpString::Print(OutStream &out) const
   out << m_str;
 }
 
-void ExpString::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpString::MarkChildren() const
 {
-  m_type->DecMoveRef(ov, nv);
-  m_str->DecMoveRef(ov, nv);
+  m_type->Mark();
+  m_str->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3281,14 +3046,14 @@ void ExpClobber::Print(OutStream &out) const
   out << ")";
 }
 
-void ExpClobber::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpClobber::MarkChildren() const
 {
-  m_callee->DecMoveRef(ov, nv);
-  m_overwrite->DecMoveRef(ov, nv);
+  m_callee->Mark();
+  m_overwrite->Mark();
   if (m_value_kind)
-    m_value_kind->DecMoveRef(ov, nv);
+    m_value_kind->Mark();
   if (m_location)
-    m_location->DecMoveRef(ov, nv);
+    m_location->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3411,15 +3176,12 @@ void ExpUnop::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_op->DoMultiMap(mapper, &op_res);
 
   for (size_t ind = 0; ind < op_res.Size(); ind++) {
-    op_res[ind]->IncRef();
     Exp *new_this = MakeUnop(m_unop_kind, op_res[ind], m_bits, m_sign);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(op_res, &op_res);
 }
 
 void ExpUnop::Print(OutStream &out) const
@@ -3447,9 +3209,9 @@ void ExpUnop::PrintUI(OutStream &out, bool parens) const
   m_op->PrintUIRval(out, true);
 }
 
-void ExpUnop::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpUnop::MarkChildren() const
 {
-  m_op->DecMoveRef(ov, nv);
+  m_op->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3512,14 +3274,8 @@ Exp* ExpBinop::DoMap(ExpMapper *mapper)
   Exp *new_left_op = m_left_op->DoMap(mapper);
   Exp *new_right_op = m_right_op->DoMap(mapper);
   if (new_left_op && new_right_op) {
-    if (m_stride_type)
-      m_stride_type->IncRef();
     new_this = MakeBinop(m_binop_kind, new_left_op, new_right_op,
                          m_stride_type, m_bits, m_sign);
-  }
-  else {
-    if (new_left_op) new_left_op->DecRef();
-    if (new_right_op) new_right_op->DecRef();
   }
   return BaseMap(new_this, mapper);
 }
@@ -3541,23 +3297,14 @@ void ExpBinop::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
 
     for (size_t rind = 0; rind < right_op_res.Size(); rind++) {
       Exp *new_right_op = right_op_res[rind];
-
-      new_left_op->IncRef();
-      new_right_op->IncRef();
-      if (m_stride_type)
-        m_stride_type->IncRef();
       Exp *new_this = MakeBinop(m_binop_kind, new_left_op, new_right_op,
                                 m_stride_type, m_bits, m_sign);
       ExpAddResult(new_this, res);
 
       if (LimitRevertResult(mapper, res, this))
-        goto exit;
+        return;
     }
   }
-
- exit:
-  DecRefVector<Exp>(left_op_res, &left_op_res);
-  DecRefVector<Exp>(right_op_res, &right_op_res);
 }
 
 void ExpBinop::Print(OutStream &out) const
@@ -3589,12 +3336,12 @@ void ExpBinop::PrintUI(OutStream &out, bool parens) const
     out << ")";
 }
 
-void ExpBinop::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpBinop::MarkChildren() const
 {
-  m_left_op->DecMoveRef(ov, nv);
-  m_right_op->DecMoveRef(ov, nv);
+  m_left_op->Mark();
+  m_right_op->Mark();
   if (m_stride_type != NULL)
-    m_stride_type->DecMoveRef(ov, nv);
+    m_stride_type->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3623,8 +3370,6 @@ Exp* ExpExit::GetLvalTarget() const
 
 Exp* ExpExit::ReplaceLvalTarget(Exp *new_target)
 {
-  if (m_value_kind)
-    m_value_kind->IncRef();
   return MakeExit(new_target, m_value_kind);
 }
 
@@ -3640,27 +3385,22 @@ void ExpExit::PrintUI(OutStream &out, bool parens) const
 {
   out << "exit(";
 
-  m_target->IncRef();
   Exp *new_exp = NULL;
-
-  if (m_value_kind) {
+  if (m_value_kind)
     new_exp = m_value_kind->ReplaceLvalTarget(m_target);
-  }
-  else {
+  else
     new_exp = MakeDrf(m_target);
-  }
 
   new_exp->PrintUIRval(out, false);
-  new_exp->DecRef();
 
   out << ")";
 }
 
-void ExpExit::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpExit::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
+  m_target->Mark();
   if (m_value_kind)
-    m_value_kind->DecMoveRef(ov, nv);
+    m_value_kind->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3689,8 +3429,6 @@ Exp* ExpInitial::GetLvalTarget() const
 
 Exp* ExpInitial::ReplaceLvalTarget(Exp *new_target)
 {
-  if (m_value_kind)
-    m_value_kind->IncRef();
   return MakeInitial(new_target, m_value_kind);
 }
 
@@ -3706,27 +3444,22 @@ void ExpInitial::PrintUI(OutStream &out, bool parens) const
 {
   out << "initial(";
 
-  m_target->IncRef();
   Exp *new_exp = NULL;
-
-  if (m_value_kind) {
+  if (m_value_kind)
     new_exp = m_value_kind->ReplaceLvalTarget(m_target);
-  }
-  else {
+  else
     new_exp = MakeDrf(m_target);
-  }
 
   new_exp->PrintUIRval(out, false);
-  new_exp->DecRef();
 
   out << ")";
 }
 
-void ExpInitial::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpInitial::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
+  m_target->Mark();
   if (m_value_kind)
-    m_value_kind->DecMoveRef(ov, nv);
+    m_value_kind->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3764,11 +3497,11 @@ void ExpVal::Print(OutStream &out) const
   out << "," << m_point << ")";
 }
 
-void ExpVal::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpVal::MarkChildren() const
 {
-  m_lval->DecMoveRef(ov, nv);
+  m_lval->Mark();
   if (m_value_kind)
-    m_value_kind->DecMoveRef(ov, nv);
+    m_value_kind->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3797,13 +3530,11 @@ void ExpFrame::PrintUI(OutStream &out, bool parens) const
   out << "frame(";
   new_value->PrintUI(out, false);
   out << ")";
-
-  new_value->DecRef();
 }
 
-void ExpFrame::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpFrame::MarkChildren() const
 {
-  m_value->DecMoveRef(ov, nv);
+  m_value->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3866,15 +3597,12 @@ void ExpNullTest::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
     Exp *new_this = MakeNullTest(target_res[ind]);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpNullTest::Print(OutStream &out) const
@@ -3889,9 +3617,9 @@ void ExpNullTest::PrintUI(OutStream &out, bool parens) const
   out << ")";
 }
 
-void ExpNullTest::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpNullTest::MarkChildren() const
 {
-  m_target->DecMoveRef(ov, nv);
+  m_target->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -3917,7 +3645,6 @@ Exp* ExpBound::GetLvalTarget() const
 
 Exp* ExpBound::ReplaceLvalTarget(Exp *new_target)
 {
-  m_stride_type->IncRef();
   return MakeBound(m_bound_kind, new_target, m_stride_type);
 }
 
@@ -3949,10 +3676,8 @@ Exp* ExpBound::DoMap(ExpMapper *mapper)
 
   Exp *new_this = NULL;
   Exp *new_target = m_target->DoMap(mapper);
-  if (new_target) {
-    m_stride_type->IncRef();
+  if (new_target)
     new_this = MakeBound(m_bound_kind, new_target, m_stride_type);
-  }
   return BaseMap(new_this, mapper);
 }
 
@@ -3968,16 +3693,12 @@ void ExpBound::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
-    m_stride_type->IncRef();
     Exp *new_this = MakeBound(m_bound_kind, target_res[ind], m_stride_type);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpBound::Print(OutStream &out) const
@@ -4007,11 +3728,11 @@ void ExpBound::PrintUI(OutStream &out, bool parens) const
   out << "," << m_stride_type << ")";
 }
 
-void ExpBound::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpBound::MarkChildren() const
 {
   if (m_target)
-    m_target->DecMoveRef(ov, nv);
-  m_stride_type->DecMoveRef(ov, nv);
+    m_target->Mark();
+  m_stride_type->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4058,9 +3779,6 @@ Exp* ExpTerminate::GetLvalTarget() const
 
 Exp* ExpTerminate::ReplaceLvalTarget(Exp *new_target)
 {
-  m_stride_type->IncRef();
-  m_terminate_test->IncRef();
-  m_terminate_int->IncRef();
   return MakeTerminate(new_target, m_stride_type,
                        m_terminate_test, m_terminate_int);
 }
@@ -4094,9 +3812,6 @@ Exp* ExpTerminate::DoMap(ExpMapper *mapper)
   Exp *new_this = NULL;
   Exp *new_target = m_target->DoMap(mapper);
   if (new_target) {
-    m_stride_type->IncRef();
-    m_terminate_test->IncRef();
-    m_terminate_int->IncRef();
     new_this = MakeTerminate(new_target, m_stride_type,
                              m_terminate_test, m_terminate_int);
   }
@@ -4115,10 +3830,6 @@ void ExpTerminate::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
-    m_stride_type->IncRef();
-    m_terminate_test->IncRef();
-    m_terminate_int->IncRef();
     Exp *new_this = MakeTerminate(target_res[ind], m_stride_type,
                                   m_terminate_test, m_terminate_int);
     ExpAddResult(new_this, res);
@@ -4126,8 +3837,6 @@ void ExpTerminate::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpTerminate::Print(OutStream &out) const
@@ -4165,13 +3874,13 @@ void ExpTerminate::PrintUI(OutStream &out, bool parens) const
   out << ")";
 }
 
-void ExpTerminate::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpTerminate::MarkChildren() const
 {
   if (m_target)
-    m_target->DecMoveRef(ov, nv);
-  m_stride_type->DecMoveRef(ov, nv);
-  m_terminate_test->DecMoveRef(ov, nv);
-  m_terminate_int->DecMoveRef(ov, nv);
+    m_target->Mark();
+  m_stride_type->Mark();
+  m_terminate_test->Mark();
+  m_terminate_int->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4232,15 +3941,12 @@ void ExpGCSafe::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    target_res[ind]->IncRef();
     Exp *new_this = MakeGCSafe(target_res[ind]);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
       break;
   }
-
-  DecRefVector<Exp>(target_res, &target_res);
 }
 
 void ExpGCSafe::Print(OutStream &out) const
@@ -4259,10 +3965,10 @@ void ExpGCSafe::PrintUI(OutStream &out, bool parens) const
   out << ")";
 }
 
-void ExpGCSafe::DecMoveChildRefs(ORef ov, ORef nv)
+void ExpGCSafe::MarkChildren() const
 {
   if (m_target)
-    m_target->DecMoveRef(ov, nv);
+    m_target->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4283,12 +3989,8 @@ class ReplaceExpMapper : public ExpMapper
   {
     Assert(exp);
 
-    if (old == old_exp) {
-      exp->DecRef();
-      new_exp->IncRef();
+    if (old == old_exp)
       return new_exp;
-    }
-
     return exp;
   }
 };
@@ -4336,15 +4038,10 @@ public:
     // as this outer exp was treated as a leaf.
     Exp *new_target = target->DoMap(this);
 
-    if (value_kind) {
-      Exp *res = value_kind->ReplaceLvalTarget(new_target);
-      value->DecRef();
-      return res;
-    }
-    else {
-      value->DecRef();
+    if (value_kind)
+      return value_kind->ReplaceLvalTarget(new_target);
+    else
       return Exp::MakeDrf(new_target);
-    }
   }
 };
 

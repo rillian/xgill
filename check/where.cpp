@@ -129,12 +129,8 @@ public:
   Exp* Map(Exp *exp, Exp*)
   {
     if (ExpFrame *nexp = exp->IfFrame()) {
-      if (nexp->GetFrameId() == frame) {
-        Exp *new_exp = nexp->GetValue();
-        new_exp->IncRef();
-        exp->DecRef();
-        return new_exp;
-      }
+      if (nexp->GetFrameId() == frame)
+        return nexp->GetValue();
     }
 
     return exp;
@@ -152,13 +148,9 @@ void RemoveValExp(FrameId frame, BlockMemory *mcfg,
 
     GuardExpVector remove_res;
     mcfg->TranslateExp(TRK_RemoveVal, 0, nexp, &remove_res);
-    nexp->DecRef();
 
     for (size_t rind = 0; rind < remove_res.Size(); rind++) {
       const GuardExp &rgt = remove_res[rind];
-      rgt.IncRef();
-      igt.guard->IncRef();
-
       Bit *new_guard = Bit::MakeAnd(igt.guard, rgt.guard);
       output->PushBack(GuardExp(rgt.exp, new_guard));
     }
@@ -178,13 +170,9 @@ void RemoveValBit(FrameId frame, BlockMemory *mcfg,
 
     GuardBitVector remove_res;
     mcfg->TranslateBit(TRK_RemoveVal, 0, nbit, &remove_res);
-    nbit->DecRef();
 
     for (size_t rind = 0; rind < remove_res.Size(); rind++) {
       const GuardBit &rgb = remove_res[rind];
-      rgb.IncRef();
-      igb.guard->IncRef();
-
       Bit *new_guard = Bit::MakeAnd(igb.guard, rgb.guard);
       output->PushBack(GuardBit(rgb.bit, new_guard));
     }
@@ -255,18 +243,11 @@ WherePrecondition::WherePrecondition(BlockMemory *mcfg, Bit *bit)
   : Where(WK_Precondition, bit),
     m_mcfg(mcfg), m_ignore_unroll(false)
 {
-  m_mcfg->IncRef(this);
-
   if (bit && m_mcfg->GetId()->Kind() == B_Loop) {
     // see if all terms in the bit are loop invariant.
     if (m_mcfg->IsBitPreserved(bit))
       m_ignore_unroll = true;
   }
-}
-
-WherePrecondition::~WherePrecondition()
-{
-  m_mcfg->DecRef(this);
 }
 
 void WherePrecondition::Print(OutStream &out) const
@@ -317,8 +298,6 @@ void WherePrecondition::GetCallerBits(CheckerFrame *caller_frame, PPoint point,
   RemoveFrameMapper frame_mapper(caller_frame->Id());
   *base_bit = caller_bit->DoMap(&frame_mapper);
 
-  caller_bit->DecRef();
-
   GuardBitVector base_res;
   caller_mcfg->TranslateBit(kind, point, m_bit, &base_res);
   RemoveValBit(caller_frame->Id(), caller_frame->Memory(), base_res, res);
@@ -333,13 +312,9 @@ Where* WherePostcondition::Make(CheckerFrame *frame, PPoint point, Bit *bit)
   Assert(bit);
   Bit *new_bit = TranslateCalleeBit(frame->Memory(), point, bit, frame->Id());
 
-  Where *res = NULL;
-  if (new_bit) {
-    res = new WherePostcondition(frame, point, new_bit);
-    new_bit->DecRef();
-  }
-
-  return res;
+  if (new_bit)
+    return new WherePostcondition(frame, point, new_bit);
+  return NULL;
 }
 
 WherePostcondition::WherePostcondition(CheckerFrame *frame,
@@ -378,7 +353,6 @@ void WherePostcondition::PrintUI(OutStream &out) const
 
     out << " :: ";
     new_bit->PrintUI(out, true);
-    new_bit->DecRef();
   }
 }
 
@@ -503,7 +477,6 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
     Exp *this_exp = Exp::MakeVar(this_var);
     Exp *this_drf = Exp::MakeDrf(this_exp);
     new_bit = TranslateHeapBit(lval, this_drf, false, bit);
-    this_drf->DecRef();
   }
   else {
     new_bit = TranslateHeapBit(NULL, NULL, false, bit);
@@ -517,7 +490,6 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
 
     if (!visitor.exclude)
       res = new WhereInvariant(csu, NULL, new_bit);
-    new_bit->DecRef();
   }
 
   return res;
@@ -525,20 +497,7 @@ Where* WhereInvariant::Make(TypeCSU *csu, Exp *lval, Bit *bit)
 
 WhereInvariant::WhereInvariant(TypeCSU *csu, Variable *var, Bit *bit)
   : Where(WK_Invariant, bit), m_csu(csu), m_var(var)
-{
-  if (m_csu)
-    m_csu->IncRef(this);
-  if (m_var)
-    m_var->IncRef(this);
-}
-
-WhereInvariant::~WhereInvariant()
-{
-  if (m_csu)
-    m_csu->DecRef(this);
-  if (m_var)
-    m_var->DecRef(this);
-}
+{}
 
 void WhereInvariant::Print(OutStream &out) const
 {
@@ -590,9 +549,6 @@ void WhereInvariant::GetHeapBits(CheckerFrame *write_frame,
   Bit *exit_bit = TranslateHeapBit(old_lval, write_csu, true, m_bit);
   Assert(exit_bit);
 
-  if (old_lval)
-    old_lval->DecRef();
-
   // TODO: using this to get the base bit for an invariant is fairly
   // hacked up, but for now we can't do this correctly as the base bit
   // needs to be relative to the CFG exit point, not the point where
@@ -602,19 +558,15 @@ void WhereInvariant::GetHeapBits(CheckerFrame *write_frame,
 
   Bit *new_bit = BitConvertExitClobber(m_bit);
 
-  if (base_csu) {
+  if (base_csu)
     *base_bit = BitReplaceExp(new_bit, old_lval, base_csu);
-    new_bit->DecRef();
-  }
-  else {
+  else
     *base_bit = new_bit;
-  }
 
   GuardBitVector base_res;
   PPoint exit_point = mcfg->GetCFG()->GetExitPoint();
   mcfg->TranslateBit(TRK_Exit, exit_point, exit_bit, &base_res);
 
-  exit_bit->DecRef();
   RemoveValBit(write_frame->Id(), write_frame->Memory(), base_res, res);
 }
 
@@ -633,11 +585,7 @@ void WhereInvariant::AssertRecursive(CheckerFrame *frame, Exp *exp)
   Exp *this_drf = Exp::MakeDrf(this_exp);
 
   Bit *entry_bit = TranslateHeapBit(this_drf, read_csu, false, m_bit);
-  Assert(entry_bit);
-  this_drf->DecRef();
-
   frame->AddAssert(entry_bit);
-  entry_bit->DecRef();
 }
 
 Exp* WhereInvariant::GetWriteCSU(Exp *lval)

@@ -174,20 +174,16 @@ public:
 
         // get the *this expression. we'll replace this with the actual CSU
         // lvalue to get the assumed bit.
-        id->IncRef();
         Variable *this_var = Variable::Make(id, VK_This, NULL, 0, NULL);
         Exp *this_exp = Exp::MakeVar(this_var);
         Exp *this_drf = Exp::MakeDrf(this_exp);
         Exp *target = nexp->GetTarget();
 
         GuardExpVector lval_res;
-        if (mcfg) {
+        if (mcfg)
           mcfg->TranslateExp(TRK_Point, point, target, &lval_res);
-        }
-        else {
-          target->IncRef();
+        else
           lval_res.PushBack(GuardExp(target, Bit::MakeConstant(true)));
-        }
 
         for (size_t lind = 0; lind < lval_res.Size(); lind++) {
           // ignore the guard component of the result here. this means that
@@ -198,17 +194,12 @@ public:
           const GuardExp &gs = lval_res[lind];
           Bit *new_bit = BitReplaceExp(bit, this_drf, gs.exp);
 
-          new_bit->MoveRef(NULL, assume_list);
-          annot_cfg->IncRef(assume_list);
-
           AssumeInfo info;
           info.annot = annot_cfg;
           info.point = 0;
           info.bit = new_bit;
           assume_list->PushBack(info);
         }
-
-        this_drf->DecRef();
       }
 
       CompAnnotCache.Release(csu_name);
@@ -226,9 +217,6 @@ public:
 
           Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
           if (!bit) continue;
-
-          bit->IncRef(assume_list);
-          annot_cfg->IncRef(assume_list);
 
           AssumeInfo info;
           info.annot = annot_cfg;
@@ -258,7 +246,6 @@ static Bit* GetCallerAssume(BlockMemory *mcfg, PEdge *edge,
 
   Bit *caller_bit;
   mcfg->TranslateBit(TRK_CalleeExit, call_point, bit, &caller_bit);
-  caller_bit->MoveRef(&caller_bit, NULL);
 
   if (indirect) {
     // transform the assumed bit into '(receiver != callee) || bit'.
@@ -266,7 +253,6 @@ static Bit* GetCallerAssume(BlockMemory *mcfg, PEdge *edge,
     // bit || (g0 && r0 != callee) || (g1 && r1 != callee) || ...
 
     Variable *callee_var = callee->BaseVar();
-    callee_var->IncRef();
     Exp *callee_exp = Exp::MakeVar(callee_var);
 
     GuardExpVector receiver_list;
@@ -274,9 +260,6 @@ static Bit* GetCallerAssume(BlockMemory *mcfg, PEdge *edge,
 
     for (size_t ind = 0; ind < receiver_list.Size(); ind++) {
       const GuardExp &gs = receiver_list[ind];
-      gs.IncRef();
-
-      callee_exp->IncRef();
       Bit *ne_bit = Exp::MakeCompareBit(B_NotEqual, callee_exp, gs.exp);
       ne_bit = Bit::MakeAnd(ne_bit, gs.guard);
 
@@ -304,15 +287,12 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
     Bit *caller_bit = GetCallerAssume(mcfg, edge, callee, indirect, bit);
 
     if (!caller_bit) continue;
-    caller_bit->MoveRef(NULL, assume_list);
 
     AssumeInfo info;
     info.point = edge->GetSource();
     info.bit = caller_bit;
     assume_list->PushBack(info);
   }
-
-  sum->DecRef();
 
   // add annotated postconditions from the callee.
 
@@ -334,9 +314,6 @@ static void GetCallAssumedBits(BlockMemory *mcfg, PEdge *edge,
 
     Bit *caller_bit = GetCallerAssume(mcfg, edge, callee, indirect, bit);
     if (!caller_bit) continue;
-
-    caller_bit->MoveRef(NULL, assume_list);
-    annot_cfg->IncRef(assume_list);
 
     AssumeInfo info;
     info.annot = annot_cfg;
@@ -364,14 +341,11 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
   // for functions. for now we're just adding all of them though. TODO: fix.
   for (size_t ind = 0; ind < assume_count; ind++) {
     Bit *bit = assumes->At(ind);
-    bit->IncRef(assume_list);
 
     AssumeInfo info;
     info.bit = bit;
     assume_list->PushBack(info);
   }
-
-  sum->DecRef();
 
   Vector<BlockCFG*> *annot_list = BodyAnnotCache.Lookup(id->Function());
 
@@ -387,9 +361,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
 
       Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
       if (!bit) continue;
-
-      annot_cfg->IncRef(assume_list);
-      bit->IncRef(assume_list);
 
       AssumeInfo info;
       info.annot = annot_cfg;
@@ -414,9 +385,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
       // get the annotation bit in terms of block entry.
       Bit *point_bit = NULL;
       mcfg->TranslateBit(TRK_Point, pann.point, bit, &point_bit);
-      point_bit->MoveRef(&point_bit, assume_list);
-
-      annot_cfg->IncRef(assume_list);
 
       AssumeInfo info;
       info.annot = annot_cfg;
@@ -424,8 +392,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
       info.bit = point_bit;
       assume_list->PushBack(info);
     }
-
-    annot_cfg->DecRef();
   }
 
   // add assumptions from annotation edges within the block, invariants
@@ -453,9 +419,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
         // get the annotation bit in terms of block entry.
         Bit *point_bit = NULL;
         mcfg->TranslateBit(TRK_Point, point, bit, &point_bit);
-        point_bit->MoveRef(&point_bit, assume_list);
-
-        annot_cfg->IncRef(assume_list);
 
         AssumeInfo info;
         info.annot = annot_cfg;
@@ -463,13 +426,10 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
         info.bit = point_bit;
         assume_list->PushBack(info);
       }
-
-      annot_cfg->DecRef();
     }
 
     if (BlockId *callee = edge->GetDirectCallee()) {
       GetCallAssumedBits(mcfg, edge, callee, false, assume_list);
-      callee->DecRef();
     }
     else if (edge->IsCall()) {
       // add conditional assumes for the indirect targets of the call.
@@ -483,11 +443,8 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
         for (size_t cind = 0; cind < callees->GetEdgeCount(); cind++) {
           const CallEdge &cedge = callees->GetEdge(cind);
           if (cedge.where.id == id && cedge.where.point == point) {
-            cedge.callee->IncRef();
             BlockId *callee = BlockId::Make(B_Function, cedge.callee);
-
             GetCallAssumedBits(mcfg, edge, callee, true, assume_list);
-            callee->DecRef();
           }
         }
       }
@@ -502,7 +459,6 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
 
         for (size_t rind = 0; rind < receiver_list.Size(); rind++) {
           const GuardExp &gs = receiver_list[rind];
-          gs.guard->IncRef();
 
           // make a bit: !when || rcv == callee0 || rcv == callee1 || ...
           Bit *extra_bit = Bit::MakeNot(gs.guard);
@@ -511,17 +467,11 @@ void BlockSummary::GetAssumedBits(BlockMemory *mcfg, PPoint end_point,
             const CallEdge &cedge = callees->GetEdge(cind);
             if (cedge.where.id == id && cedge.where.point == point) {
               Variable *callee_var = cedge.callee;
-              callee_var->IncRef();
               Exp *callee_exp = Exp::MakeVar(callee_var);
-
-              gs.exp->IncRef();
               Bit *equal = Exp::MakeCompareBit(B_Equal, callee_exp, gs.exp);
-
               extra_bit = Bit::MakeOr(extra_bit, equal);
             }
           }
-
-          extra_bit->MoveRef(NULL, assume_list);
 
           AssumeInfo info;
           info.bit = extra_bit;
@@ -583,10 +533,8 @@ void BlockSummary::SetMemory(BlockMemory *mcfg)
 {
   Assert(mcfg->GetId() == GetId());
 
-  if (m_mcfg == NULL) {
-    mcfg->IncRef(this);
+  if (m_mcfg == NULL)
     m_mcfg = mcfg;
-  }
 }
 
 void BlockSummary::AddAssert(AssertKind kind, AssertClass cls,
@@ -605,7 +553,6 @@ void BlockSummary::AddAssert(AssertKind kind, AssertClass cls,
     if (info.kind == kind && info.cls == cls &&
         info.point == point && info.bit == bit) {
       // found a duplicate assertion.
-      bit->DecRef();
       return;
     }
 
@@ -635,7 +582,6 @@ void BlockSummary::AddAssert(AssertKind kind, AssertClass cls,
   info.cls = cls;
   info.point = point;
   info.bit = bit;
-  bit->MoveRef(NULL, this);
 }
 
 void BlockSummary::AddAssume(Bit *bit)
@@ -643,12 +589,8 @@ void BlockSummary::AddAssume(Bit *bit)
   if (m_assume_list == NULL)
     m_assume_list = new Vector<Bit*>();
 
-  if (!m_assume_list->Contains(bit)) {
-    bit->IncRef(this);
+  if (!m_assume_list->Contains(bit))
     m_assume_list->PushBack(bit);
-  }
-
-  bit->DecRef();
 }
 
 void BlockSummary::ComputeAssertNames()
@@ -689,8 +631,6 @@ void BlockSummary::ComputeAssertNames()
         << (m_id->Kind() == B_Loop ? m_id->Loop()->Value() : "func") << "$"
         << last_index << '\0';
   }
-
-  cfg->DecRef();
 }
 
 void BlockSummary::Print(OutStream &out) const
@@ -710,12 +650,22 @@ void BlockSummary::Print(OutStream &out) const
     out << "  assume: " << m_assume_list->At(ind) << endl;
 }
 
-void BlockSummary::DecMoveChildRefs(ORef ov, ORef nv)
+void BlockSummary::MarkChildren() const
 {
-  m_id->DecMoveRef(ov, nv);
+  m_id->Mark();
 
-  // OK to call this multiple times since it is idempotent.
-  UnPersist();
+  if (m_mcfg)
+    m_mcfg->Mark();
+
+  if (m_assert_list) {
+    for (size_t ind = 0; ind < m_assert_list->Size(); ind++)
+      m_assert_list->At(ind).bit->Mark();
+  }
+
+  if (m_assume_list) {
+    for (size_t ind = 0; ind < m_assume_list->Size(); ind++)
+      m_assume_list->At(ind)->Mark();
+  }
 }
 
 void BlockSummary::Persist()
@@ -723,23 +673,14 @@ void BlockSummary::Persist()
 
 void BlockSummary::UnPersist()
 { 
-  if (m_mcfg) {
-    m_mcfg->DecRef(this);
-    m_mcfg = NULL;
-  }
+  m_mcfg = NULL;
 
   if (m_assert_list) {
-    for (size_t ind = 0; ind < m_assert_list->Size(); ind++) {
-      const AssertInfo &info = m_assert_list->At(ind);
-      info.bit->DecRef(this);
-      if (info.name_buf) delete info.name_buf;
-    }
     delete m_assert_list;
     m_assert_list = NULL;
   }
 
   if (m_assume_list) {
-    DecRefVector<Bit>(*m_assume_list, this);
     delete m_assume_list;
     m_assume_list = NULL;
   }

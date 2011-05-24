@@ -395,9 +395,9 @@ void TypePointer::Print(OutStream &out) const
   out << "*";
 }
 
-void TypePointer::DecMoveChildRefs(ORef ov, ORef nv)
+void TypePointer::MarkChildren() const
 {
-  m_target_type->DecMoveRef(ov, nv);
+  m_target_type->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -424,9 +424,9 @@ void TypeArray::Print(OutStream &out) const
   out << "[" << (long)m_element_count << "]";
 }
 
-void TypeArray::DecMoveChildRefs(ORef ov, ORef nv)
+void TypeArray::MarkChildren() const
 {
-  m_element_type->DecMoveRef(ov, nv);
+  m_element_type->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -457,9 +457,9 @@ void TypeCSU::Print(OutStream &out) const
   out << m_csu_name->Value();
 }
 
-void TypeCSU::DecMoveChildRefs(ORef ov, ORef nv)
+void TypeCSU::MarkChildren() const
 {
-  m_csu_name->DecMoveRef(ov, nv);
+  m_csu_name->Mark();
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -507,13 +507,13 @@ void TypeFunction::Print(OutStream &out) const
   out << ")";
 }
 
-void TypeFunction::DecMoveChildRefs(ORef ov, ORef nv)
+void TypeFunction::MarkChildren() const
 {
-  m_return_type->DecMoveRef(ov, nv);
+  m_return_type->Mark();
   if (m_csu_type)
-    m_csu_type->DecMoveRef(ov, nv);
+    m_csu_type->Mark();
   for (size_t aind = 0; aind < m_argument_count; aind++)
-    m_argument_types[aind]->DecMoveRef(ov, nv);
+    m_argument_types[aind]->Mark();
 }
 
 void TypeFunction::Persist()
@@ -654,12 +654,12 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
       Try(res);
       Location *loc = Location::Read(buf);
 
-      if (drop_info)
-        loc->DecRef();
-      else if (!res->m_begin_location)
-        res->SetBeginLocation(loc);
-      else
-        res->SetEndLocation(loc);
+      if (!drop_info) {
+        if (!res->m_begin_location)
+          res->SetBeginLocation(loc);
+        else
+          res->SetEndLocation(loc);
+      }
       break;
     }
     case TAG_DataField: {
@@ -670,9 +670,7 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
       Try(ReadTagUInt32(buf, TAG_Offset, &offset));
       Try(ReadCloseTag(buf, TAG_DataField));
 
-      if (drop_info)
-        field->DecRef();
-      else
+      if (!drop_info)
         res->AddField(field, offset);
       break;
     }
@@ -688,14 +686,8 @@ CompositeCSU* CompositeCSU::Read(Buffer *buf)
         function = Variable::Read(buf);
       Try(ReadCloseTag(buf, TAG_FunctionField));
  
-      if (drop_info) {
-        field->DecRef();
-        if (function)
-          function->DecRef();
-      }
-      else {
+      if (!drop_info)
         res->AddFunctionField(field, base, function);
-      }
       break;
     }
     default:
@@ -738,25 +730,16 @@ void CompositeCSU::SetWidth(size_t width)
 
 void CompositeCSU::SetCommand(String *command)
 {
-  if (m_command)
-    m_command->DecRef(this);
-  command->MoveRef(NULL, this);
   m_command = command;
 }
 
 void CompositeCSU::SetBeginLocation(Location *loc)
 {
-  if (m_begin_location)
-    m_begin_location->DecRef(this);
-  loc->MoveRef(NULL, this);
   m_begin_location = loc;
 }
 
 void CompositeCSU::SetEndLocation(Location *loc)
 {
-  if (m_end_location)
-    m_end_location->DecRef(this);
-  loc->MoveRef(NULL, this);
   m_end_location = loc;
 }
 
@@ -764,8 +747,6 @@ void CompositeCSU::AddField(Field *field, size_t offset)
 {
   if (m_data_fields == NULL)
     m_data_fields = new Vector<DataField>();
-
-  field->MoveRef(NULL, this);
   m_data_fields->PushBack(DataField(field, offset));
 }
 
@@ -774,12 +755,6 @@ void CompositeCSU::AddFunctionField(Field *field, Field *base,
 {
   if (m_function_fields == NULL)
     m_function_fields = new Vector<FunctionField>();
-
-  field->MoveRef(NULL, this);
-  if (base)
-    base->MoveRef(NULL, this);
-  if (function)
-    function->MoveRef(NULL, this);
   m_function_fields->PushBack(FunctionField(field, base, function));
 }
 
@@ -819,17 +794,33 @@ void CompositeCSU::Print(OutStream &out) const
   }
 }
 
-void CompositeCSU::DecMoveChildRefs(ORef ov, ORef nv)
+void CompositeCSU::MarkChildren() const
 {
-  // similar case to BlockCFG, all references except the name are dropped
-  // by UnPersist.
-  m_name->DecMoveRef(ov, nv);
+  m_name->Mark();
 
-  // again, same case as BlockCFG, UnPersist is idempotent and can be
-  // called repeatedly.
-  if (ov == this) {
-    Assert(nv == NULL);
-    UnPersist();
+  if (m_command)
+    m_command->Mark();
+
+  if (m_begin_location)
+    m_begin_location->Mark();
+
+  if (m_end_location)
+    m_end_location->Mark();
+
+  if (m_data_fields) {
+    for (size_t ind = 0; ind < m_data_fields->Size(); ind++)
+      m_data_fields->At(ind).field->Mark();
+  }
+
+  if (m_function_fields) {
+    for (size_t ind = 0; ind < m_function_fields->Size(); ind++) {
+      const FunctionField &ff = m_function_fields->At(ind);
+      ff.field->Mark();
+      if (ff.base)
+        ff.base->Mark();
+      if (ff.function)
+        ff.function->Mark();
+    }
   }
 }
 
@@ -840,37 +831,12 @@ void CompositeCSU::Persist()
 
 void CompositeCSU::UnPersist()
 {
-  if (m_command) {
-    m_command->DecRef(this);
-    m_command = NULL;
-  }
-
-  if (m_begin_location) {
-    m_begin_location->DecRef(this);
-    m_begin_location = NULL;
-  }
-
-  if (m_end_location) {
-    m_end_location->DecRef(this);
-    m_end_location = NULL;
-  }
-
   if (m_data_fields) {
-    for (size_t ind = 0; ind < m_data_fields->Size(); ind++)
-      m_data_fields->At(ind).field->DecRef(this);
     delete m_data_fields;
     m_data_fields = NULL;
   }
 
   if (m_function_fields) {
-    for (size_t ind = 0; ind < m_function_fields->Size(); ind++) {
-      const FunctionField &ff = m_function_fields->At(ind);
-      ff.field->DecRef(this);
-      if (ff.base)
-        ff.base->DecRef(this);
-      if (ff.function)
-        ff.function->DecRef(this);
-    }
     delete m_function_fields;
     m_function_fields = NULL;
   }
@@ -1000,14 +966,14 @@ void Field::Print(OutStream &out) const
 #endif
 }
 
-void Field::DecMoveChildRefs(ORef ov, ORef nv)
+void Field::MarkChildren() const
 {
-  m_name->DecMoveRef(ov, nv);
+  m_name->Mark();
   if (m_source_name)
-    m_source_name->DecMoveRef(ov, nv);
+    m_source_name->Mark();
 
-  m_csu_type->DecMoveRef(ov, nv);
-  m_type->DecMoveRef(ov, nv);
+  m_csu_type->Mark();
+  m_type->Mark();
 }
 
 NAMESPACE_XGILL_END

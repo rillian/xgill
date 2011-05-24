@@ -53,17 +53,11 @@ void Buffer::Reset()
   pos = base;
 
   if (seen != NULL) {
-    HashIteratePtr(seen)
-      seen->ItValueSingle().cleanup(this, seen->ItKey());
     delete seen;
     seen = NULL;
   }
 
   if (seen_rev != NULL) {
-    HashIteratePtr(seen_rev) {
-      const RTI &rti = seen_rev->ItValueSingle();
-      rti.cleanup(this, rti.v);
-    }
     delete seen_rev;
     seen_rev = NULL;
   }
@@ -93,57 +87,47 @@ void Buffer::Expand(size_t new_size)
   size = new_size;
 }
 
-bool Buffer::TestSeen(void *v, CleanupFn cleanup, uint32_t *pid)
+bool Buffer::TestSeen(void *v, uint32_t *pid)
 {
   if (seen == NULL)
     seen = new SeenTable();
 
-  Vector<WTI> *data = seen->Lookup(v, true);
+  Vector<uint32_t> *data = seen->Lookup(v, true);
   if (data->Empty()) {
-    WTI wti;
-    wti.id = seen_next++;
-    wti.cleanup = cleanup;
-    data->PushBack(wti);
-    *pid = wti.id;
+    data->PushBack(seen_next++);
+    *pid = seen_next - 1;
     return false;
   }
   else {
-    cleanup(this, v);
-    *pid = data->At(0).id;
+    *pid = data->At(0);
     return true;
   }
 }
 
-bool Buffer::AddSeenRev(uint32_t id, void *v, CleanupFn cleanup)
+bool Buffer::AddSeenRev(uint32_t id, void *v)
 {
   if (seen_rev == NULL)
     seen_rev = new SeenRevTable();
 
-  Vector<RTI> *data = seen_rev->Lookup(id, true);
+  Vector<void*> *data = seen_rev->Lookup(id, true);
   if (data->Empty()) {
-    RTI rti;
-    rti.v = v;
-    rti.cleanup = cleanup;
-    data->PushBack(rti);
+    data->PushBack(v);
     return true;
   }
   else {
-    cleanup(this, v);
     return false;
   }
 }
 
-bool Buffer::TestSeenRev(uint32_t id, void **pv, CleanupFn *pcleanup)
+bool Buffer::TestSeenRev(uint32_t id, void **pv)
 {
   if (seen_rev == NULL)
     return false;
 
-  Vector<RTI> *data = seen_rev->Lookup(id, false);
+  Vector<void*> *data = seen_rev->Lookup(id, false);
   if (data == NULL || data->Empty())
     return false;
-  RTI rti = (*data)[0];
-  *pv = rti.v;
-  *pcleanup = rti.cleanup;
+  *pv = data->At(0);
   return true;
 }
 

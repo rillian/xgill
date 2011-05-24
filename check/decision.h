@@ -105,18 +105,6 @@ struct CheckerDecision
       m_invariant_csu(NULL)
   {}
 
-  ~CheckerDecision()
-  {
-    if (m_sufficient_block)
-      m_sufficient_block->DecRef(this);
-
-    if (m_sufficient_bit)
-      m_sufficient_bit->DecRef(this);
-
-    if (m_invariant_csu)
-      m_invariant_csu->DecRef(this);
-  }
-
   void Print()
   {
     logout << "Decision " << m_id << ": " << DecisionKindString(m_kind)

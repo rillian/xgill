@@ -84,19 +84,14 @@ bool TestErrorSatisfiable(CheckerState *state, CheckerFrame *frame, Bit *bit)
 
         Bit *assert_value;
         mcfg->TranslateBit(TRK_Point, info.point, info.bit, &assert_value);
-        assert_value->MoveRef(&assert_value, NULL);
 
         Bit *point_guard = mcfg->GetGuard(info.point);
-        point_guard->IncRef();
-
         Bit *imply_assert =
           Bit::MakeImply(point_guard, assert_value);
 
         solver->AddConstraint(frame->Id(), imply_assert);
       }
     }
-
-    sum->DecRef();
 
     if (!solver->IsSatisfiable()) {
       if (checker_verbose.IsSpecified())
@@ -362,11 +357,8 @@ bool CheckSingleCaller(CheckerState *state, CheckerFrame *frame,
 
     if (CheckFrameList(state, caller_frame, where.point, false, false,
                        caller_base_bit, caller_safe_list)) {
-      caller_base_bit->DecRef();
       return true;
     }
-
-    caller_base_bit->DecRef();
   }
   else {
     // continue the checker without any active propagation.
@@ -403,11 +395,8 @@ bool CheckSkipLoop(CheckerState *state, CheckerFrame *frame, PPoint point,
 
   if (CheckFrameList(state, frame, point, false, false,
                      skip_base_bit, skip_safe_list)) {
-    skip_base_bit->DecRef();
     return true;
   }
-
-  skip_base_bit->DecRef();
 
   frame->RemoveSkipLoop(point);
   return false;
@@ -435,7 +424,6 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
   Assert(!callee_frame);
 
   callee_frame = state->MakeFrame(callee);
-  callee->DecRef();
 
   if (callee_frame == NULL) {
     // there are two ways we can get here:
@@ -461,7 +449,6 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
       state->SetReport(RK_NoCallee);
       return true;
     }
-    cfg->DecRef();
 
     logout << "WARNING: Missing memory: '" << callee << "'" << endl;
     return false;
@@ -492,11 +479,8 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
 
   if (CheckFrameList(state, callee_frame, exit_point, false, false,
                      callee_base_bit, callee_safe_list)) {
-    callee_base_bit->DecRef();
     return true;
   }
-
-  callee_base_bit->DecRef();
 
   if (is_call)
     frame->DisconnectCallee(callee_frame, point);
@@ -578,12 +562,8 @@ bool CheckSingleHeapWrite(CheckerState *state, CheckerFrame *frame,
   // are never explicitly popped, they get dropped when the frame is deleted.
   for (size_t ind = 0; ind < write.exclude.Size(); ind++) {
     Bit *bit = write.exclude[ind];
-
-    bit->IncRef();
     Bit *not_bit = Bit::MakeNot(bit);
-
     write_frame->PushAssumedBit(not_bit);
-    not_bit->DecRef();
   }
 
   // connect the heap read and write frames.
@@ -615,11 +595,9 @@ bool CheckSingleHeapWrite(CheckerState *state, CheckerFrame *frame,
 
   if (CheckFrameList(state, write_frame, exit_point, true, true,
                      write_safe_bit, write_safe_list)) {
-    write_safe_bit->DecRef();
     return true;
   }
 
-  write_safe_bit->DecRef();
   write_frame->DisconnectHeapRead(heap_frame);
   state->DeleteFrame(write_frame);
 
@@ -647,7 +625,6 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
       logout << "CHECK: Write is an older version: "
              << heap_write.where.id << ": "
              << heap_write.where.version << endl;
-    mcfg->DecRef();
     return;
   }
 
@@ -672,14 +649,11 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
   if (point_lval) {
     if (Exp *new_point_lval = Trace::SanitizeExp(point_lval)) {
       lval_matches = (new_point_lval == heap_write.target->GetValue());
-      new_point_lval->DecRef();
     }
   }
 
-  if (!lval_matches) {
-    mcfg->DecRef();
+  if (!lval_matches)
     return;
-  }
 
   // it would be nice to remove Val() expressions from this list, but we can't
   // do that as lvalues in memory assignments can contain Val and we want to
@@ -709,16 +683,9 @@ void GetMatchingHeapWrites(const EscapeAccess &heap_write,
       }
     }
 
-    if (!writes->Contains(info)) {
-      info.mcfg->IncRef(writes);
-      info.lval->IncRef(writes);
-      info.base_lval->IncRef(writes);
-      IncRefVector<Bit>(info.exclude, writes);
+    if (!writes->Contains(info))
       writes->PushBack(info);
-    }
   }
-
-  mcfg->DecRef();
 }
 
 // check all possible heap writes which could affect the propagating heap reads
@@ -778,7 +745,6 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
     }
 
     EscapeAccessCache.Release(heap_trace);
-    heap_trace->DecRef(&heap_traces);
   }
 
   if (checker_verbose.IsSpecified())
@@ -799,14 +765,6 @@ bool CheckHeapWrites(CheckerState *state, CheckerFrame *frame,
     }
 
     state->PopContext();
-  }
-
-  for (size_t wind = 0; wind < writes.Size(); wind++) {
-    const HeapWriteInfo &write = writes[wind];
-    write.mcfg->DecRef(&writes);
-    write.lval->DecRef(&writes);
-    write.base_lval->DecRef(&writes);
-    DecRefVector<Bit>(write.exclude, &writes);
   }
 
   if (res)
@@ -940,7 +898,6 @@ bool CheckFrame(CheckerState *state, CheckerFrame *frame,
                  << ": Expanding indirect callee at " << point
                  << ": " << callee << endl;
 
-        callee->IncRef();
         BlockId *callee_id = BlockId::Make(B_Function, callee);
 
         state->PushContext();

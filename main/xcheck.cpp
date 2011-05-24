@@ -251,7 +251,6 @@ void RunAnalysis(const Vector<const char*> &checks)
       continue;
     }
 
-    // this call does not consume the references on function_cfgs.
     BlockCFGCacheAddListWithRefs(function_cfgs);
 
     Vector<BlockMemory*> function_mems;
@@ -413,9 +412,6 @@ void RunAnalysis(const Vector<const char*> &checks)
     logout << "Elapsed: ";
     PrintTime(_timer.Elapsed());
     logout << endl << endl << flush;
-
-    // clear out held references on CFGs.
-    DecRefVector<BlockCFG>(function_cfgs);
 
     // we should analyze the single check our first time through the loop
     // if we're generating an XML file.

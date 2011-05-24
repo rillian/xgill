@@ -511,8 +511,6 @@ void AnalysisCleanup()
 void AnalysisFinish(int code)
 {
   AnalysisCleanup();
-  PrintHashCons();
-
   exit(code);
 }
 

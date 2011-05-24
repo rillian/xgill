@@ -87,14 +87,12 @@ struct InvariantTester
     consistent = true;
 
     sum = _sum;
-    sum->IncRef();
 
     BlockCFG *cfg = sum->GetMemory()->GetCFG();
 
     solver = new Solver("invariant");
 
     exit_test.mcfg = sum->GetMemory();
-    exit_test.mcfg->IncRef(this);
     exit_test.point = cfg->GetExitPoint();
     exit_test.frame = solver->MakeFrame(exit_test.mcfg);
 
@@ -112,7 +110,6 @@ struct InvariantTester
 
       LoopInvariantPoint parent_test;
       parent_test.mcfg = parent_mcfg;
-      parent_test.mcfg->MoveRef(NULL, this);
       parent_test.point = parent.point;
       parent_test.frame = solver->MakeFrame(parent_mcfg);
 
@@ -122,7 +119,6 @@ struct InvariantTester
       // are loops that aren't, due to unsoundness or not.
       if (entry_guard->IsFalse()) {
         // skip this parent.
-        parent_test.mcfg->DecRef(this);
         continue;
       }
 
@@ -140,15 +136,12 @@ struct InvariantTester
 
     for (size_t ind = 0; ind < assume_list.Size(); ind++) {
       const AssumeInfo &info = assume_list[ind];
-      info.bit->IncRef(&assumed_bits);
       assumed_bits.PushBack(info.bit);
-      info.DecRef(&assume_list);
     }
 
     // also assume the loop body exit guards holds for the exit test.
     Bit *exit_guard = exit_test.mcfg->GetGuard(exit_test.point);
 
-    exit_guard->IncRef(&assumed_bits);
     assumed_bits.PushBack(exit_guard);
 
     for (size_t ind = 0; ind < assumed_bits.Size(); ind++)
@@ -164,20 +157,7 @@ struct InvariantTester
   // clear out this tester.
   ~InvariantTester()
   {
-    sum->DecRef();
-
-    for (size_t ind = 0; ind < tested_bits.Size(); ind++)
-      tested_bits[ind]->DecRef(this);
-
-    for (size_t ind = 0; ind < assumed_bits.Size(); ind++)
-      assumed_bits[ind]->DecRef(&assumed_bits);
-
-    exit_test.mcfg->DecRef(this);
-    for (size_t ind = 0; ind < parent_tests.Size(); ind++)
-      parent_tests[ind].mcfg->DecRef(this);
-
     solver->PrintTimers();
-
     solver->Clear();
     delete solver;
   }
@@ -193,12 +173,9 @@ struct InvariantTester
   {
     Assert(bit);
 
-    if (tested_bits.Contains(bit)) {
-      bit->DecRef();
+    if (tested_bits.Contains(bit))
       return false;
-    }
 
-    bit->MoveRef(NULL, this);
     tested_bits.PushBack(bit);
 
     if (print_invariants.IsSpecified())
@@ -228,7 +205,6 @@ struct InvariantTester
       return true;
     }
 
-    bit->IncRef();
     Bit *not_bit = Bit::MakeNot(bit);
 
     // check that the bit holds at initial entry to the loop.
@@ -252,10 +228,8 @@ struct InvariantTester
 
       solver->PopContext();
 
-      if (satisfiable) {
-        not_bit->DecRef();
+      if (satisfiable)
         return false;
-      }
     }
 
     solver->PushContext();
@@ -303,17 +277,14 @@ struct InvariantTester
 
     solver->PopContext();
 
-    if (satisfiable) {
-      not_bit->DecRef();
+    if (satisfiable)
       return false;
-    }
 
     // this is an invariant, so add it to the summary.
 
     if (print_invariants.IsSpecified())
       logout << "INVARIANT: Success!" << endl;
 
-    bit->IncRef();
     sum->AddAssume(bit);
 
     // also assert it within the solver, in case later invariants need it.
@@ -322,7 +293,6 @@ struct InvariantTester
     if (!solver->IsSatisfiable())
       consistent = false;
 
-    not_bit->DecRef();
     return true;
   }
 };
@@ -330,16 +300,6 @@ struct InvariantTester
 /////////////////////////////////////////////////////////////////////
 // comparison inference
 /////////////////////////////////////////////////////////////////////
-
-// version of Exp::MakeBinop that gets new references on its arguments.
-Exp* GetBinop(BinopKind kind, Exp *left, Exp *right, Type *stride_type = NULL)
-{
-  left->IncRef();
-  right->IncRef();
-  if (stride_type)
-    stride_type->IncRef();
-  return Exp::MakeBinop(kind, left, right, stride_type);
-}
 
 static inline void AddCompare(Vector<BaseCompare> *compares,
                               Exp *test, BinopKind kind,
@@ -359,14 +319,8 @@ static inline void AddCompare(Vector<BaseCompare> *compares,
 
   BaseCompare cmp(test, kind, source, target, stride_type);
 
-  if (!compares->Contains(cmp)) {
-    test->IncRef(compares);
-    source->IncRef(compares);
-    target->IncRef(compares);
-    if (stride_type)
-      stride_type->IncRef(compares);
+  if (!compares->Contains(cmp))
     compares->PushBack(cmp);
-  }
 }
 
 // visitor to find bits which contain Exit subexpressions. TODO: this is a hack
@@ -413,9 +367,8 @@ class BaseCompareVisitor : public ExpVisitor
       Type *type = nleft->GetElementType();
       Exp *index = nleft->GetIndex();
 
-      Exp *new_right = GetBinop(B_MinusPI, right, index, type);
+      Exp *new_right = Exp::MakeBinop(B_MinusPI, right, index, type);
       AddCompare(compares, test, kind, target, new_right, stride_type);
-      new_right->DecRef();
     }
 
     if (ExpBinop *nleft = left->IfBinop()) {
@@ -429,35 +382,31 @@ class BaseCompareVisitor : public ExpVisitor
       Exp *compare_right = NULL;
 
       if (left_kind == B_Plus) {
-        compare_left = GetBinop(B_Minus, right, right_op);
-        compare_right = GetBinop(B_Minus, right, left_op);
+        compare_left = Exp::MakeBinop(B_Minus, right, right_op);
+        compare_right = Exp::MakeBinop(B_Minus, right, left_op);
       }
 
       if (left_kind == B_Minus) {
-        compare_left = GetBinop(B_Plus, right, right_op);
-        compare_right = GetBinop(B_Minus, left_op, right);
+        compare_left = Exp::MakeBinop(B_Plus, right, right_op);
+        compare_right = Exp::MakeBinop(B_Minus, left_op, right);
       }
 
       if (left_kind == B_MinusPP) {
-        compare_left = GetBinop(B_PlusPI, right_op, right, type);
-        compare_right = GetBinop(B_MinusPI, left_op, right, type);
+        compare_left = Exp::MakeBinop(B_PlusPI, right_op, right, type);
+        compare_right = Exp::MakeBinop(B_MinusPI, left_op, right, type);
       }
 
       // perform scaling if the left side is a constant multiplication.
       if (left_kind == B_Mult && left_op->IsInt())
-        compare_right = GetBinop(B_Div, right, left_op, type);
+        compare_right = Exp::MakeBinop(B_Div, right, left_op, type);
       if (left_kind == B_Mult && right_op->IsInt())
-        compare_left = GetBinop(B_Div, right, right_op, type);
+        compare_left = Exp::MakeBinop(B_Div, right, right_op, type);
 
-      if (compare_left) {
+      if (compare_left)
         VisitCompare(test, kind, left_op, compare_left, stride_type);
-        compare_left->DecRef();
-      }
 
-      if (compare_right) {
+      if (compare_right)
         VisitCompare(test, kind, right_op, compare_right, stride_type);
-        compare_right->DecRef();
-      }
 
       if (!compare_left && !compare_right) {
         // treat as if this were an lvalue.
@@ -475,7 +424,6 @@ class BaseCompareVisitor : public ExpVisitor
       mcfg->TranslateExp(TRK_TryRemoveVal, 0, exp, &exp_res);
     }
     else {
-      exp->IncRef();
       Bit *guard = Bit::MakeConstant(true);
       exp_res.PushBack(GuardExp(exp, guard));
     }
@@ -512,7 +460,6 @@ class BaseCompareVisitor : public ExpVisitor
         base_kind = PointerBinop(base_kind);
 
       VisitCompare(exp, base_kind, test_exp, zero, type);
-      zero->DecRef();
     }
   }
 };
@@ -553,7 +500,6 @@ class ExtraCompareVisitor : public ExpVisitor
         Bit *bit = bits[ind];
         BaseCompareVisitor visitor(NULL, compares, false);
         bit->DoVisit(&visitor, true);
-        bit->DecRef();
       }
     }
   }
@@ -575,9 +521,6 @@ void GetBaseAssigns(BlockMemory *mcfg, Vector<BaseAssign> *assigns)
     if (alist) {
       for (size_t aind = 0; aind < alist->Size(); aind++) {
         const GuardAssign &gts = alist->At(aind);
-
-        gts.left->IncRef(assigns);
-        gts.right->IncRef(assigns);
         assigns->PushBack(BaseAssign(gts.left, gts.right));
       }
     }
@@ -645,16 +588,11 @@ void GetCompareEqualities(const Vector<BaseCompare> &compares,
       BinopKind incr_kind = (cmp.stride_type ? B_PlusPI : B_Plus);
       BinopKind cmp_kind = (cmp.stride_type ? B_GreaterEqualP : B_GreaterEqual);
 
-      cmp.target->IncRef();
-      if (cmp.stride_type)
-        cmp.stride_type->IncRef();
-
       Exp *incr_target =
         Exp::MakeBinop(incr_kind, cmp.target, one, cmp.stride_type);
 
       AddCompare(equality_compares, cmp.test,
                  cmp_kind, cmp.source, incr_target, cmp.stride_type);
-      incr_target->DecRef();
     }
 
     if (do_decr) {
@@ -662,44 +600,17 @@ void GetCompareEqualities(const Vector<BaseCompare> &compares,
       BinopKind decr_kind = (cmp.stride_type ? B_MinusPI : B_Minus);
       BinopKind cmp_kind = (cmp.stride_type ? B_LessEqualP : B_LessEqual);
 
-      cmp.target->IncRef();
-      if (cmp.stride_type)
-        cmp.stride_type->IncRef();
-
       Exp *decr_target =
         Exp::MakeBinop(decr_kind, cmp.target, one, cmp.stride_type);
 
       AddCompare(equality_compares, cmp.test,
                  cmp_kind, cmp.source, decr_target, cmp.stride_type);
-      decr_target->DecRef();
     }
 
     if (!do_incr && !do_decr) {
       AddCompare(equality_compares, cmp.test,
                  cmp.kind, cmp.source, cmp.target, cmp.stride_type);
     }
-  }
-}
-
-void ClearCompareList(Vector<BaseCompare> *compares)
-{
-  for (size_t ind = 0; ind < compares->Size(); ind++) {
-    const BaseCompare &cmp = compares->At(ind);
-    cmp.test->DecRef(compares);
-    cmp.source->DecRef(compares);
-    cmp.target->DecRef(compares);
-    if (cmp.stride_type)
-      cmp.stride_type->DecRef(compares);
-  }
-  compares->Clear();
-}
-
-void ClearAssignList(Vector<BaseAssign> *assigns)
-{
-  for (size_t ind = 0; ind < assigns->Size(); ind++) {
-    const BaseAssign &asn = assigns->At(ind);
-    asn.left->DecRef(assigns);
-    asn.right->DecRef(assigns);
   }
 }
 
@@ -782,27 +693,6 @@ struct InvariantState
              << " := " << asn.right << endl;
     }
   }
-
-  ~InvariantState()
-  {
-    for (size_t ind = 0; ind < deltas.Size(); ind++) {
-      const BaseDelta &d = deltas[ind];
-      d.lval->DecRef(&deltas);
-      if (d.stride_type)
-        d.stride_type->DecRef(&deltas);
-    }
-
-    for (size_t ind = 0; ind < terminators.Size(); ind++) {
-      const TerminatorInfo &info = terminators[ind];
-
-      info.target->DecRef(&terminators);
-      info.terminate_test->DecRef(&terminators);
-      info.terminate_int->DecRef(&terminators);
-    }
-
-    ClearCompareList(&compares);
-    ClearAssignList(&assigns);
-  }
 };
 
 void FillDeltas(BlockMemory *mcfg, InvariantState *state)
@@ -852,7 +742,6 @@ void FillDeltas(BlockMemory *mcfg, InvariantState *state)
             delta = - (int) value;
 
           if (delta) {
-            lval->IncRef(&state->deltas);
             state->deltas.PushBack(BaseDelta(lval, delta, NULL));
             continue;
           }
@@ -865,8 +754,6 @@ void FillDeltas(BlockMemory *mcfg, InvariantState *state)
           long delta;
           if (index->GetInt(&delta)) {
             if (type && ExpDereference(nexp->GetTarget()) == lval) {
-              lval->IncRef(&state->deltas);
-              type->IncRef(&state->deltas);
               state->deltas.PushBack(BaseDelta(lval, delta, type));
               continue;
             }
@@ -875,14 +762,9 @@ void FillDeltas(BlockMemory *mcfg, InvariantState *state)
       }
 
       // otherwise leave a delta of zero.
-      lval->IncRef(&state->deltas);
-      if (type)
-        type->IncRef(&state->deltas);
       state->deltas.PushBack(BaseDelta(lval, 0, type));
     }
   }
-
-  mod->DecRef();
 };
 
 // get an expression for the value of the lvalue at initial entry
@@ -909,7 +791,6 @@ Exp* GetInitialValue(InvariantTester *tester, Exp *lval)
       if (UseCallerExp(single_val, false) && single_val->TermCount() <= 1) {
         if (tester->exit_test.mcfg->IsExpPreserved(single_val) &&
             parent_test.mcfg->IsExpPreserved(single_val)) {
-          single_val->IncRef();
           return single_val;
         }
       }
@@ -917,7 +798,6 @@ Exp* GetInitialValue(InvariantTester *tester, Exp *lval)
   }
 
   // use ExpInitial to make an expression for the value outside the loop.
-  lval->IncRef();
   return Exp::MakeInitial(lval, NULL);
 }
 
@@ -928,10 +808,8 @@ Exp* GetScaledDifference(Exp *first, Exp *second,
                          Type *stride_type, int delta)
 {
   BinopKind binop = B_Minus;
-  if (stride_type) {
-    stride_type->IncRef();
+  if (stride_type)
     binop = B_MinusPP;
-  }
 
   Exp *diff;
   if (delta > 0) {
@@ -983,8 +861,6 @@ bool IsPointerIncremented(InvariantTester *tester, const InvariantState &state,
       if (ExpDereference(index) == delta.lval) {
         *stride_type = nlval->GetElementType();
 
-        target->IncRef();
-        (*stride_type)->IncRef();
         Exp *init_index = GetInitialValue(tester, delta.lval);
         *init_value = Exp::MakeIndex(target, *stride_type, init_index);
         return true;
@@ -1006,14 +882,13 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
     bool test_le = (d.delta <= 0);
     bool test_ge = (d.delta >= 0);
 
-    d.lval->IncRef();
     Exp *drf_lval = Exp::MakeDrf(d.lval);
     Exp *init_lval = GetInitialValue(tester, d.lval);
 
     if (test_le) {
       BinopKind binop = d.stride_type ? B_LessEqualP : B_LessEqual;
       Bit *compare_test =
-        Exp::MakeCompareBit(binop, drf_lval, init_lval, d.stride_type, true);
+        Exp::MakeCompareBit(binop, drf_lval, init_lval, d.stride_type);
       if (tester->AddCandidateInvariant(compare_test))
         d.monotonic_decr = true;
     }
@@ -1021,13 +896,10 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
     if (test_ge) {
       BinopKind binop = d.stride_type ? B_GreaterEqualP : B_GreaterEqual;
       Bit *compare_test =
-        Exp::MakeCompareBit(binop, drf_lval, init_lval, d.stride_type, true);
+        Exp::MakeCompareBit(binop, drf_lval, init_lval, d.stride_type);
       if (tester->AddCandidateInvariant(compare_test))
         d.monotonic_incr = true;
     }
-
-    drf_lval->DecRef();
-    init_lval->DecRef();
   }
 
   // look for tests on terms which have deltas. if val is incremented,
@@ -1055,30 +927,17 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
       if (d.stride_type)
         binop = PointerBinop(binop);
 
-      d.lval->IncRef();
       Exp *drf_lval = Exp::MakeDrf(d.lval);
-
-      cmp.target->IncRef();
-      if (d.stride_type)
-        d.stride_type->IncRef();
 
       Bit *compare_test =
         Exp::MakeCompareBit(binop, drf_lval, cmp.target, d.stride_type);
 
-      // extra reference for the comparison in case we need an imply.
-      compare_test->IncRef();
-
       if (tester->AddCandidateInvariant(compare_test)) {
         // success!
-        compare_test->DecRef();
       }
       else {
         // try an implication: 'loop_entry(val) <= oval => val <= oval'
-
         Exp *init_lval = GetInitialValue(tester, d.lval);
-        cmp.target->IncRef();
-        if (d.stride_type)
-          d.stride_type->IncRef();
 
         Bit *init_test =
           Exp::MakeCompareBit(binop, init_lval, cmp.target, d.stride_type);
@@ -1105,27 +964,15 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
       if (assign.right != cmp.source)
         continue;
 
-      assign.left->IncRef();
       Exp *drf_left = Exp::MakeDrf(assign.left);
-
-      cmp.target->IncRef();
-      if (cmp.stride_type)
-        cmp.stride_type->IncRef();
-
       Bit *compare_test =
         Exp::MakeCompareBit(cmp.kind, drf_left, cmp.target, cmp.stride_type);
-      compare_test->IncRef();
 
       if (tester->AddCandidateInvariant(compare_test)) {
         // success!
-        compare_test->DecRef();
       }
       else {
         Exp *init_left = GetInitialValue(tester, assign.left);
-
-        cmp.target->IncRef();
-        if (cmp.stride_type)
-          cmp.stride_type->IncRef();
 
         Bit *init_test =
           Exp::MakeCompareBit(cmp.kind, init_left, cmp.target, cmp.stride_type);
@@ -1161,22 +1008,16 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
       for (size_t dind = 0; dind < state.deltas.Size(); dind++) {
         const BaseDelta &d = state.deltas[dind];
 
-        d.lval->IncRef();
         Exp *drf_term = Exp::MakeDrf(d.lval);
         Exp *init_term = GetInitialValue(tester, d.lval);
-        if (d.stride_type)
-          d.stride_type->IncRef();
         BinopKind diff_binop = d.stride_type ? B_NotEqualP : B_NotEqual;
         Bit *diff_cmp =
           Exp::MakeCompareBit(diff_binop, drf_term, init_term, d.stride_type);
 
-        cmp.target->IncRef();
         Exp *init_val = GetInitialValue(tester, assign.left);
         Bit *init_cmp =
           Exp::MakeCompareBit(B_NotEqual, init_val, cmp.target);
 
-        cmp.target->IncRef();
-        cmp.source->IncRef();
         Bit *after_cmp =
           Exp::MakeCompareBit(B_NotEqual, cmp.source, cmp.target);
 
@@ -1201,9 +1042,6 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
       if (xd.delta == 0 || yd.delta == 0)
         continue;
 
-      xd.lval->IncRef();
-      yd.lval->IncRef();
-
       // get the deref values of x and y.
       Exp *drf_x = Exp::MakeDrf(xd.lval);
       Exp *drf_y = Exp::MakeDrf(yd.lval);
@@ -1225,31 +1063,26 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
                                         xd.stride_type, yd.delta);
       Exp *diff_y = GetScaledDifference(drf_y, init_y,
                                         yd.stride_type, xd.delta);
-      diff_x->MoveRef(NULL, &diff_x);
-      diff_y->MoveRef(NULL, &diff_y);
 
       // add the equality as a candidate invariant.
       Bit *equal_test =
-        Exp::MakeCompareBit(B_Equal, diff_x, diff_y, NULL, true);
+        Exp::MakeCompareBit(B_Equal, diff_x, diff_y, NULL);
       if (tester->AddCandidateInvariant(equal_test)) {
         // success!
       }
       else {
         // weaken the invariant; try '<=' and '>=' instead of '=='.
         Bit *le_test =
-          Exp::MakeCompareBit(B_LessEqual, diff_x, diff_y, NULL, true);
+          Exp::MakeCompareBit(B_LessEqual, diff_x, diff_y, NULL);
         if (tester->AddCandidateInvariant(le_test)) {
           // success!
         }
         else {
           Bit *ge_test =
-            Exp::MakeCompareBit(B_GreaterEqual, diff_x, diff_y, NULL, true);
+            Exp::MakeCompareBit(B_GreaterEqual, diff_x, diff_y, NULL);
           tester->AddCandidateInvariant(ge_test);
         }
       }
-
-      diff_x->DecRef(&diff_x);
-      diff_y->DecRef(&diff_y);
     }
   }
 
@@ -1280,7 +1113,6 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
         if (test)
           tester->AddCandidateInvariant(test);
 
-        init_target->DecRef();
         found_test = true;
       }
     }
@@ -1288,7 +1120,6 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
     if (!found_test) {
       // last ditch attempt to find a terminator test. if this is a pointer
       // which may be incremented a variable amount, guess a zero terminator.
-      delta.lval->IncRef();
       Exp *target = Exp::MakeDrf(delta.lval);
 
       if (Type *stride_type = target->GetType()) {
@@ -1300,13 +1131,7 @@ void InferLoopInvariants(InvariantTester *tester, InvariantState &state)
                                            terminate_test, terminate_int);
         if (test)
           tester->AddCandidateInvariant(test);
-
-        init_target->DecRef();
-        terminate_test->DecRef();
-        terminate_int->DecRef();
       }
-
-      target->DecRef();      
     }
   }
 }
@@ -1323,7 +1148,6 @@ void InferFunctionInvariants(InvariantTester *tester,
     if (assign.left->AsVar()->GetVariable()->Kind() != VK_Return)
       continue;
 
-    assign.left->IncRef();
     Exp *exit_left = Exp::MakeExit(assign.left, NULL);
 
     // skip any coercions on the right side.
@@ -1340,11 +1164,6 @@ void InferFunctionInvariants(InvariantTester *tester,
         const BaseCompare &cmp = state.compares[cind];
 
         if (assign_right == cmp.source) {
-          cmp.target->IncRef();
-          if (cmp.stride_type)
-            cmp.stride_type->IncRef();
-
-          exit_left->IncRef();
           Bit *compare_test =
             Exp::MakeCompareBit(cmp.kind, exit_left, cmp.target, cmp.stride_type);
           tester->AddCandidateInvariant(compare_test);
@@ -1360,14 +1179,10 @@ void InferFunctionInvariants(InvariantTester *tester,
       // if the right side is 'x + y', try 'rval >= x' and 'rval >= y'.
 
       if (binop == B_Plus) {
-        left->IncRef();
-        exit_left->IncRef();
         Bit *compare_left =
           Exp::MakeCompareBit(B_GreaterEqual, exit_left, left);
         tester->AddCandidateInvariant(compare_left);
 
-        right->IncRef();
-        exit_left->IncRef();
         Bit *compare_right =
           Exp::MakeCompareBit(B_GreaterEqual, exit_left, right);
         tester->AddCandidateInvariant(compare_right);
@@ -1377,14 +1192,11 @@ void InferFunctionInvariants(InvariantTester *tester,
 
       if (binop == B_Minus || binop == B_MinusPP) {
         Exp *zero = Exp::MakeInt(0);
-        exit_left->IncRef();
         Bit *compare_test =
           Exp::MakeCompareBit(B_GreaterEqual, exit_left, zero);
         tester->AddCandidateInvariant(compare_test);
       }
     }
-
-    exit_left->DecRef();
   }
 }
 

@@ -57,7 +57,6 @@ class ExternalLookup_BlockCFG : public Cache_BlockCFG::ExternalLookup
     const char *function_name = function->Value();
 
     if (!DoLookupTransaction(BODY_DATABASE, function_name, &scratch_buf)) {
-      id->IncRef(cache);
       cache->Insert(id, NULL);
       return;
     }
@@ -71,18 +70,8 @@ class ExternalLookup_BlockCFG : public Cache_BlockCFG::ExternalLookup
     for (size_t ind = 0; ind < cfg_list.Size(); ind++) {
       BlockCFG *cfg = cfg_list[ind];
       BlockId *id = cfg->GetId();
-
-      id->IncRef(cache);
-      cfg->MoveRef(NULL, cache);
       cache->Insert(id, cfg);
     }
-  }
-
-  void Remove(Cache_BlockCFG *cache, BlockId *id, BlockCFG *cfg)
-  {
-    id->DecRef(cache);
-    if (cfg != NULL)
-      cfg->DecRef(cache);
   }
 };
 
@@ -97,16 +86,12 @@ BlockCFG* GetBlockCFG(BlockId *id)
 
   case B_Initializer:
     cfg = InitializerCache.Lookup(id->Function());
-    if (cfg)
-      cfg->IncRef();
     InitializerCache.Release(id->Function());
     break;
 
   case B_Function:
   case B_Loop:
     cfg = BlockCFGCache.Lookup(id);
-    if (cfg)
-      cfg->IncRef();
     BlockCFGCache.Release(id);
     break;
 
@@ -135,7 +120,6 @@ BlockCFG* GetAnnotationCFG(BlockId *id)
     BlockCFG *test_cfg = annot_list->At(aind);
     if (test_cfg->GetId() == id) {
       annot_cfg = test_cfg;
-      annot_cfg->IncRef();
       break;
     }
   }
@@ -152,9 +136,6 @@ void BlockCFGCacheAddListWithRefs(const Vector<BlockCFG*> &cfgs)
   for (size_t ind = 0; ind < cfgs.Size(); ind++) {
     BlockCFG *cfg = cfgs[ind];
     BlockId *id = cfg->GetId();
-
-    id->IncRef(&BlockCFGCache);
-    cfg->IncRef(&BlockCFGCache);
     BlockCFGCache.Insert(id, cfg);
   }
 }
@@ -191,26 +172,15 @@ class ExternalLookup_Initializer : public Cache_Initializer::ExternalLookup
   void LookupInsert(Cache_Initializer *cache, String *var)
   {
     if (!DoLookupTransaction(INIT_DATABASE, var->Value(), &scratch_buf)) {
-      var->IncRef(cache);
       cache->Insert(var, NULL);
       return;
     }
 
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     BlockCFG *cfg = BlockCFG::Read(&read_buf);
+    cache->Insert(var, cfg);
 
     scratch_buf.Reset();
-
-    var->IncRef(cache);
-    cfg->MoveRef(NULL, cache);
-    cache->Insert(var, cfg);
-  }
-
-  void Remove(Cache_Initializer *cache, String *var, BlockCFG *cfg)
-  {
-    var->DecRef(cache);
-    if (cfg != NULL)
-      cfg->DecRef(cache);
   }
 };
 
@@ -226,26 +196,15 @@ class ExternalLookup_CompositeCSU : public Cache_CompositeCSU::ExternalLookup
   void LookupInsert(Cache_CompositeCSU *cache, String *name)
   {
     if (!DoLookupTransaction(COMP_DATABASE, name->Value(), &scratch_buf)) {
-      name->IncRef(cache);
       cache->Insert(name, NULL);
       return;
     }
 
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     CompositeCSU *csu = CompositeCSU::Read(&read_buf);
+    cache->Insert(name, csu);
 
     scratch_buf.Reset();
-
-    name->IncRef(cache);
-    csu->MoveRef(NULL, cache);
-    cache->Insert(name, csu);
-  }
-
-  void Remove(Cache_CompositeCSU *cache, String *name, CompositeCSU *csu)
-  {
-    name->DecRef(cache);
-    if (csu != NULL)
-      csu->DecRef(cache);
   }
 };
 
@@ -269,8 +228,6 @@ public:
     // or initializer CFGs.
     static Buffer annot_buf;
 
-    name->IncRef(cache);
-
     if (!DoLookupTransaction(m_db_name, name->Value(), &annot_buf)) {
       cache->Insert(name, NULL);
       return;
@@ -280,24 +237,16 @@ public:
 
     Buffer read_buf(annot_buf.base, annot_buf.pos - annot_buf.base);
     BlockCFG::ReadList(&read_buf, cfg_list);
+    cache->Insert(name, cfg_list);
 
     annot_buf.Reset();
-
-    for (size_t ind = 0; ind < cfg_list->Size(); ind++)
-      cfg_list->At(ind)->MoveRef(NULL, cfg_list);
-    cache->Insert(name, cfg_list);
   }
 
   void Remove(Cache_Annotation *cache,
               String *name, Vector<BlockCFG*> *cfg_list)
   {
-    name->DecRef(cache);
-
-    if (cfg_list) {
-      for (size_t ind = 0; ind < cfg_list->Size(); ind++)
-        cfg_list->At(ind)->DecRef(cfg_list);
+    if (cfg_list)
       delete cfg_list;
-    }
   }
 };
 

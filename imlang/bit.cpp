@@ -60,8 +60,7 @@ void Bit::Write(Buffer *buf, Bit *b)
 {
   WriteOpenTag(buf, TAG_Bit);
   uint32_t id = 0;
-  b->IncRef(buf);
-  if (buf->TestSeen((void*)b, BufferCleanupBit, &id)) {
+  if (buf->TestSeen((void*)b, &id)) {
     WriteUInt32(buf, id);
   }
   else {
@@ -104,14 +103,9 @@ Bit* Bit::Read(Buffer *buf)
   Try(ReadUInt32(buf, &id));
 
   void *v = NULL;
-  Buffer::CleanupFn cleanup;
-  if (buf->TestSeenRev((size_t)id, &v, &cleanup)) {
+  if (buf->TestSeenRev((size_t)id, &v)) {
     Try(ReadCloseTag(buf, TAG_Bit));
-    Try(cleanup == BufferCleanupBit);
-
-    Bit *res = (Bit*) v;
-    res->IncRef();
-    return res;
+    return (Bit*) v;
   }
 
   uint32_t hash = 0;
@@ -179,10 +173,8 @@ Bit* Bit::Read(Buffer *buf)
     Assert(bit->Hash() == hash);
 #endif
 
-  bit->IncRef(buf);
-  if (!buf->AddSeenRev(id, (void*) bit, BufferCleanupBit)) {
+  if (!buf->AddSeenRev(id, (void*) bit)) {
     // the references on var/op_list have already been consumed
-    bit->DecRef();
     return NULL;
   }
   return bit;
@@ -203,12 +195,8 @@ Bit* Bit::MakeVar(Exp *var)
 Bit* Bit::MakeNot(Bit *op, BitSimplifyLevel level)
 {
   // short circuit the !(!(B)) case
-  if (op->Kind() == BIT_Not) {
-    Bit *nbit = op->GetOperand(0);
-    nbit->IncRef();
-    op->DecRef();
-    return nbit;
-  }
+  if (op->Kind() == BIT_Not)
+    return op->GetOperand(0);
 
   Vector<Bit*> data;
   data.PushBack(op);
@@ -220,14 +208,10 @@ Bit* Bit::MakeNot(Bit *op, BitSimplifyLevel level)
 Bit* Bit::MakeAnd(Bit *op0, Bit *op1, BitSimplifyLevel level)
 {
   // short circuit the (B & B), (B & false) and (B & true) cases
-  if (op0 == op1 || op0->IsTrue() || op1->IsFalse()) {
-    op0->DecRef();
+  if (op0 == op1 || op0->IsTrue() || op1->IsFalse())
     return op1;
-  }
-  if (op1->IsTrue() || op0->IsFalse()) {
-    op1->DecRef();
+  if (op1->IsTrue() || op0->IsFalse())
     return op0;
-  }
 
   Vector<Bit*> data;
   if (CompareObjects<Bit>(op0, op1) < 0) {
@@ -252,14 +236,10 @@ Bit* Bit::MakeAnd(const Vector<Bit*> &op_list, BitSimplifyLevel level)
 Bit* Bit::MakeOr(Bit *op0, Bit *op1, BitSimplifyLevel level)
 {
   // short circuit the (B | B), (B | false) and (B | true) cases
-  if (op0 == op1 || op0->IsFalse() || op1->IsTrue()) {
-    op0->DecRef();
+  if (op0 == op1 || op0->IsFalse() || op1->IsTrue())
     return op1;
-  }
-  if (op1->IsFalse() || op0->IsTrue()) {
-    op1->DecRef();
+  if (op1->IsFalse() || op0->IsTrue())
     return op0;
-  }
 
   Vector<Bit*> data;
   if (CompareObjects<Bit>(op0, op1) < 0) {
@@ -294,13 +274,11 @@ Bit* Bit::ReduceBit(Bit *bit, Bit *base)
   switch (base->Kind()) {
   case BIT_False: {
     // result is false.
-    base->IncRef();
     res = base;
     break;
   }
   case BIT_True: {
     // result is unchanged.
-    bit->IncRef();
     res = bit;
     break;
   }
@@ -340,21 +318,11 @@ Bit* Bit::ReduceBit(Bit *bit, Bit *base)
   }
 
   if (g_callback_BitSimplify) {
-    base->IncRef();
-    bit->IncRef();
     Bit *old_and = MakeAnd(bit, base, BSIMP_None);
-
-    base->IncRef();
-    res->IncRef();
     Bit *new_and = MakeAnd(res, base, BSIMP_None);
-
     g_callback_BitSimplify(old_and, new_and);
-
-    old_and->DecRef();
-    new_and->DecRef();
   }
 
-  bit->DecRef();
   return res;
 }
 
@@ -375,7 +343,6 @@ Bit* Bit::SimplifyBit(Bit &b, BitSimplifyLevel level)
 
   // keep a second reference around for debugging and checking purposes.
   Bit *old_nb = nb;
-  old_nb->IncRef(&old_nb);
 
   bool printing = false;
 
@@ -416,8 +383,6 @@ Bit* Bit::SimplifyBit(Bit &b, BitSimplifyLevel level)
   if (g_callback_BitSimplify)
     g_callback_BitSimplify(old_nb, nb);
 
-  old_nb->DecRef(&old_nb);
-
   // pass the reference on nb back up to the caller,
   // following the behavior of g_table.Lookup()
   return nb;
@@ -431,7 +396,6 @@ Bit* Bit::SimplifyBit(Bit &b, BitSimplifyLevel level)
 static inline void ReplaceBit(Bit **bit, Bit *nbit)
 {
   Assert(*bit != nbit);
-  (*bit)->DecRef();
   *bit = nbit;
 }
 
@@ -452,7 +416,6 @@ void Bit::SimplifyConstantFold(Bit **pbit)
     }
     case BIT_Not: {
       Bit *nbit = bbit->GetOperand(0);
-      nbit->IncRef();
       ReplaceBit(pbit, nbit);
       return;
     }
@@ -464,8 +427,7 @@ void Bit::SimplifyConstantFold(Bit **pbit)
           BinopKind new_binop = NegateCompareBinop(nvar->GetBinopKind());
           Bit *nbit = Exp::MakeCompareBit(new_binop,
                               nvar->GetLeftOperand(), nvar->GetRightOperand(),
-                              nvar->GetStrideType(),
-                              true);
+                              nvar->GetStrideType());
           ReplaceBit(pbit, nbit);
         }
       }
@@ -488,18 +450,13 @@ void Bit::SimplifyConstantFold(Bit **pbit)
         // if this constant drives the result to true/false
         // then use that result.
         if ((obit->Kind() == BIT_And) == (mbit->Kind() == BIT_False)) {
-          mbit->IncRef();
           ReplaceBit(pbit, mbit);
-
-          for (size_t oind = 0; oind < op_list.Size(); oind++)
-            op_list[oind]->DecRef();
           return;
         }
         // for other constants drop the op from the array
         break;
       }
       default:
-        mbit->IncRef();
         op_list.PushBack(mbit);
         break;
       }
@@ -512,13 +469,8 @@ void Bit::SimplifyConstantFold(Bit **pbit)
       Bit *nbit = g_table.Lookup(xbit);
 
       ReplaceBit(pbit, nbit);
-      return;
     }
-    else {
-      for (size_t oind = 0; oind < op_list.Size(); oind++)
-        op_list[oind]->DecRef();
-      return;
-    }
+    return;
   }
   default:
     return;
@@ -539,7 +491,6 @@ void Bit::SimplifyDegenerate(Bit **pbit)
   }
   else if (obit->GetOperandCount() == 1) {
     Bit *nbit = obit->GetOperand(0);
-    nbit->IncRef();
     ReplaceBit(pbit, nbit);
   }
 }
@@ -582,8 +533,6 @@ void Bit::SimplifyDeMorgan(Bit **pbit)
 
     for (size_t oind = 0; oind < negbit->GetOperandCount(); oind++) {
       Bit *mbit = negbit->GetOperand(oind);
-
-      mbit->IncRef();
       op_list.PushBack(MakeNot(mbit, BSIMP_Fold));
     }
 
@@ -614,8 +563,6 @@ void Bit::SimplifyFlatten(Bit **pbit)
     if (mbit->Kind() == obit->Kind()) {
       for (size_t mind = 0; mind < mbit->GetOperandCount(); mind++) {
         Bit *xmbit = mbit->GetOperand(mind);
-
-        xmbit->IncRef();
         op_list.PushBack(xmbit);
       }
       changed = true;
@@ -626,8 +573,6 @@ void Bit::SimplifyFlatten(Bit **pbit)
       if (negbit->Kind() == ReverseBitBinop(obit->Kind())) {
         for (size_t nind = 0; nind < negbit->GetOperandCount(); nind++) {
           Bit *nmbit = negbit->GetOperand(nind);
-
-          nmbit->IncRef();
           op_list.PushBack(MakeNot(nmbit, BSIMP_Fold));
         }
         changed = true;
@@ -636,7 +581,6 @@ void Bit::SimplifyFlatten(Bit **pbit)
     }
 
     // fall through
-    mbit->IncRef();
     op_list.PushBack(mbit);
   }
 
@@ -646,10 +590,6 @@ void Bit::SimplifyFlatten(Bit **pbit)
     Bit *nbit = g_table.Lookup(xbit);
 
     ReplaceBit(pbit, nbit);
-  }
-  else {
-    for (size_t oind = 0; oind < op_list.Size(); oind++)
-      op_list[oind]->DecRef();
   }
 }
 
@@ -726,7 +666,6 @@ void Bit::SimplifyRefactor(Bit **pbit)
     // add the common bits to the result list of operands
     for (size_t cind = 0; cind < common.Size(); cind++) {
       Bit *cop = common[cind];
-      cop->IncRef();
       op_list.PushBack(cop);
     }
 
@@ -757,10 +696,8 @@ void Bit::SimplifyRefactor(Bit **pbit)
             }
           }
 
-          if (include) {
-            xop->IncRef();
+          if (include)
             fact_op_list.PushBack(xop);
-          }
         }
 
         if (fact_op_list.Empty()) {
@@ -788,11 +725,7 @@ void Bit::SimplifyRefactor(Bit **pbit)
       }
     }
 
-    if (drop_simp_list) {
-      for (size_t ind = 0; ind < simp_op_list.Size(); ind++)
-        simp_op_list[ind]->DecRef();
-    }
-    else {
+    if (!drop_simp_list) {
       Assert(simp_op_list.Size() == obit->GetOperandCount());
 
       // make a bit combining the simplified original operands.
@@ -842,8 +775,6 @@ void Bit::SimplifyImplied(Bit **pbit)
   Vector<Bit*> op_list;
   for (size_t iind = 0; iind < obit->GetOperandCount(); iind++) {
     Bit *ibit = obit->GetOperand(iind);
-
-    ibit->IncRef();
     op_list.PushBack(ibit);
   }
 
@@ -861,8 +792,6 @@ void Bit::SimplifyImplied(Bit **pbit)
     g_replace_used = false;
 
     ibit->ClearReplaceExtra();
-
-    ibit->DecRef();
     op_list[oind] = nbit;
   }
 
@@ -886,10 +815,6 @@ void Bit::SimplifyImplied(Bit **pbit)
     // and allow further imply simplifications to be performed.
     SimplifyImplied(pbit);
   }
-  else {
-    for (size_t oind = 0; oind < op_list.Size(); oind++)
-      op_list[oind]->DecRef();
-  }
 }
 
 Bit* Bit::ReplaceImplied(Bit *bit, const Vector<Bit*> &operands,
@@ -906,10 +831,7 @@ Bit* Bit::ReplaceImplied(Bit *bit, const Vector<Bit*> &operands,
   if (bit->m_replace_extra != NULL) {
     // we already encountered and set this bit previously in the crawl.
     // return the previous value.
-    Bit *replace_bit = bit->m_replace_extra;
-
-    replace_bit->IncRef();
-    return replace_bit;
+    return bit->m_replace_extra;
   }
 
   // is this bit directly implied as true or false by another operand?
@@ -931,7 +853,6 @@ Bit* Bit::ReplaceImplied(Bit *bit, const Vector<Bit*> &operands,
   }
   else if (depth == 0) {
     // don't recurse, just use the bit as the result
-    bit->IncRef();
     result = bit;
   }
   else {
@@ -954,10 +875,6 @@ Bit* Bit::ReplaceImplied(Bit *bit, const Vector<Bit*> &operands,
       result = SimplifyBit(xbit, BSIMP_Fold);
     }
     else {
-      for (size_t oind = 0; oind < op_list.Size(); oind++)
-        op_list[oind]->DecRef();
-
-      bit->IncRef();
       result = bit;
     }
   }
@@ -965,8 +882,6 @@ Bit* Bit::ReplaceImplied(Bit *bit, const Vector<Bit*> &operands,
   // store the result and consume the initial reference on it.
   bit->m_replace_extra = result;
 
-  // get a second reference for the return value.
-  result->IncRef();
   return result;
 }
 
@@ -1356,7 +1271,6 @@ Bit* Bit::DoMap(ExpMapper *mapper)
 
   case BIT_True:
   case BIT_False:
-    IncRef();
     use_bit = this;
     break;
 
@@ -1364,7 +1278,6 @@ Bit* Bit::DoMap(ExpMapper *mapper)
     Exp *new_var = GetVar()->DoMap(mapper);
     if (new_var) {
       use_bit = Exp::MakeNonZeroBit(new_var);
-      new_var->DecRef();
     }
     else {
       switch (mapper->Widen()) {
@@ -1410,8 +1323,6 @@ Bit* Bit::DoMap(ExpMapper *mapper)
     }
 
     if (drop_op_list) {
-      for (size_t ind = 0; ind < op_list.Size(); ind++)
-        op_list[ind]->DecRef();
       use_bit = NULL;
     }
     else {
@@ -1453,24 +1364,14 @@ void MultiMapBinop(bool is_and, Bit **ops, size_t count,
       ops[count-1]->DoMultiMap(mapper, &tail_res);
 
       for (size_t tind = 0; tind < tail_res.Size(); tind++) {
-        prev_res[pind]->IncRef();
-        tail_res[tind]->IncRef();
-
         Bit *new_bit;
-        if (is_and) {
+        if (is_and)
           new_bit = Bit::MakeAnd(prev_res[pind], tail_res[tind]);
-        }
-        else {
+        else
           new_bit = Bit::MakeOr(prev_res[pind], tail_res[tind]);
-        }
 
-        new_bit->MoveRef(NULL, res);
         res->PushBack(new_bit);
-
-        tail_res[tind]->DecRef(&tail_res);
       }
-
-      prev_res[pind]->DecRef(&prev_res);
     }
   }
 }
@@ -1484,7 +1385,6 @@ void Bit::DoMultiMap(ExpMultiMapper *mapper, Vector<Bit*> *res)
 
   case BIT_True:
   case BIT_False:
-    IncRef(res);
     res->PushBack(this);
     break;
 
@@ -1494,10 +1394,7 @@ void Bit::DoMultiMap(ExpMultiMapper *mapper, Vector<Bit*> *res)
 
     for (size_t ind = 0; ind < var_res.Size(); ind++) {
       Bit *var_bit = Exp::MakeNonZeroBit(var_res[ind]);
-      var_bit->MoveRef(NULL, res);
-
       res->PushBack(var_bit);
-      var_res[ind]->DecRef(&var_res);
     }
 
     break;
@@ -1508,10 +1405,7 @@ void Bit::DoMultiMap(ExpMultiMapper *mapper, Vector<Bit*> *res)
     GetOperand(0)->DoMultiMap(mapper, &op_res);
 
     for (size_t ind = 0; ind < op_res.Size(); ind++) {
-      op_res[ind]->MoveRef(&op_res, NULL);
       Bit *not_bit = MakeNot(op_res[ind]);
-      not_bit->MoveRef(NULL, res);
-
       res->PushBack(not_bit);
     }
 
@@ -1597,13 +1491,13 @@ void Bit::PrintUI(OutStream &out, bool parens) const
   }
 }
 
-void Bit::DecMoveChildRefs(ORef ov, ORef nv)
+void Bit::MarkChildren() const
 {
   if (m_var)
-    m_var->DecMoveRef(ov, nv);
+    m_var->Mark();
   Bit **use_ops = m_ops ? m_ops : (Bit**) &m_base_ops;
   for (size_t ind = 0; ind < m_op_count; ind++)
-    use_ops[ind]->DecMoveRef(ov, nv);
+    use_ops[ind]->Mark();
 }
 
 void Bit::Persist()
@@ -1633,8 +1527,6 @@ void Bit::ClearReplaceExtra()
     return;
   }
 
-  // drop and clear the reference on the replacement bit.
-  m_replace_extra->DecRef();
   m_replace_extra = NULL;
 
   // recurse on any sub-operands.

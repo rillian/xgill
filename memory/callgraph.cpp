@@ -134,44 +134,30 @@ void CallEdgeSet::ReadMerge(Buffer *buf,
 
 Exp* CallEdgeAddRfldExp(Exp *exp, BlockId *callee, Exp *rfld_chain)
 {
-  if (!rfld_chain || rfld_chain->IsEmpty()) {
-    exp->IncRef();
+  if (!rfld_chain || rfld_chain->IsEmpty())
     return exp;
-  }
 
   Assert(callee->Kind() == B_Function);
-  callee->IncRef();
   Variable *this_var = Variable::Make(callee, VK_This, NULL, 0, NULL);
   Exp *this_exp = Exp::MakeVar(this_var);
   Exp *this_drf = Exp::MakeDrf(this_exp);
   Exp *this_rfld = Exp::Compose(this_drf, rfld_chain);
 
-  Exp *new_exp = ExpReplaceExp(exp, this_drf, this_rfld);
-  this_drf->DecRef();
-  this_rfld->DecRef();
-
-  return new_exp;
+  return ExpReplaceExp(exp, this_drf, this_rfld);
 }
 
 Bit* CallEdgeAddRfldBit(Bit *bit, BlockId *callee, Exp *rfld_chain)
 {
-  if (!rfld_chain || rfld_chain->IsEmpty()) {
-    bit->IncRef();
+  if (!rfld_chain || rfld_chain->IsEmpty())
     return bit;
-  }
 
   Assert(callee->Kind() == B_Function);
-  callee->IncRef();
   Variable *this_var = Variable::Make(callee, VK_This, NULL, 0, NULL);
   Exp *this_exp = Exp::MakeVar(this_var);
   Exp *this_drf = Exp::MakeDrf(this_exp);
   Exp *this_rfld = Exp::Compose(this_drf, rfld_chain);
 
-  Bit *new_bit = BitReplaceExp(bit, this_drf, this_rfld);
-  this_drf->DecRef();
-  this_rfld->DecRef();
-
-  return new_bit;
+  return BitReplaceExp(bit, this_drf, this_rfld);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -204,19 +190,8 @@ void CallEdgeSet::AddEdge(const CallEdge &edge)
   if (m_edges == NULL)
     m_edges = new Vector<CallEdge>();
 
-  if (!m_edges->Contains(edge)) {
-    edge.where.id->MoveRef(NULL, this);
-    edge.callee->MoveRef(NULL, this);
-    if (edge.rfld_chain)
-      edge.rfld_chain->MoveRef(NULL, this);
+  if (!m_edges->Contains(edge))
     m_edges->PushBack(edge);
-  }
-  else {
-    edge.where.id->DecRef();
-    edge.callee->DecRef();
-    if (edge.rfld_chain)
-      edge.rfld_chain->DecRef();
-  }
 }
 
 void CallEdgeSet::SetEdgeVersion(size_t ind, VersionId version)
@@ -242,20 +217,18 @@ void CallEdgeSet::Print(OutStream &out) const
   }
 }
 
-void CallEdgeSet::DecMoveChildRefs(ORef ov, ORef nv)
+void CallEdgeSet::MarkChildren() const
 {
-  m_function->DecMoveRef(ov, nv);
+  m_function->Mark();
 
   if (m_edges != NULL) {
-    Assert(ov == this && nv == NULL);
-
     for (size_t eind = 0; eind < m_edges->Size(); eind++) {
       const CallEdge &edge = m_edges->At(eind);
 
-      edge.where.id->DecRef(this);
-      edge.callee->DecRef(this);
+      edge.where.id->Mark();
+      edge.callee->Mark();
       if (edge.rfld_chain)
-        edge.rfld_chain->DecRef(this);
+        edge.rfld_chain->Mark();
     }
   }
 }
@@ -289,34 +262,20 @@ void CallgraphProcessCall(BlockCFG *cfg, PEdgeCall *edge, Variable *callee,
 
   Vector<CallEdgeSet*> *caller_entries =
     g_pending_callers.Lookup(callee, true);
-  if (caller_entries->Empty()) {
-    callee->IncRef();
+  if (caller_entries->Empty())
     caller_entries->PushBack(CallEdgeSet::Make(callee, true));
-  }
 
   CallEdgeSet *caller_cset = caller_entries->At(0);
-
-  where.id->IncRef();
-  callee->IncRef();
-  if (rfld_chain)
-    rfld_chain->IncRef();
   caller_cset->AddEdge(CallEdge(where, callee, rfld_chain));
 
   // add the callee edge to the cache.
 
   Vector<CallEdgeSet*> *callee_entries =
     g_pending_callees.Lookup(caller, true);
-  if (callee_entries->Empty()) {
-    caller->IncRef();
+  if (callee_entries->Empty())
     callee_entries->PushBack(CallEdgeSet::Make(caller, false));
-  }
 
   CallEdgeSet *callee_cset = callee_entries->At(0);
-
-  where.id->IncRef();
-  callee->IncRef();
-  if (rfld_chain)
-    rfld_chain->IncRef();
   callee_cset->AddEdge(CallEdge(where, callee, rfld_chain));
 }
 
@@ -383,7 +342,6 @@ class FunctionPointerEscape : public EscapeStatus
       // check to see if there is a mismatch in the number of arguments
       // between the call edge and target function.
 
-      function->IncRef();
       BlockId *callee_id = BlockId::Make(B_Function, function);
       BlockCFG *callee = GetBlockCFG(callee_id);
 
@@ -402,9 +360,7 @@ class FunctionPointerEscape : public EscapeStatus
 
         if (arg_count != m_edge->GetArgumentCount())
           mismatch = true;
-        callee->DecRef();
       }
-      callee_id->DecRef();
 
       // discard the call edge in case of a mismatch.
       if (mismatch) {
@@ -418,10 +374,8 @@ class FunctionPointerEscape : public EscapeStatus
                  << ": " << m_edge->GetSource()
                  << ": " << function->GetName() << endl;
 
-        if (!m_callees->Contains(function)) {
-          function->IncRef();
+        if (!m_callees->Contains(function))
           m_callees->PushBack(function);
-        }
 
         CallgraphProcessCall(m_cfg, m_edge, function, NULL);
         m_found = true;
@@ -434,10 +388,6 @@ class FunctionPointerEscape : public EscapeStatus
     // we just want the first one, the least specific.
     Assert(matches.Size() > 0);
     Trace *res = matches[0];
-    res->IncRef();
-
-    for (size_t ind = 0; ind < matches.Size(); ind++)
-      matches[ind]->DecRef(&matches);
 
     if (GetTraceFunction(res) != NULL) {
       // don't count functions against the escape propagation
@@ -490,17 +440,14 @@ static void ProcessVirtualCallees(BlockCFG *cfg, PEdgeCall *edge,
              << ": " << function->GetName()
              << " [" << rfld_chain << "]" << endl;
 
-    if (!callees->Contains(function)) {
-      function->IncRef();
+    if (!callees->Contains(function))
       callees->PushBack(function);
-    }
 
     super_callees->PushBack(function);
     CallgraphProcessCall(cfg, edge, function, rfld_chain);
   }
 
   // find all subclasses of this type.
-  csu_name->IncRef();
   Exp *empty = Exp::MakeEmpty();
   Trace *super_trace = Trace::MakeComp(empty, csu_name);
 
@@ -531,18 +478,13 @@ static void ProcessVirtualCallees(BlockCFG *cfg, PEdgeCall *edge,
     String *new_csu_name = sub_field->GetCSUType()->GetCSUName();
     Assert(new_csu_name == target->GetCSUName());
 
-    rfld_chain->IncRef();
-    sub_field->IncRef();
     Exp *new_rfld_chain = Exp::MakeRfld(rfld_chain, sub_field);
 
     ProcessVirtualCallees(cfg, edge, callees, super_callees,
                           new_csu_name, field, new_object, new_rfld_chain);
-
-    new_rfld_chain->DecRef();
   }
 
   EscapeBackwardCache.Release(super_trace);
-  super_trace->DecRef();
 
   if (function)
     super_callees->PopBack();
@@ -595,24 +537,14 @@ void CallgraphProcessCFGIndirect(BlockCFG *cfg, Vector<Variable*> *callees)
 
       ProcessVirtualCallees(cfg, edge, callees, &super_callees,
                             csu_name, field, object, rfld_chain);
-
-      rfld_chain->DecRef();
     }
     else {
       // indirect call through a function pointer. do an escape to propagate
       // backwards and find the possible targets.
 
       FunctionPointerEscape escape(cfg, edge, callees);
-
-      function->IncRef();
       Trace *source = Trace::MakeFromExp(cfg->GetId(), function);
-
-      bool success = false;
-
-      if (source) {
-        success = escape.FollowEscape(source);
-        source->DecRef();
-      }
+      bool success = source && escape.FollowEscape(source);
 
       if (!success) {
         logout << "WARNING: Incomplete function pointer propagation: "

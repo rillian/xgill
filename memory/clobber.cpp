@@ -96,8 +96,6 @@ class MemoryClobberModset : public MemoryClobber
       GuardExpVector caller_res;
       mcfg->TranslateExp(TRK_Callee, point, new_lval, &caller_res);
 
-      new_lval->DecRef();
-
       for (size_t ind = 0; ind < caller_res.Size(); ind++) {
         const GuardExp &gt = caller_res[ind];
 
@@ -105,19 +103,10 @@ class MemoryClobberModset : public MemoryClobber
         if (gt.exp->RfldCount() > 0)
           continue;
 
-        if (!gt.guard->IsTrue())
-          gt.guard->IncRef(clobbered);
-        gt.exp->IncRef(clobbered);
-        cv.lval->IncRef(clobbered);
-        if (cv.kind)
-          cv.kind->IncRef(clobbered);
-
         GuardAssign gti(gt.exp, cv.lval, gt.guard, cv.kind);
         clobbered->PushBack(gti);
       }
     }
-
-    modset->DecRef();
   }
 
   void ComputeClobber(BlockMemory *mcfg, PEdge *edge,
@@ -130,7 +119,6 @@ class MemoryClobberModset : public MemoryClobber
     if (BlockId *callee = edge->GetDirectCallee()) {
       ComputeClobberCall(mcfg, edge, assigns, clobbered,
                          true, callee, NULL);
-      callee->DecRef();
     }
     else if (edge->IsCall() && m_indirect) {
       Variable *function = mcfg->GetId()->BaseVar();
@@ -143,12 +131,10 @@ class MemoryClobberModset : public MemoryClobber
           if (cedge.where.version == mcfg->GetCFG()->GetVersion() &&
               cedge.where.id == mcfg->GetId() &&
               cedge.where.point == point) {
-            cedge.callee->IncRef();
             BlockId *callee = BlockId::Make(B_Function, cedge.callee);
 
             ComputeClobberCall(mcfg, edge, assigns, clobbered,
                                false, callee, cedge.rfld_chain);
-            callee->DecRef();
           }
         }
       }

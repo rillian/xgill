@@ -156,20 +156,13 @@ struct Buffer
     pos += data_length;
   }
 
-  // signature of cleanup functions for items in the persistent state.
-  typedef void (*CleanupFn)(Buffer *buf, void *v);
-
   // persistent state within a buffer. the seen/seen_rev table can be used to
   // remember data that previously appeared in the buffer, and instead
   // of writing or reading it again just write/read an integer identifier.
   // these tables will be NULL until they are actually used
   // (in most cases they won't be used at all).
 
-  struct WTI {
-    uint32_t id;
-    CleanupFn cleanup;
-  };
-  typedef HashTable< void*, WTI, DataHash<void*> > SeenTable;
+  typedef HashTable< void*, uint32_t, DataHash<void*> > SeenTable;
 
   // table for use in writing. seen maps previously written pointers to
   // the identifiers associated with them. seen_next is the next unused
@@ -181,13 +174,9 @@ struct Buffer
   // and returns v's identifier through pid. if not, associates v with
   // a new identifier and returns that identifier through pid, and will
   // call cleanup(v) when Reset() is next called.
-  bool TestSeen(void *v, CleanupFn cleanup, uint32_t *pid);
+  bool TestSeen(void *v, uint32_t *pid);
 
-  struct RTI {
-    void *v;
-    CleanupFn cleanup;
-  };
-  typedef HashTable< uint32_t, RTI, DataHash<uint32_t> > SeenRevTable;
+  typedef HashTable< uint32_t, void*, DataHash<uint32_t> > SeenRevTable;
 
   // table for use in reading. seen_rev maps identifiers back to the
   // pointers associated with that identifier. normally seen_rev maps
@@ -199,10 +188,10 @@ struct Buffer
   // if not, associates id with v and cleanup (cleanup can serve as an
   // identifier for ensuring type safety), and will call cleanup(v) when
   // Reset() is next called.
-  bool AddSeenRev(uint32_t id, void *v, CleanupFn cleanup);
+  bool AddSeenRev(uint32_t id, void *v);
 
   // get the v/cleanup with which id was associated, return false if none.
-  bool TestSeenRev(uint32_t id, void **pv, CleanupFn *pcleanup);
+  bool TestSeenRev(uint32_t id, void **pv);
 
   ALLOC_OVERRIDE(g_alloc_Buffer);
 };

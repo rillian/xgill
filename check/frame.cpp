@@ -49,28 +49,10 @@ CheckerFrame::CheckerFrame(CheckerState *state, FrameId id,
     m_loop_parent_expand("loop_parent_expand"),
     m_callee_heap_frame(0), m_caller_heap_frame(0),
     m_checked_assertions(false)
-{
-  m_cfg->MoveRef(NULL, this);
-  m_mcfg->MoveRef(NULL, this);
-  m_summary->MoveRef(NULL, this);
-}
+{}
 
 CheckerFrame::~CheckerFrame()
 {
-  m_cfg->DecRef(this);
-  m_mcfg->DecRef(this);
-  m_summary->DecRef(this);
-
-  DecRefVector(m_assumed_bits, &m_assumed_bits);
-  DecRefVector(m_assumed_extra, &m_assumed_extra);
-  DecRefVector(m_annotated_terms, &m_annotated_terms);
-
-  if (m_caller.id)
-    m_caller.id->DecRef(this);
-
-  if (m_loop_parent.id)
-    m_loop_parent.id->DecRef(this);
-
   for (size_t ind = 0; ind < m_callee_expand.Size(); ind++)
     delete m_callee_expand[ind];
 }
@@ -259,7 +241,6 @@ void CheckerFrame::ExpandPendingExps()
     if (edge->IsCall() && edge->AsCall()->GetDirectFunction() == NULL) {
       // get the address of this function itself.
       Variable *var = m_mcfg->GetCFG()->GetId()->BaseVar();
-      var->IncRef();
       Exp *var_exp = Exp::MakeVar(var);
 
       // get the function expressions at the call site.
@@ -273,7 +254,6 @@ void CheckerFrame::ExpandPendingExps()
                             gs.exp, gs.guard, true);
       }
 
-      var_exp->DecRef();
       caller_frame->MarkPendingExps();
       expand_frames.PushBack(caller_frame);
     }
@@ -379,7 +359,6 @@ void CheckerFrame::ConnectCallee(CheckerFrame *callee_frame, PPoint point,
   Assert(!GetCalleeFrame(point));
 
   BlockId *caller = m_mcfg->GetId();
-  caller->IncRef(callee_frame);
 
   callee_frame->m_caller = BlockPPoint(caller, point);
   callee_frame->m_caller_frame = m_id;
@@ -395,8 +374,6 @@ void CheckerFrame::ConnectLoopChild(CheckerFrame *child_frame, PPoint point)
   // iteration children, only the first (GetCallee) and last (GetLoopTail).
 
   BlockPPoint where(m_mcfg->GetId(), point);
-  where.id->IncRef(child_frame);
-
   child_frame->m_loop_parent = where;
   child_frame->m_loop_parent_frame = m_id;
 }
@@ -446,7 +423,6 @@ void CheckerFrame::DisconnectCallee(CheckerFrame *callee_frame, PPoint point)
   Assert(callee_frame->m_caller_frame == m_id);
   Assert(callee_frame == GetCalleeFrame(point));
 
-  callee_frame->m_caller.id->DecRef(callee_frame);
   callee_frame->m_caller = BlockPPoint();
   callee_frame->m_caller_frame = 0;
   callee_frame->m_caller_equalities = false;
@@ -465,7 +441,6 @@ void CheckerFrame::DisconnectLoopChild(CheckerFrame *child_frame, PPoint point)
   Assert(child_frame->m_loop_parent_frame == m_id);
 
   child_frame->m_loop_parent_frame = 0;
-  child_frame->m_loop_parent.id->DecRef(child_frame);
   child_frame->m_loop_parent = BlockPPoint();
 }
 
@@ -530,7 +505,6 @@ void CheckerFrame::PushCallerLoopParent(CheckerFrame *caller_frame)
     if (m_loop_parent_frame) {
       caller_frame->m_loop_parent_frame = m_loop_parent_frame;
       caller_frame->m_loop_parent = m_loop_parent;
-      caller_frame->m_loop_parent.id->IncRef(caller_frame);
     }
   }
   else if (m_loop_parent_frame) {
@@ -601,19 +575,15 @@ void CheckerFrame::AssertPointGuard(PPoint point, bool allow_point)
 
   for (size_t ind = 0; ind < assume_list.Size(); ind++) {
     const AssumeInfo &info = assume_list[ind];
-    info.bit->IncRef(&m_assumed_bits);
     m_assumed_bits.PushBack(info.bit);
 
     // if the assume came from an annotation, add its terms to the UI display.
     if (info.annot)
       m_state->GetSolver()->GetBitTerms(m_id, info.bit, &m_annotated_terms);
-
-    info.DecRef(&assume_list);
   }
 
   // add assumption that paths go through the specified point.
   Bit *point_guard = m_mcfg->GetGuard(point);
-  point_guard->IncRef(&m_assumed_bits);
   m_assumed_bits.PushBack(point_guard);
 
   // assert the generated assumptions.
@@ -632,8 +602,6 @@ void CheckerFrame::AssertPointGuard(PPoint point, bool allow_point)
 
         if (kind == IGNORE_UNREACHABLE) {
           Bit *guard = m_mcfg->GetGuard(edge->GetSource());
-
-          guard->IncRef();
           Bit *not_guard = Bit::MakeNot(guard);
 
           solver->AddConstraint(m_id, not_guard);
@@ -643,14 +611,10 @@ void CheckerFrame::AssertPointGuard(PPoint point, bool allow_point)
           Exp *ret_drf = Exp::MakeDrf(ret_exp);
           Bit *ret_nonzero = Exp::MakeNonZeroBit(ret_drf);
           Bit *ret_zero = Bit::MakeNot(ret_nonzero);
-          ret_drf->DecRef();
 
           Bit *post_bit;
           m_mcfg->TranslateBit(TRK_Callee, edge->GetSource(),
                                ret_zero, &post_bit);
-          post_bit->MoveRef(&post_bit, NULL);
-          ret_zero->DecRef();
-
           solver->AddConstraint(m_id, post_bit);
         }
       }
@@ -669,15 +633,12 @@ void CheckerFrame::AssertPointGuard(PPoint point, bool allow_point)
         WhereInvariant *invariant = m_state->m_invariant_list[iind];
         invariant->AssertRecursive(this, lval);
       }
-
-      lval->DecRef(&lvalue_list);
     }
   }
 }
 
 void CheckerFrame::PushAssumedBit(Bit *guard)
 {
-  guard->IncRef(&m_assumed_extra);
   m_assumed_extra.PushBack(guard);
 
   // undoing this assert will be taken care of by PopContext().
@@ -686,9 +647,7 @@ void CheckerFrame::PushAssumedBit(Bit *guard)
 
 void CheckerFrame::PopAssumedBit()
 {
-  Bit *guard = m_assumed_extra.Back();
   m_assumed_extra.PopBack();
-  guard->DecRef(&m_assumed_extra);
 }
 
 void CheckerFrame::MarkPendingExps()
@@ -711,14 +670,10 @@ void CheckerFrame::MarkPendingExps()
     for (size_t ind = 0; ind < pending_list.Size(); ind++) {
       Exp *exp = pending_list[ind];
 
-      if (solver->ExpandVal(m_id, exp)) {
+      if (solver->ExpandVal(m_id, exp))
         found_val = true;
-        exp->DecRef(&pending_list);
-      }
-      else {
+      else
         post_list.PushBack(exp);
-        exp->MoveRef(&pending_list, &post_list);
-      }
     }
   }
 
@@ -757,11 +712,7 @@ void CheckerFrame::MarkPendingExps()
         callee_set->AddExp(callee);
         m_callee_expand.PushBack(callee_set);
       }
-
-      callee->DecRef();
     }
-
-    exp->DecRef(&post_list);
   }
 }
 
@@ -806,9 +757,6 @@ CheckerState::~CheckerState()
   m_solver->Clear();
   delete m_solver;
 
-  for (size_t ind = 0; ind < m_base_bits.Size(); ind++)
-    m_base_bits[ind]->DecRef(this);
-
   // the propagations in m_stack are not owned by the state, they reside
   // on the program stack itself.
 
@@ -824,18 +772,6 @@ CheckerState::~CheckerState()
 
   if (m_path)
     delete m_path;
-
-  for (size_t ind = 0; ind < m_trait_fields.Size(); ind++)
-    m_trait_fields[ind]->DecRef(this);
-
-  for (size_t ind = 0; ind < m_trait_blocks.Size(); ind++)
-    m_trait_blocks[ind]->DecRef(this);
-
-  for (size_t ind = 0; ind < m_trait_bound_types.Size(); ind++)
-    m_trait_bound_types[ind]->DecRef(this);
-
-  for (size_t ind = 0; ind < m_trait_heap_fields.Size(); ind++)
-    m_trait_heap_fields[ind]->DecRef(this);
 }
 
 // visitor to add trait information to a CheckerState based on terms
@@ -854,19 +790,15 @@ class CheckerTraitVisitor : public ExpVisitor
     // add mentioned fields.
     if (ExpFld *nexp = exp->IfFld()) {
       Field *field = nexp->GetField();
-      if (!state->m_trait_fields.Contains(field)) {
-        field->IncRef(state);
+      if (!state->m_trait_fields.Contains(field))
         state->m_trait_fields.PushBack(field);
-      }
     }
 
     // add mentioned stride types.
     if (ExpBound *nexp = exp->IfBound()) {
       Type *type = nexp->GetStrideType();
-      if (!state->m_trait_bound_types.Contains(type)) {
-        type->IncRef(state);
+      if (!state->m_trait_bound_types.Contains(type))
         state->m_trait_bound_types.PushBack(type);
-      }
     }
   }
 };
@@ -927,10 +859,8 @@ void CheckerState::SetReport(ReportKind kind)
     // add functions/inits from the frame.
     BlockId *id = frame->Memory()->GetId();
     if (id->Kind() == B_Function || id->Kind() == B_Initializer) {
-      if (!m_trait_blocks.Contains(id)) {
-        id->IncRef(this);
+      if (!m_trait_blocks.Contains(id))
         m_trait_blocks.PushBack(id);
-      }
     }
   }
 
@@ -1024,7 +954,6 @@ CheckerFrame* CheckerState::MakeFrame(BlockId *cfg_id)
 
   BlockCFG *cfg = mcfg->GetCFG();
   Assert(cfg);
-  cfg->IncRef();
 
   BlockSummary *summary = GetBlockSummary(cfg_id);
   Assert(summary);
@@ -1112,18 +1041,13 @@ void CheckerState::PushBaseBit(Bit *bit, CheckerFrame *frame)
 {
   // get the negation of the bit; we are interested in cases where the base
   // bits do *not* hold for some assignment.
-  bit->IncRef();
   Bit *not_bit = Bit::MakeNot(bit);
-  not_bit->MoveRef(NULL, this);
-
   m_base_bits.PushBack(not_bit);
   m_base_frames.PushBack(frame);
 }
 
 void CheckerState::PopBaseBit()
 {
-  Bit *bit = m_base_bits.Back();
-  bit->DecRef(this);
   m_base_bits.PopBack();
   m_base_frames.PopBack();
 }
@@ -1135,8 +1059,6 @@ void CheckerState::AssertBaseBits()
   for (size_t ind = 0; ind < m_base_bits.Size(); ind++) {
     Bit *bit = m_base_bits[ind];
     CheckerFrame *frame = m_base_frames[ind];
-
-    bit->IncRef();
     m_solver->AddConstraint(frame->Id(), bit);
   }
 }

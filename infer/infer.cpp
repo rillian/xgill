@@ -67,12 +67,8 @@ class ArithmeticEscape : public EscapeStatus
     // add the trace's lvalue to each of the summaries.
     Exp *exp = trace->GetValue();
 
-    if (!m_arithmetic_lvals.Contains(exp)) {
-      exp->IncRef(&m_arithmetic_lvals);
+    if (!m_arithmetic_lvals.Contains(exp))
       m_arithmetic_lvals.PushBack(exp);
-    }
-
-    trace->IncRef();
     return trace;
   }
 };
@@ -88,12 +84,10 @@ void ProcessArithmeticAssign(ArithmeticEscape *escape, BlockId *id,
 
     // get the expression we will be running escape propagation on.
     // this is the deref of the left side of the assignment.
-    left->IncRef();
     Exp *left_drf = Exp::MakeDrf(left);
 
     if (Trace *trace = Trace::MakeFromExp(id, left_drf)) {
       bool success = escape->FollowEscape(trace);
-      trace->DecRef();
 
       if (!success) {
         logout << "WARNING: ProcessArithmeticAssign: "
@@ -140,13 +134,8 @@ class BufferScanVisitor : public ExpVisitor
 
     if (ExpIndex *nlval = lval->IfIndex()) {
       base = nlval->GetTarget();
-      base->IncRef();
-
       elem_type = nlval->GetElementType();
-      elem_type->IncRef();
-
       index = nlval->GetIndex();
-      index->IncRef();
 
       if (base->IsIndex()) {
         // multidimensional array access, the base needs to be checked
@@ -161,20 +150,14 @@ class BufferScanVisitor : public ExpVisitor
       // of pointer arithmetic.
       bool is_arithmetic = false;
 
-      if (Exp *new_lval = Trace::SanitizeExp(lval)) {
+      if (Exp *new_lval = Trace::SanitizeExp(lval))
         is_arithmetic = arithmetic_list.Contains(new_lval);
-        new_lval->DecRef();
-      }
 
       if (is_arithmetic) {
         base = lval;
-        base->IncRef();
 
         elem_type = nlval->GetType();
-        if (elem_type) {
-          elem_type->IncRef();
-        }
-        else {
+        if (!elem_type) {
           // TODO: need better handling for this case. *((int*)n)
           elem_type = Type::MakeVoid();
         }
@@ -185,11 +168,6 @@ class BufferScanVisitor : public ExpVisitor
 
     if (base || elem_type || index) {
       Assert(base && elem_type && index);
-
-      // need two sets of references, for lower and upper bound tests.
-      base->IncRef();
-      elem_type->IncRef();
-      index->IncRef();
 
       AssertInfo lower_info;
       AssertInfo upper_info;
@@ -226,11 +204,11 @@ class BufferScanVisitor : public ExpVisitor
           skip_upper = true;
       }
 
-      if (skip_lower) lower_info.bit->DecRef();
-      else asserts.PushBack(lower_info);
+      if (!skip_lower)
+        asserts.PushBack(lower_info);
 
-      if (skip_upper) upper_info.bit->DecRef();
-      else asserts.PushBack(upper_info);
+      if (!skip_upper)
+        asserts.PushBack(upper_info);
     }
   }
 };
@@ -268,9 +246,6 @@ class IntegerScanVisitor : public ExpVisitor
 
     lower_info.point = point;
     upper_info.point = point;
-
-    exp->IncRef();
-    exp->IncRef();
 
     const char *min_value = GetMinimumInteger(bits, sign);
     const char *max_value = GetMaximumInteger(bits, sign);
@@ -318,8 +293,6 @@ class GCScanVisitor : public ExpVisitor
         info.kind = ASK_GCSafe;
         info.cls = ASC_Check;
         info.point = point;
-
-        lval->IncRef();
 
         Exp *gcsafe = Exp::MakeGCSafe(lval);
         info.bit = Bit::MakeVar(gcsafe);
@@ -378,15 +351,11 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
 
     if (info.kind != ASK_Invariant) {
       // assert !bit.
-
-      info.bit->IncRef();
       Bit *not_bit = Bit::MakeNot(info.bit);
 
       Bit *result_not_bit;
       mcfg->TranslateBit(TRK_Point, info.point, not_bit, &result_not_bit);
       solver->AddAssert(0, result_not_bit);
-      not_bit->DecRef();
-      result_not_bit->DecRef(&result_not_bit);
     }
 
     if (!solver->IsSatisfiable()) {
@@ -423,21 +392,16 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
           continue;
 
         // assert !oguard
-        oguard->IncRef();
         Bit *not_oguard = Bit::MakeNot(oguard);
         solver->AddAssert(0, not_oguard);
-        not_oguard->DecRef();
       }
       else {
         // assert (oguard ==> obit).
         Bit *result_obit;
         mcfg->TranslateBit(TRK_Point, oinfo.point, oinfo.bit, &result_obit);
-        result_obit->MoveRef(&result_obit, NULL);
 
-        oguard->IncRef();
         Bit *imply_bit = Bit::MakeImply(oguard, result_obit);
         solver->AddAssert(0, imply_bit);
-        imply_bit->DecRef();
       }
     }
 
@@ -457,8 +421,6 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
     if (!loop_edge)
       continue;
 
-    BlockCFG *loop_cfg = GetBlockCFG(loop_edge->GetLoopId());
-
     for (size_t aind = 0; aind < asserts.Size(); aind++) {
       AssertInfo &info = asserts[aind];
 
@@ -471,8 +433,6 @@ void MarkRedundantAssertions(BlockMemory *mcfg, Vector<AssertInfo> &asserts)
         info.cls = ASC_Redundant;
       }
     }
-
-    loop_cfg->DecRef();
   }
 }
 
@@ -523,8 +483,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
         if (annot_cfg->GetAnnotationKind() != AK_Postcondition)
           continue;
         if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
-          bit->IncRef();
-
           AssertInfo info;
           info.kind = ASK_Annotation;
           info.cls = ASC_Check;
@@ -541,14 +499,10 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
       BlockCFG *annot_cfg = GetAnnotationCFG(pann.annot);
       if (!annot_cfg) continue;
 
-      if (annot_cfg->GetAnnotationKind() != AK_Assert) {
-        annot_cfg->DecRef();
+      if (annot_cfg->GetAnnotationKind() != AK_Assert)
         continue;
-      }
 
       if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
-        bit->IncRef();
-
         AssertInfo info;
         info.kind = ASK_Annotation;
         info.cls = ASC_Check;
@@ -556,8 +510,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
         info.bit = bit;
         asserts.PushBack(info);
       }
-
-      annot_cfg->DecRef();
     }
 
     for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
@@ -571,13 +523,10 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
 
         if (annot_cfg->GetAnnotationKind() != AK_Assert &&
             annot_cfg->GetAnnotationKind() != AK_AssertRuntime) {
-          annot_cfg->DecRef();
           continue;
         }
 
         if (Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg)) {
-          bit->IncRef();
-
           AssertInfo info;
           info.kind = (annot_cfg->GetAnnotationKind() == AK_Assert)
             ? ASK_Annotation : ASK_AnnotationRuntime;
@@ -586,8 +535,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
           info.bit = bit;
           asserts.PushBack(info);
         }
-
-        annot_cfg->DecRef();
       }
 
       // add assertions for any invariants affected by a write.
@@ -635,13 +582,11 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
             // as an lvalue. we need to assert this write preserves
             // the invariant.
             BlockId *id = annot_cfg->GetId();
-            id->IncRef();
             Variable *this_var = Variable::Make(id, VK_This, NULL, 0, NULL);
             Exp *this_exp = Exp::MakeVar(this_var);
             Exp *this_drf = Exp::MakeDrf(this_exp);
 
             Bit *new_bit = BitReplaceExp(bit, this_drf, nleft->GetTarget());
-            this_drf->DecRef();
 
             AssertInfo info;
             info.kind = ASK_Invariant;
@@ -650,8 +595,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
             info.bit = new_bit;
             asserts.PushBack(info);
           }
-
-          DecRefVector<Exp>(lval_list, &lval_list);
         }
 
         CompAnnotCache.Release(csu_name);
@@ -669,8 +612,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
 
             Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
             if (!bit) continue;
-
-            bit->IncRef();
 
             AssertInfo info;
             info.kind = ASK_Invariant;
@@ -773,7 +714,6 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
   for (size_t ind = 0; ind < summary_list.Size(); ind++)
     InferInvariants(summary_list[ind], arithmetic_list);
 
-  DecRefVector<Exp>(arithmetic_list, &arithmetic_list);
   BodyAnnotCache.Release(function->GetName());
 }
 

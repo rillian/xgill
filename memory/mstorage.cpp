@@ -113,7 +113,6 @@ class ExternalLookup_BlockMemory : public Cache_BlockMemory::ExternalLookup
     const char *function_name = function->Value();
 
     if (!DoLookupTransaction(MEMORY_DATABASE, function_name, &scratch_buf)) {
-      id->IncRef(cache);
       cache->Insert(id, NULL);
       return;
     }
@@ -134,40 +133,25 @@ class ExternalLookup_BlockMemory : public Cache_BlockMemory::ExternalLookup
       if (id == mcfg_id)
         found = true;
 
-      mcfg_id->IncRef(cache);
-      mcfg->MoveRef(NULL, cache);
       cache->Insert(mcfg_id, mcfg);
     }
 
-    if (!found) {
-      id->IncRef(cache);
+    if (!found)
       cache->Insert(id, NULL);
-    }
   }
 
   void Remove(Cache_BlockMemory *cache, BlockId *id, BlockMemory *mcfg)
-  {
-    id->DecRef(cache);
-    if (mcfg != NULL)
-      mcfg->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_BlockMemory lookup_BlockMemory;
 Cache_BlockMemory BlockMemoryCache(&lookup_BlockMemory, CAP_BLOCK_MEMORY);
 
-void BlockMemoryCacheAddList(const Vector<BlockMemory*> &mcfgs,
-                             bool consume_references)
+void BlockMemoryCacheAddList(const Vector<BlockMemory*> &mcfgs)
 {
   for (size_t ind = 0; ind < mcfgs.Size(); ind++) {
     BlockMemory *mcfg = mcfgs[ind];
     BlockId *id = mcfg->GetId();
-
-    if (!consume_references)
-      mcfg->IncRef();
-
-    id->IncRef(&BlockMemoryCache);
-    mcfg->MoveRef(NULL, &BlockMemoryCache);
     BlockMemoryCache.Insert(id, mcfg);
   }
 }
@@ -182,14 +166,10 @@ BlockMemory* GetBlockMemory(BlockId *id)
   }
 
   BlockCFG *cfg = GetBlockCFG(id);
-  if (cfg) {
+  if (cfg)
     mcfg->SetCFG(cfg);
-    cfg->DecRef();
-  }
 
-  mcfg->IncRef();
   BlockMemoryCache.Release(id);
-
   return mcfg;
 }
 
@@ -208,13 +188,9 @@ class ExternalLookup_BlockModset : public Cache_BlockModset::ExternalLookup
     if (!DoLookupTransaction(MODSET_DATABASE, function_name, &scratch_buf)) {
      missing:
       // ensure there is always a modset, even if empty.
-      id->IncRef();
       BlockModset *bmod = BlockModset::Make(id);
-
       FillBakedModset(bmod);
 
-      id->IncRef(cache);
-      bmod->MoveRef(NULL, cache);
       cache->Insert(id, bmod);
       return;
     }
@@ -238,8 +214,6 @@ class ExternalLookup_BlockModset : public Cache_BlockModset::ExternalLookup
       // augment this modset with any baked information.
       FillBakedModset(bmod);
 
-      bmod_id->IncRef(cache);
-      bmod->MoveRef(NULL, cache);
       cache->Insert(bmod_id, bmod);
     }
 
@@ -248,28 +222,17 @@ class ExternalLookup_BlockModset : public Cache_BlockModset::ExternalLookup
   }
 
   void Remove(Cache_BlockModset *cache, BlockId *id, BlockModset *bmod)
-  {
-    id->DecRef(cache);
-    if (bmod != NULL)
-      bmod->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_BlockModset lookup_BlockModset;
 Cache_BlockModset BlockModsetCache(&lookup_BlockModset, CAP_BLOCK_MODSET);
 
-void BlockModsetCacheAddList(const Vector<BlockModset*> &mods,
-                             bool consume_references)
+void BlockModsetCacheAddList(const Vector<BlockModset*> &mods)
 {
   for (size_t ind = 0; ind < mods.Size(); ind++) {
     BlockModset *bmod = mods[ind];
     BlockId *id = bmod->GetId();
-
-    if (!consume_references)
-      bmod->IncRef();
-
-    id->IncRef(&BlockModsetCache);
-    bmod->MoveRef(NULL, &BlockModsetCache);
     BlockModsetCache.Insert(id, bmod);
   }
 }
@@ -277,9 +240,7 @@ void BlockModsetCacheAddList(const Vector<BlockModset*> &mods,
 BlockModset* GetBlockModset(BlockId *id)
 {
   BlockModset *bmod = BlockModsetCache.Lookup(id);
-
   Assert(bmod);
-  bmod->IncRef();
 
   BlockModsetCache.Release(id);
   return bmod;
@@ -300,13 +261,9 @@ class ExternalLookup_BlockSummary : public Cache_BlockSummary::ExternalLookup
     if (id->Kind() == B_Initializer) {
      missing:
       // ensure there is always a summary, even if empty.
-      id->IncRef();
       BlockSummary *sum = BlockSummary::Make(id);
-
       FillBakedSummary(sum);
 
-      id->IncRef(cache);
-      sum->MoveRef(NULL, cache);
       cache->Insert(id, sum);
       return;
     }
@@ -336,8 +293,6 @@ class ExternalLookup_BlockSummary : public Cache_BlockSummary::ExternalLookup
       // augment this summary with any baked information.
       FillBakedSummary(sum);
 
-      sum_id->IncRef(cache);
-      sum->MoveRef(NULL, cache);
       cache->Insert(sum_id, sum);
     }
 
@@ -346,28 +301,17 @@ class ExternalLookup_BlockSummary : public Cache_BlockSummary::ExternalLookup
   }
 
   void Remove(Cache_BlockSummary *cache, BlockId *id, BlockSummary *sum)
-  {
-    id->DecRef(cache);
-    if (sum != NULL)
-      sum->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_BlockSummary lookup_BlockSummary;
 Cache_BlockSummary BlockSummaryCache(&lookup_BlockSummary, CAP_BLOCK_SUMMARY);
 
-void BlockSummaryCacheAddList(const Vector<BlockSummary*> &sums,
-                              bool consume_references)
+void BlockSummaryCacheAddList(const Vector<BlockSummary*> &sums)
 {
   for (size_t ind = 0; ind < sums.Size(); ind++) {
     BlockSummary *sum = sums[ind];
     BlockId *id = sum->GetId();
-
-    if (!consume_references)
-      sum->IncRef();
-
-    id->IncRef(&BlockSummaryCache);
-    sum->MoveRef(NULL, &BlockSummaryCache);
     BlockSummaryCache.Insert(id, sum);
   }
 }
@@ -375,9 +319,7 @@ void BlockSummaryCacheAddList(const Vector<BlockSummary*> &sums,
 BlockSummary* GetBlockSummary(BlockId *id)
 {
   BlockSummary *sum = BlockSummaryCache.Lookup(id);
-
   Assert(sum);
-  sum->IncRef();
 
   BlockSummaryCache.Release(id);
   return sum;
@@ -401,14 +343,9 @@ class ExternalLookup_EscapeEdge
     String *key = GetTraceKey(trace);
 
     if (!DoLookupTransaction(m_database, key->Value(), &scratch_buf)) {
-      trace->IncRef(cache);
       cache->Insert(trace, NULL);
-
-      key->DecRef();
       return;
     }
-
-    key->DecRef();
 
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     Vector<EscapeEdgeSet*> eset_list;
@@ -426,23 +363,15 @@ class ExternalLookup_EscapeEdge
       if (use_trace == trace)
         found = true;
 
-      use_trace->IncRef(cache);
-      eset->MoveRef(NULL, cache);
       cache->Insert(use_trace, eset);
     }
 
-    if (!found) {
-      trace->IncRef(cache);
+    if (!found)
       cache->Insert(trace, NULL);
-    }
   }
 
   void Remove(Cache_EscapeEdgeSet *cache, Trace *trace, EscapeEdgeSet *eset)
-  {
-    trace->DecRef(cache);
-    if (eset != NULL)
-      eset->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_EscapeEdge
@@ -471,14 +400,9 @@ class ExternalLookup_EscapeAccess
 
     if (!DoLookupTransaction(ESCAPE_ACCESS_DATABASE,
                              key->Value(), &scratch_buf)) {
-      trace->IncRef(cache);
       cache->Insert(trace, NULL);
-
-      key->DecRef();
       return;
     }
-
-    key->DecRef();
 
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     Vector<EscapeAccessSet*> aset_list;
@@ -496,23 +420,15 @@ class ExternalLookup_EscapeAccess
       if (use_trace == trace)
         found = true;
 
-      use_trace->IncRef(cache);
-      aset->MoveRef(NULL, cache);
       cache->Insert(use_trace, aset);
     }
 
-    if (!found) {
-      trace->IncRef(cache);
+    if (!found)
       cache->Insert(trace, NULL);
-    }
   }
 
   void Remove(Cache_EscapeAccessSet *cache, Trace *trace, EscapeAccessSet *aset)
-  {
-    trace->DecRef(cache);
-    if (aset != NULL)
-      aset->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_EscapeAccess lookup_EscapeAccess;
@@ -536,7 +452,6 @@ class ExternalLookup_CallEdge : public Cache_CallEdgeSet::ExternalLookup
   void LookupInsert(Cache_CallEdgeSet *cache, Variable *func)
   {
     if (!DoLookupTransaction(m_database, func->GetName()->Value(), &scratch_buf)) {
-      func->IncRef(cache);
       cache->Insert(func, NULL);
       return;
     }
@@ -547,17 +462,11 @@ class ExternalLookup_CallEdge : public Cache_CallEdgeSet::ExternalLookup
     scratch_buf.Reset();
     read_buf.Reset();
 
-    func->IncRef(cache);
-    cset->MoveRef(NULL, cache);
     cache->Insert(func, cset);
   }
 
   void Remove(Cache_CallEdgeSet *cache, Variable *func, CallEdgeSet *cset)
-  {
-    func->DecRef(cache);
-    if (cset != NULL)
-      cset->DecRef(cache);
-  }
+  {}
 };
 
 ExternalLookup_CallEdge lookup_Caller(CALLER_DATABASE);
@@ -660,7 +569,6 @@ static Buffer pending_buf;
 static void WritePendingEscapeEdge(Transaction *t, EscapeEdgeSet *eset)
 {
   EscapeEdgeSet::Write(&pending_buf, eset);
-  eset->DecRef();
 
   if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
     TOperand *list_op = TOperandString::Compress(t, &pending_buf);
@@ -674,7 +582,6 @@ static void WritePendingEscapeEdge(Transaction *t, EscapeEdgeSet *eset)
 static void WritePendingEscapeAccess(Transaction *t, EscapeAccessSet *aset)
 {
   EscapeAccessSet::Write(&pending_buf, aset);
-  aset->DecRef();
 
   if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
     TOperand *list_op = TOperandString::Compress(t, &pending_buf);
@@ -688,7 +595,6 @@ static void WritePendingEscapeAccess(Transaction *t, EscapeAccessSet *aset)
 static void WritePendingCallEdge(Transaction *t, CallEdgeSet *cset)
 {
   CallEdgeSet::Write(&pending_buf, cset);
-  cset->DecRef();
 
   if (pending_buf.pos - pending_buf.base > TRANSACTION_DATA_LIMIT) {
     TOperand *list_op = TOperandString::Compress(t, &pending_buf);

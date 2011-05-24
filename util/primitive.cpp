@@ -73,25 +73,17 @@ String* String::ReadWithTag(Buffer *buf, tag_t tag)
   if (s == NULL)
     return NULL;
 
-  if (!ReadCloseTag(buf, tag)) {
-    s->DecRef();
+  if (!ReadCloseTag(buf, tag))
     return NULL;
-  }
 
   return s;
-}
-
-void BufferCleanupString(Buffer *buf, void *v)
-{
-  ((String*)v)->DecRef(buf);
 }
 
 void String::WriteCache(Buffer *buf, String *s)
 {
   WriteOpenTag(buf, TAG_CacheString);
   uint32_t id = 0;
-  s->IncRef(buf);
-  if (buf->TestSeen((void*)s, BufferCleanupString, &id)) {
+  if (buf->TestSeen((void*)s, &id)) {
     WriteUInt32(buf, id);
   }
   else {
@@ -109,17 +101,13 @@ String* String::ReadCache(Buffer *buf)
   Try(ReadOpenTag(buf, TAG_CacheString));
   if (ReadUInt32(buf, &id)) {
     void *v = NULL;
-    Buffer::CleanupFn cleanup;
-    Try(buf->TestSeenRev((uint32_t)id, &v, &cleanup));
-    Try(cleanup == BufferCleanupString);
+    Try(buf->TestSeenRev((uint32_t)id, &v));
     s = (String*) v;
-    s->IncRef();
   }
   else {
     Try(s = Read(buf));
     Try(ReadUInt32(buf, &id));
-    s->IncRef(buf);
-    Try(buf->AddSeenRev(id, (void*) s, BufferCleanupString));
+    Try(buf->AddSeenRev(id, (void*) s));
   }
   Try(ReadCloseTag(buf, TAG_CacheString));
   return s;
@@ -273,9 +261,9 @@ void Location::Print(OutStream &out) const
   out << "\"" << m_filename->Value() << ":" << (long)m_line << "\"";
 }
 
-void Location::DecMoveChildRefs(ORef ov, ORef nv)
+void Location::MarkChildren() const
 {
-  m_filename->DecMoveRef(ov, nv);
+  m_filename->Mark();
 }
 
 NAMESPACE_XGILL_END

@@ -24,16 +24,6 @@ NAMESPACE_XGILL_BEGIN
 // backend data
 /////////////////////////////////////////////////////////////////////
 
-void ClearStringHash(BackendStringHash *table)
-{
-  HashIteratePtr(table) {
-    Vector<String*> &str_list = table->ItValues();
-    table->ItKey()->DecRef(&str_list);
-    DecRefVector<String>(str_list, &str_list);
-  }
-  table->Clear();
-}
-
 BACKEND_IMPL_BEGIN
 
 // name and contents for an in-memory hash
@@ -54,9 +44,8 @@ void ClearHashes()
   for (size_t hind = 0; hind < hashes.Size(); hind++) {
     HashInfo &info = hashes[hind];
 
-    info.name->DecRef();
     if (info.table)
-      ClearStringHash(info.table);
+      info.table->Clear();
     delete info.table;
   }
   hashes.Clear();
@@ -69,8 +58,6 @@ HashInfo& GetHash(const uint8_t *name, bool do_create = true)
     HashInfo &info = hashes[hind];
 
     if (info.name == name_str) {
-      name_str->DecRef();
-
       // create the hash if we previously did a non-create access.
       if (do_create && info.table == NULL)
         info.table = new BackendStringHash();
@@ -123,7 +110,7 @@ bool HashClear(Transaction *t, const Vector<TOperand*> &arguments,
   BACKEND_ARG_STRING(0, hash_name, hash_length);
 
   HashInfo &info = GetHash(hash_name, true);
-  ClearStringHash(info.table);
+  info.table->Clear();
 
   return true;
 }
@@ -151,14 +138,11 @@ bool HashInsertKey(Transaction *t, const Vector<TOperand*> &arguments,
 
   String *keystr = String::Make((const char*) key_data);
 
-  if (info.table->Lookup(keystr, false) != NULL) {
-    keystr->DecRef();
+  if (info.table->Lookup(keystr, false) != NULL)
     return true;
-  }
 
-  // force the insert and consume the reference on keystr.
-  Vector<String*> *entries = info.table->Lookup(keystr, true);
-  keystr->MoveRef(NULL, entries);
+  // force the insertion.
+  info.table->Lookup(keystr, true);
 
   return true;
 }
@@ -176,27 +160,12 @@ bool HashInsertValue(Transaction *t, const Vector<TOperand*> &arguments,
   String *keystr = String::Make((const char*) key_data);
   String *valuestr = String::Make((const char*) value_data);
 
-  Vector<String*> *entries = info.table->Lookup(keystr, false);
-  if (entries != NULL) {
-    keystr->DecRef();
-  }
-  else {
-    // force the insert and consume the reference on keystr.
-    entries = info.table->Lookup(keystr, true);
-    keystr->MoveRef(NULL, entries);
-  }
+  Vector<String*> *entries = info.table->Lookup(keystr, true);
 
-  // check for a duplicate entry.
-  for (size_t eind = 0; eind < entries->Size(); eind++) {
-    if (entries->At(eind) == valuestr) {
-      valuestr->DecRef();
-      return true;
-    }
-  }
+  if (entries->Contains(valuestr))
+    return true;
 
-  // add the entry and consume the reference on valuestr.
   entries->PushBack(valuestr);
-  valuestr->MoveRef(NULL, entries);
   return true;
 }
 
@@ -213,32 +182,13 @@ bool HashInsertCheck(Transaction *t, const Vector<TOperand*> &arguments,
   String *keystr = String::Make((const char*) key_data);
   String *valuestr = String::Make((const char*) value_data);
 
-  Vector<String*> *entries = info.table->Lookup(keystr, false);
-  if (entries != NULL) {
-    keystr->DecRef();
-  }
-  else {
-    // force the insert and consume the reference on keystr.
-    entries = info.table->Lookup(keystr, true);
-    keystr->MoveRef(NULL, entries);
-  }
+  Vector<String*> *entries = info.table->Lookup(keystr, true);
 
-  // check for a duplicate entry, and get its index.
-  bool found_exists = false;
-  for (size_t eind = 0; eind < entries->Size(); eind++) {
-    if (entries->At(eind) == valuestr) {
-      found_exists = true;
-      break;
-    }
-  }
+  bool found_exists = entries->Contains(valuestr);
 
   if (!found_exists) {
     // add the entry and consume the reference on valuestr.
     entries->PushBack(valuestr);
-    valuestr->MoveRef(NULL, entries);
-  }
-  else {
-    valuestr->DecRef();
   }
 
   TOperandList *list_val = new TOperandList(t);
@@ -286,7 +236,6 @@ bool HashIsMember(Transaction *t, const Vector<TOperand*> &arguments,
 
   String *keystr = String::Make((const char*) key_data);
   Vector<String*> *entries = hash->Lookup(keystr, false);
-  keystr->DecRef();
 
   *result = new TOperandBoolean(t, entries != NULL);
   return true;
@@ -303,7 +252,6 @@ bool HashLookup(Transaction *t, const Vector<TOperand*> &arguments,
 
   String *keystr = String::Make((const char*) key_data);
   Vector<String*> *entries = hash->Lookup(keystr, false);
-  keystr->DecRef();
 
   TOperandList *list = new TOperandList(t);
 
@@ -331,7 +279,6 @@ bool HashLookupSingle(Transaction *t, const Vector<TOperand*> &arguments,
 
   String *keystr = String::Make((const char*) key_data);
   Vector<String*> *entries = hash->Lookup(keystr, false);
-  keystr->DecRef();
 
   if (entries == NULL || entries->Size() != 1) {
     logout << "ERROR: Key must have a single associated value." << endl;
@@ -357,18 +304,9 @@ bool HashRemove(Transaction *t, const Vector<TOperand*> &arguments,
   String *keystr = String::Make((const char*) key_data);
   Vector<String*> *entries = hash->Lookup(keystr, false);
 
-  if (entries != NULL) {
-    // drop the references for the table entry
-    keystr->DecRef();
-    for (size_t eind = 0; eind < entries->Size(); eind++)
-      entries->At(eind)->DecRef(entries);
-
-    // remove the entry itself
+  if (entries != NULL)
     hash->Remove(keystr);
-  }
 
-  // drop the reference from our original lookup
-  keystr->DecRef(entries);
   return true;
 }
 

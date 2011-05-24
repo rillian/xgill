@@ -81,19 +81,11 @@ struct CheckerExpandSet
     : name(_name), point(_point)
   {}
 
-  ~CheckerExpandSet()
-  {
-    // we only need to drop references on the exps list --- the pending list
-    // is a subset and of the exps list and do not hold references.
-    DecRefVector<Exp>(exps, this);
-  }
-
   // add an expression to this set if not already present and mark as pending.
   // return value is whether the add was successful.
   bool AddExp(Exp *exp)
   {
     if (!exps.Contains(exp)) {
-      exp->IncRef(this);
       exps.PushBack(exp);
       pending.PushBack(exp);
       return true;

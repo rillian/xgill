@@ -29,25 +29,6 @@ TrackAlloc g_alloc_HashObject("HashObject");
 // HashObject
 /////////////////////////////////////////////////////////////////////
 
-#ifdef DEBUG
-
-// get any reference breakpoint from the environment.
-static uint64_t GetReferenceBreakpoint()
-{
-  char *str = getenv("XGILL_REFERENCE");
-  if (str)
-    return (uint64_t) atoi(str);
-  else
-    return 0;
-}
-
-uint64_t HashObject::g_reference_breakpoint = GetReferenceBreakpoint();
-uint64_t HashObject::g_reference_stamp = 0;
-
-#endif // DEBUG
-
-bool HashObject::g_delete_unused = true;
-
 void HashObject::Dbp() const
 {
   Print(cout);
@@ -96,27 +77,6 @@ void HashObject::HashRemove()
   m_pcount = NULL;
 }
 
-#ifdef DEBUG
-
-void HashObject::PrintRefStamps()
-{
-  Assert(m_refs == m_ref_sources.Size());
-
-  logout << "stamps:" << endl;
-  for (size_t rind = 0; rind < m_ref_sources.Size(); rind++)
-    logout << "  " << m_ref_sources[rind].w
-           << " (" << (void*) m_ref_sources[rind].v << ")" << endl;
-}
-
-uint64_t HashObject::MinRefStamp()
-{
-  // the oldest stamp will be the first in the list.
-  Assert(!m_ref_sources.Empty());
-  return m_ref_sources[0].w;
-}
-
-#endif // DEBUG
-
 /////////////////////////////////////////////////////////////////////
 // HashCons
 /////////////////////////////////////////////////////////////////////
@@ -135,86 +95,6 @@ void RegisterHashCons(HashCons<HashObject> *hash)
 
   hash->m_hash_next = g_hashcons_list;
   g_hashcons_list = hash;
-}
-
-bool g_simple_hash_cons_counts = false;
-bool g_skip_hash_cons_counts = false;
-bool g_printed_hash_cons = false;
-
-void PrintHashConsRoots()
-{
-  Assert(!g_printed_hash_cons);
-
-  // set deletion bit so that when refcounts on hash objects go to zero
-  // the object is not deleted and removed from the hash. thus we can
-  // safely iterate through the hashes and drop references without
-  // the contents of the hash itself changing.
-  HashObject::g_delete_unused = false;
-
-  bool found_object = false;
-  HashCons<HashObject> *hash;
-
-  // drop references on every object still in a HashCons
-  hash = g_hashcons_list;
-  while (hash != NULL) {
-    if (hash->Size() != 0) {
-      found_object = true;
-      hash->DropAllChildRefs();
-    }
-    hash = hash->m_hash_next;
-  }
-
-  if (found_object) {
-    logout << "HashCons leaked objects:" << endl;
-    uint64_t min_stamp = (uint64_t) -1;
-
-    // print out all objects that still have at least one reference
-    hash = g_hashcons_list;
-    while (hash != NULL) {
-      hash->PrintLiveObjects(min_stamp);
-      hash = hash->m_hash_next;
-    }
-
-#ifdef DEBUG
-    logout << "Minimum leaked stamp: " << min_stamp << endl;
-#endif
-
-    logout << endl;
-  }
-}
-
-void PrintHashConsCounts()
-{
-  Assert(!g_printed_hash_cons);
-
-  HashCons<HashObject> *hash;
-
-  // accumulate the count of leaked objects from every HashCons.
-  size_t count = 0;
-
-  hash = g_hashcons_list;
-  while (hash != NULL) {
-    count += hash->Size();
-    hash = hash->m_hash_next;
-  }
-
-  if (count)
-    logout << "HashCons leaked objects: " << count << endl;
-}
-
-void PrintHashCons()
-{
-  // only print the HashCons objects once.
-  static bool printed_hash_cons = false;
-  Assert(!printed_hash_cons);
-  printed_hash_cons = true;
-
-  if (g_skip_hash_cons_counts)
-    {} // do nothing
-  else if (g_simple_hash_cons_counts)
-    PrintHashConsCounts();
-  else
-    PrintHashConsRoots();
 }
 
 NAMESPACE_XGILL_END

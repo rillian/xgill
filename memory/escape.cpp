@@ -196,15 +196,8 @@ void EscapeEdgeSet::AddEdge(const EscapeEdge &edge)
   if (m_edges == NULL)
     m_edges = new Vector<EscapeEdge>();
 
-  if (!m_edges->Contains(edge)) {
-    edge.target->MoveRef(NULL, this);
-    edge.where.id->MoveRef(NULL, this);
+  if (!m_edges->Contains(edge))
     m_edges->PushBack(edge);
-  }
-  else {
-    edge.target->DecRef();
-    edge.where.id->DecRef();
-  }
 }
 
 void EscapeEdgeSet::SetEdgeVersion(size_t ind, VersionId version)
@@ -228,10 +221,15 @@ void EscapeEdgeSet::Print(OutStream &out) const
   }
 }
 
-void EscapeEdgeSet::DecMoveChildRefs(ORef ov, ORef nv)
+void EscapeEdgeSet::MarkChildren() const
 {
-  m_source->DecMoveRef(ov, nv);
-  UnPersist();
+  m_source->Mark();
+
+  for (size_t eind = 0; m_edges && eind < m_edges->Size(); eind++) {
+    const EscapeEdge &edge = m_edges->At(eind);
+    edge.target->Mark();
+    edge.where.id->Mark();
+  }
 }
 
 void EscapeEdgeSet::Persist()
@@ -242,13 +240,6 @@ void EscapeEdgeSet::Persist()
 void EscapeEdgeSet::UnPersist()
 {
   if (m_edges != NULL) {
-    for (size_t eind = 0; eind < m_edges->Size(); eind++) {
-      const EscapeEdge &edge = m_edges->At(eind);
-
-      edge.target->DecRef(this);
-      edge.where.id->DecRef(this);
-    }
-
     delete m_edges;
     m_edges = NULL;
   }
@@ -420,19 +411,8 @@ void EscapeAccessSet::AddAccess(const EscapeAccess &access)
   if (m_accesses == NULL)
     m_accesses = new Vector<EscapeAccess>();
 
-  if (!m_accesses->Contains(access)) {
-    access.target->MoveRef(NULL, this);
-    access.where.id->MoveRef(NULL, this);
-    if (access.field)
-      access.field->MoveRef(NULL, this);
+  if (!m_accesses->Contains(access))
     m_accesses->PushBack(access);
-  }
-  else {
-    access.target->DecRef();
-    access.where.id->DecRef();
-    if (access.field)
-      access.field->DecRef();
-  }
 }
 
 void EscapeAccessSet::SetAccessVersion(size_t ind, VersionId version)
@@ -456,10 +436,18 @@ void EscapeAccessSet::Print(OutStream &out) const
   }
 }
 
-void EscapeAccessSet::DecMoveChildRefs(ORef ov, ORef nv)
+void EscapeAccessSet::MarkChildren() const
 {
-  m_value->DecMoveRef(ov, nv);
-  UnPersist();
+  m_value->Mark();
+
+  for (size_t aind = 0; aind < m_accesses->Size(); aind++) {
+    const EscapeAccess &access = m_accesses->At(aind);
+
+    access.target->Mark();
+    access.where.id->Mark();
+    if (access.field)
+      access.field->Mark();
+  }
 }
 
 void EscapeAccessSet::Persist()
@@ -470,15 +458,6 @@ void EscapeAccessSet::Persist()
 void EscapeAccessSet::UnPersist()
 {
   if (m_accesses != NULL) {
-    for (size_t aind = 0; aind < m_accesses->Size(); aind++) {
-      const EscapeAccess &access = m_accesses->At(aind);
-
-      access.target->DecRef(this);
-      access.where.id->DecRef(this);
-      if (access.field)
-        access.field->DecRef(this);
-    }
-
     delete m_accesses;
     m_accesses = NULL;
   }
@@ -495,11 +474,9 @@ void EscapeUseLocalCSUs() { g_local_csus = true; }
 static CompositeCSU* LookupCSU(String *name)
 {
   if (g_local_csus) {
-    name->IncRef();
     CompositeCSU *csu = CompositeCSU::Make(name);
     if (csu->Kind() == CSU_Invalid) {
       // this CSU wasn't actually in memory, we just made an empty one.
-      csu->DecRef();
       return NULL;
     }
     return csu;
@@ -516,9 +493,7 @@ static CompositeCSU* LookupCSU(String *name)
 static void ReleaseCSU(String *name, CompositeCSU *csu)
 {
   Assert(csu);
-  if (g_local_csus)
-    csu->DecRef();
-  else
+  if (!g_local_csus)
     CompositeCSUCache.Release(name);
 }
 
@@ -526,9 +501,6 @@ static void ReleaseCSU(String *name, CompositeCSU *csu)
 static inline Exp* AddField(Exp *exp, Field *field)
 {
   Exp *target = exp->AsDrf()->GetTarget();
-
-  target->IncRef();
-  field->IncRef();
   Exp *fld_target = Exp::MakeFld(target, field);
 
   return Exp::MakeDrf(fld_target);
@@ -543,7 +515,6 @@ static Trace* TraceAddField(Trace *trace, Field *field)
   switch (trace->Kind()) {
   case TK_Func: {
     Variable *func = trace->GetFunction();
-    func->IncRef();
     return Trace::MakeFunc(new_exp, func);
   }
   case TK_Glob:
@@ -584,9 +555,6 @@ static void ProcessEdge(BlockPPoint where, bool forward,
       ProcessEdge(where, forward,
                   new_source, new_target, df.field->GetType(),
                   move_caller, move_callee);
-
-      new_source->DecRef();
-      new_target->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -604,15 +572,10 @@ static void ProcessEdge(BlockPPoint where, bool forward,
       ? g_pending_escape_forward.Lookup(match, true)
       : g_pending_escape_backward.Lookup(match, true);
 
-    if (entries->Empty()) {
-      match->IncRef();
+    if (entries->Empty())
       entries->PushBack(EscapeEdgeSet::Make(match, forward));
-    }
 
     EscapeEdgeSet *eset = entries->At(0);
-
-    target->IncRef();
-    where.id->IncRef();
     EscapeEdge edge(target, where, move_caller, move_callee);
 
     if (print_escape.IsSpecified()) {
@@ -623,7 +586,6 @@ static void ProcessEdge(BlockPPoint where, bool forward,
     }
 
     eset->AddEdge(edge);
-    match->DecRef(&matches);
   }
 }
 
@@ -632,7 +594,6 @@ static void ProcessEdge(BlockPPoint where, bool forward,
 static void ProcessAccess(BlockPPoint where, Exp *exp,
                           EscapeAccessKind kind, Field *field)
 {
-  exp->IncRef();
   Trace *trace = Trace::MakeFromExp(where.id, exp);
 
   if (trace == NULL)
@@ -647,10 +608,8 @@ static void ProcessAccess(BlockPPoint where, Exp *exp,
     Vector<EscapeAccessSet*> *entries =
       g_pending_escape_accesses.Lookup(match, true);
 
-    if (entries->Empty()) {
-      match->IncRef();
+    if (entries->Empty())
       entries->PushBack(EscapeAccessSet::Make(match));
-    }
 
     EscapeAccessSet *aset = entries->At(0);
 
@@ -660,17 +619,8 @@ static void ProcessAccess(BlockPPoint where, Exp *exp,
       logout << " [" << where << "]" << endl;
     }
 
-    trace->IncRef();
-    where.id->IncRef();
-    if (field != NULL)
-      field->IncRef();
     aset->AddAccess(EscapeAccess(kind, trace, where, field));
-
-    match->DecRef(&matches);
   }
-
-  // drop the initial reference we got from MakeFromExp.
-  trace->DecRef();
 }
 
 class ExpVisitor_Accesses : public ExpVisitor
@@ -729,7 +679,6 @@ static void ProcessRead(BlockPPoint where, Exp *read_exp, Type *type)
 
       Exp *new_exp = AddField(read_exp, df.field);
       ProcessRead(where, new_exp, df.field->GetType());
-      new_exp->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -751,13 +700,8 @@ static void ProcessWrite(BlockPPoint where, Exp *lval_exp, Type *type)
 
     for (size_t find = 0; find < csu->GetFieldCount(); find++) {
       const DataField &df = csu->GetField(find);
-
-      lval_exp->IncRef();
-      df.field->IncRef();
       Exp *new_exp = Exp::MakeFld(lval_exp, df.field);
-
       ProcessWrite(where, new_exp, df.field->GetType());
-      new_exp->DecRef();
     }
 
     ReleaseCSU(csu_name, csu);
@@ -795,23 +739,13 @@ static void ProcessBaseClasses(TypeCSU *type)
       BlockPPoint where(id, 0);
 
       Exp *empty = Exp::MakeEmpty();
-      empty->IncRef();
-
-      ff.base->IncRef();
       Exp *base_fld = Exp::MakeFld(empty, ff.base);
-
-      csu_name->IncRef();
-      base_name->IncRef();
 
       Trace *sub_loc = Trace::MakeComp(base_fld, csu_name);
       Trace *super_loc = Trace::MakeComp(empty, base_name);
 
       ProcessEdge(where, true, sub_loc, super_loc, NULL, false, false);
       ProcessEdge(where, false, super_loc, sub_loc, NULL, false, false);
-
-      id->DecRef();
-      sub_loc->DecRef();
-      super_loc->DecRef();
     }
   }
 
@@ -823,28 +757,16 @@ static void ProcessBaseClasses(TypeCSU *type)
 static void ProcessAssign(BlockPPoint where,
                           Exp *left, Exp *right, Type *type)
 {
-  right->IncRef();
-  left->IncRef();
   Exp *drf_left = Exp::MakeDrf(left);
 
   Trace *left_loc = Trace::MakeFromExp(where.id, drf_left);
   Trace *right_loc = Trace::MakeFromExp(where.id, right);
 
-  if (left_loc == NULL) {
-    if (right_loc != NULL)
-      right_loc->DecRef();
+  if (left_loc == NULL || right_loc == NULL)
     return;
-  }
-  if (right_loc == NULL) {
-    left_loc->DecRef();
-    return;
-  }
 
   ProcessEdge(where, true, right_loc, left_loc, type, false, false);
   ProcessEdge(where, false, left_loc, right_loc, type, false, false);
-
-  left_loc->DecRef();
-  right_loc->DecRef();
 }
 
 // get escape data for an argument caller_arg passed via argument callee_arg
@@ -853,7 +775,6 @@ static void ProcessCallArgument(BlockPPoint where, Variable *callee,
                                 size_t callee_arg, Exp *caller_arg,
                                 Type *type)
 {
-  caller_arg->IncRef();
   Trace *right_loc = Trace::MakeFromExp(where.id, caller_arg);
 
   if (right_loc == NULL)
@@ -862,14 +783,10 @@ static void ProcessCallArgument(BlockPPoint where, Variable *callee,
   Exp *arg_exp = Exp::MakeVar(NULL, VK_Arg, NULL, callee_arg, NULL);
   Exp *arg_drf = Exp::MakeDrf(arg_exp);
 
-  callee->IncRef();
   Trace *left_loc = Trace::MakeFunc(arg_drf, callee);
 
   ProcessEdge(where, true, right_loc, left_loc, type, false, true);
   ProcessEdge(where, false, left_loc, right_loc, type, true, false);
-
-  left_loc->DecRef();
-  right_loc->DecRef();
 }
 
 // get escape data for assigning the return value of a call to callee to
@@ -877,7 +794,6 @@ static void ProcessCallArgument(BlockPPoint where, Variable *callee,
 static void ProcessCallReturn(BlockPPoint where, Variable *callee,
                               Exp *caller_ret, Type *type)
 {
-  caller_ret->IncRef();
   Exp *drf_caller_ret = Exp::MakeDrf(caller_ret);
 
   Trace *left_loc = Trace::MakeFromExp(where.id, drf_caller_ret);
@@ -887,15 +803,10 @@ static void ProcessCallReturn(BlockPPoint where, Variable *callee,
 
   Exp *ret_exp = Exp::MakeVar(NULL, VK_Return, NULL, 0, NULL);
   Exp *ret_drf = Exp::MakeDrf(ret_exp);
-
-  callee->IncRef();
   Trace *right_loc = Trace::MakeFunc(ret_drf, callee);
 
   ProcessEdge(where, true, right_loc, left_loc, type, true, false);
   ProcessEdge(where, false, left_loc, right_loc, type, false, true);
-
-  left_loc->DecRef();
-  right_loc->DecRef();
 }
 
 // get escape data for invoking an instance function call on instance_val
@@ -903,7 +814,6 @@ static void ProcessCallReturn(BlockPPoint where, Variable *callee,
 static void ProcessCallInstance(BlockPPoint where, Variable *callee,
                                 Exp *instance_val)
 {
-  instance_val->IncRef();
   Trace *right_loc = Trace::MakeFromExp(where.id, instance_val);
 
   if (right_loc == NULL)
@@ -911,15 +821,10 @@ static void ProcessCallInstance(BlockPPoint where, Variable *callee,
 
   Exp *this_exp = Exp::MakeVar(NULL, VK_This, NULL, 0, NULL);
   Exp *this_drf = Exp::MakeDrf(this_exp);
-
-  callee->IncRef();
   Trace *left_loc = Trace::MakeFunc(this_drf, callee);
 
   ProcessEdge(where, true, right_loc, left_loc, NULL, false, true);
   ProcessEdge(where, false, left_loc, right_loc, NULL, true, false);
-
-  left_loc->DecRef();
-  right_loc->DecRef();
 }
 
 // get all escape data for the specified CFG.
@@ -1057,37 +962,16 @@ EscapeStatus::EscapeStatus(bool forward, size_t cutoff)
   : m_forward(forward), m_cutoff(cutoff), m_cutoff_reached(false)
 {}
 
-EscapeStatus::~EscapeStatus()
-{
-  HashIterate(m_visited) {
-    m_visited.ItKey()->DecRef(this);
-    const EscapeStackEdge &prev = m_visited.ItValueSingle();
-
-    if (prev.source)
-      prev.source->DecRef(this);
-    if (prev.edge.target)
-      prev.edge.target->DecRef(this);
-    if (prev.edge.where.id)
-      prev.edge.where.id->DecRef(this);
-  }
-}
-
 // remove any context from the specified trace location. no escape edges
 // in the cache have context on either the source or target.
 static Trace* StripContext(Trace *trace)
 {
   // handle cases where there is no context information to strip.
-  if (trace->Kind() != TK_Func || trace->GetContextCount() == 0) {
-    trace->IncRef();
+  if (trace->Kind() != TK_Func || trace->GetContextCount() == 0)
     return trace;
-  }
 
   Exp *exp = trace->GetValue();
   Variable *function = trace->GetFunction();
-
-  exp->IncRef();
-  function->IncRef();
-
   return Trace::MakeFunc(exp, function);
 }
 
@@ -1110,10 +994,8 @@ static Trace* CombineContext(Trace *trace, const EscapeEdge &edge)
   }
 
   // no context information to add to non-function targets.
-  if (edge.target->Kind() != TK_Func) {
-    edge.target->IncRef();
+  if (edge.target->Kind() != TK_Func)
     return edge.target;
-  }
 
   Vector<BlockPPoint> context;
 
@@ -1127,22 +1009,15 @@ static Trace* CombineContext(Trace *trace, const EscapeEdge &edge)
       continue;
     }
 
-    cpoint.id->IncRef();
     context.PushBack(cpoint);
   }
 
   // add a new context if we are moving into a callee.
-  if (edge.move_callee) {
-    edge.where.id->IncRef();
+  if (edge.move_callee)
     context.PushBack(edge.where);
-  }
 
   Exp *exp = edge.target->GetValue();
   Variable *function = edge.target->GetFunction();
-
-  exp->IncRef();
-  function->IncRef();
-
   return Trace::MakeFunc(exp, function, context);
 }
 
@@ -1173,18 +1048,9 @@ void EscapeStatus::RecursiveEscape(Trace *source, const EscapeStackEdge &prev)
   Vector<EscapeStackEdge> *entries = m_visited.Lookup(new_source, true);
 
   // check if our initial trace simplified to another we have seen before.
-  if (!entries->Empty()) {
-    new_source->DecRef();
+  if (!entries->Empty())
     return;
-  }
 
-  new_source->MoveRef(NULL, this);
-  if (prev.source)
-    prev.source->IncRef(this);
-  if (prev.edge.target)
-    prev.edge.target->IncRef(this);
-  if (prev.edge.where.id)
-    prev.edge.where.id->IncRef(this);
   entries->PushBack(prev);
 
   if (m_cutoff && !skip_cutoff) {
@@ -1209,10 +1075,8 @@ void EscapeStatus::RecursiveEscape(Trace *source, const EscapeStackEdge &prev)
       EscapeStackEdge next(new_source, edge);
       m_stack.PushBack(next);
 
-      if (new_target) {
+      if (new_target)
         RecursiveEscape(new_target, next);
-        new_target->DecRef();
-      }
 
       m_stack.PopBack();
 
@@ -1222,7 +1086,6 @@ void EscapeStatus::RecursiveEscape(Trace *source, const EscapeStackEdge &prev)
   }
 
   cache.Release(strip_trace);
-  strip_trace->DecRef();
 }
 
 void EscapeStatus::PrintEscapeStack()

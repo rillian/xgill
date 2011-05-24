@@ -46,18 +46,10 @@ extern TrackAlloc g_alloc_HashCons;
 
 // hash-consing structures
 
-// all references on a hash-consed object are held for a particular ORef.
-// this ORef is supplied when the reference is acquired, and again when
-// the reference is deleted, to ensure we know who holds all references
-// at any time and where those references were acquired. this information
-// is only accumulated if DEBUG is defined.
-typedef const void* ORef;
-
 // define to turn on cross-checking of hash values during serialization.
 // #define SERIAL_CHECK_HASHES
 
-// superclass of all objects which can be hash-consed or which
-// can have references originating in a pool.
+// superclass of all objects which can be hash-consed.
 class HashObject
 {
  public:
@@ -85,81 +77,11 @@ class HashObject
   }
 
  public:
-  // construct a new HashObject. constructors for HashObjects that refer
-  // to other HashObjects consume a single reference for each pointer to
-  // that other HashObject. the sources of these references are typically
-  // set to NULL before the constructor, and must not be modified by
-  // the constructor itself (MoveRefs will instead be called). constructors
-  // must fill in m_hash appropriately.
+  // construct a new HashObject, subclasses must fill in m_hash.
   HashObject()
-    : m_next(NULL), m_pprev(NULL), m_refs(0), m_hash(0),
+    : m_next(NULL), m_pprev(NULL), m_marked(false), m_hash(0),
       m_ppend(NULL), m_pcount(NULL)
   {}
-
-  // call DecMoveRef with the specified ov/nv on all of the references
-  // which are held by this object and will be removed when it is deleted.
-  // this is called after the constructor to either move the references
-  // for a fresh object or remove the references for a duplicate object.
-  virtual void DecMoveChildRefs(ORef ov, ORef nv) {}
-
-  // add a reference to this object. v is the source which holds
-  // the reference. the same v can hold multiple references.
-  void IncRef(ORef v = NULL)
-  {
-    m_refs++;
-
-#ifdef DEBUG
-    InsertReferenceSource(v);
-#endif
-  }
-
-  // remove a reference from this object. if the reference count goes to zero
-  // then removes this object from its parent hash, removes references it
-  // holds on its children, unpersists its stored data, and deletes it.
-  // v must have been supplied as the source for a previous IncRef().
-  void DecRef(ORef v = NULL)
-  {
-    if (m_refs == 0) {
-      Breakpoint(this);
-      Assert(false);
-    }
-
-#ifdef DEBUG
-    RemoveReferenceSource(v);
-#endif
-
-    m_refs--;
-
-    if (m_refs == 0 && g_delete_unused) {
-      HashRemove();
-      DecMoveChildRefs(this, NULL);
-      UnPersist();
-      delete this;
-    }
-  }
-
-  // move a reference for this object from one source to another.
-  void MoveRef(ORef ov, ORef nv)
-  {
-#ifdef DEBUG
-    RemoveReferenceSource(ov);
-    InsertReferenceSource(nv);
-#endif
-  }
-
-  // move a reference for this object from one source to another,
-  // unless the new source is NULL in which case the reference
-  // will be removed entirely.
-  void DecMoveRef(ORef ov, ORef nv)
-  {
-    if (nv)
-      MoveRef(ov, nv);
-    else
-      DecRef(ov);
-  }
-
-  // get the number of references on this object. for debugging.
-  size_t Refs() const { return m_refs; }
 
   // get the hash value of this object.
   uint32_t Hash() const { return m_hash; }
@@ -185,6 +107,14 @@ class HashObject
   // undo any operations performed by Persist(). called before deletion.
   virtual void UnPersist() {}
 
+  // mark this object if necessary, and all children it holds references on.
+  void Mark() {
+    if (m_marked)
+      return;
+    m_marked = true;
+    MarkChildren();
+  }
+
   // put this onto the end of the linked list pointed to by *p_end,
   // in a HashCons with its object count at *pcount.
   void HashInsert(HashObject ***ppend, size_t *pcount);
@@ -192,92 +122,16 @@ class HashObject
   // remove this from the linked list which contains it.
   void HashRemove();
 
-#ifdef DEBUG
-
-  // print the stamps for each reference held on this object.
-  void PrintRefStamps();
-
-  // get the stamp for the earliest held reference on this object.
-  uint64_t MinRefStamp();
-
-#endif // DEBUG
-
   // linked entry in the containing HashCons, if there is one.
   HashObject *m_next, **m_pprev;
 
  protected:
 
-  // number of references held on this object.
-  size_t m_refs;
+  // mark any children this object holds references on.
+  virtual void MarkChildren() const {}
 
-  // define extra fields which are present if DEBUG is defined.
-  // it is usually a really bad idea to have the size of a structure depend
-  // on a #define, as if that define appears in some compilation units but
-  // not others, the size of the struct may vary across units leading to
-  // very bad behavior (stack and heap corruption, etc.). in this case we
-  // need this extra info to debug refcount leaks and extra decrements,
-  // but it also more than doubles the size of the structure. just make sure
-  // that DEBUG is either defined everywhere or defined nowhere.
-  // currently DEBUG is controlled by the outer Makefile, and set
-  // depending on whether this is 'make debug'.
-
-#ifdef DEBUG
-
-  // info about a reference held on this object.
-  struct ObjectReference {
-    ORef v;      // the void* pointer (or NULL) which acquired this reference.
-    uint64_t w;  // stamp at which the reference was acquired.
-    ObjectReference() : v(NULL), w(0) {}
-    ObjectReference(ORef _v, uint64_t _w) : v(_v), w(_w) {}
-  };
-
-  // next unique ID for an acquired reference. each reference
-  // has a new stamp which can be used with OBJECT_REFERENCE_BREAKPOINT
-  // to break when that reference is acquired. stamps are assigned in the
-  // order in which references are acquired so it is critically important
-  // that the execution order of the analysis remains deterministic
-  // (mostly that execution order does not depend on branching is not 
-  static uint64_t g_reference_stamp;
-
-  // reference acquire stamp to call Breakpoint() at, if there is one.
-  static uint64_t g_reference_breakpoint;
-
-  // the particular sources holding references on this object,
-  // and the stamps at which those references were acquired.
-  // this is maintained in the order in which references were acquired.
-  // if the same source holds multiple references, removing a reference
-  // on that source removes the most recent one.
-  Vector<ObjectReference> m_ref_sources;
-
-  void InsertReferenceSource(ORef v)
-  {
-    g_reference_stamp++;
-    m_ref_sources.PushBack(ObjectReference(v, g_reference_stamp));
-
-    if (g_reference_stamp == g_reference_breakpoint)
-      Breakpoint();
-  }
-
-  void RemoveReferenceSource(ORef v)
-  {
-    bool found = false;
-    for (ssize_t rind = m_ref_sources.Size() - 1; rind >= 0; rind--) {
-      if (m_ref_sources[rind].v == v) {
-        for (size_t xrind = rind; xrind < m_ref_sources.Size() - 1; xrind++)
-          m_ref_sources[xrind] = m_ref_sources[xrind + 1];
-        m_ref_sources.PopBack();
-
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      Breakpoint(this);
-      Assert(false);
-    }
-  }
-
-#endif // DEBUG
+  // mark bit for GC.
+  bool m_marked : 1;
 
   // hash value of this object. this is filled in by the constructor
   // of the leaf subclass. the hash value must be deterministic,
@@ -285,7 +139,7 @@ class HashObject
   // on the contents of the object, so that the hash is the same
   // across any run of any program which constructs a value equal
   // to it per Compare().
-  uint32_t m_hash;
+  uint32_t m_hash : 31;
 
   // pointer to the end pointer of the HashCons bucket containing this object.
   HashObject ***m_ppend;
@@ -295,12 +149,6 @@ class HashObject
   size_t *m_pcount;
 
  public:
-
-  // whether HashObjects with no more incoming references should drop
-  // their own references and remove themselves from the parent hash.
-  // this is true unless we are scanning for leaked objects at program exit.
-  static bool g_delete_unused;
-
   ALLOC_OVERRIDE(g_alloc_HashObject);
 };
 
@@ -366,22 +214,18 @@ struct SortObjectsCompare
 };
 
 // sort a vector of HashObjects per the Compare method on the object,
-// and remove any duplicate objects. one reference must be held by v
-// for each element of pdata.
+// and remove any duplicate objects.
 template <class T>
-inline void SortObjectsRmDups(Vector<T*> *pdata, ORef v)
+inline void SortObjectsRmDups(Vector<T*> *pdata)
 {
   SortVector< T*, SortObjectsCompare<T> >(pdata);
 
   size_t shift = 0;
   for (size_t ind = 1; ind < pdata->Size(); ind++) {
-    if (pdata->At(ind - 1) == pdata->At(ind)) {
-      pdata->At(ind)->DecRef(v);
+    if (pdata->At(ind - 1) == pdata->At(ind))
       shift++;
-    }
-    else if (shift != 0) {
+    else if (shift != 0)
       pdata->At(ind - shift) = pdata->At(ind);
-    }
   }
 
   while (shift != 0) {
@@ -404,22 +248,6 @@ inline bool IsSortedObjectsRmDups(const Vector<T*> &data)
   }
 
   return true;
-}
-
-// add references on each object in a vector.
-template <class T>
-inline void IncRefVector(const Vector<T*> &data, ORef v = NULL)
-{
-  for (size_t ind = 0; ind < data.Size(); ind++)
-    data[ind]->IncRef(v);
-}
-
-// drop references on each object in a vector.
-template <class T>
-inline void DecRefVector(const Vector<T*> &data, ORef v = NULL)
-{
-  for (size_t ind = 0; ind < data.Size(); ind++)
-    data[ind]->DecRef(v);
 }
 
 // useful functions for downcasting in HashObject class hierarchies.
@@ -446,22 +274,6 @@ inline void DecRefVector(const Vector<T*> &data, ORef v = NULL)
     return (const TYPEPFX ## NAME *) this;              \
   }
 
-// normally at program exit if there are non-empty hashcons caches
-// then analysis will be performed to find a root set (those with incoming
-// references besides those from other leaked objects), and print their
-// representation and hash values. if counts are enabled then just a count
-// the number of leaked objects will be printed, and if skip is enabled
-// then nothing will be printed.
-
-extern bool g_simple_hash_cons_counts;
-inline void SimpleHashConsCounts() { g_simple_hash_cons_counts = true; }
-
-extern bool g_skip_hash_cons_counts;
-inline void SkipHashConsCounts() { g_skip_hash_cons_counts = true; }
-
-// print all HashCons objects according to the above variables.
-void PrintHashCons();
-
 // reference to some set of objects. pointers to two objects within the same
 // hash cons structure are equivalent iff they are the same pointer.
 // the type on which this specializes is a subclass of HashObject;
@@ -479,12 +291,9 @@ class HashCons
   // an object then that existing object will be returned and the references
   // held by the new object dropped. if there is no existing object then a
   // new one will be created by copying o and and calling Persist() on it.
-  // In either case, a reference will be added to the result;
-  // the caller must ensure that this reference is eventually consumed,
-  // either by calling DecRef() or passing the result to another
-  // HashObject constructor. the object is passed by non-const reference
-  // because we don't want an explicit constructor call as the argument here;
-  // calls to lookup should be wrapped in a static ::Make() function.
+  // the object is passed by non-const reference because we don't want an
+  // explicit constructor call as the argument here; calls to lookup should
+  // be wrapped in a static ::Make() function.
   T* Lookup(T &o);
 
   // return whether the specified object is contained in this table.
@@ -493,11 +302,6 @@ class HashCons
 
   // get the number of objects in this table.
   size_t Size() { return m_object_count; }
-
-  // for finding reference leaks, drop the child refs of the objects in the
-  // hash, and print out the objects with at least one reference.
-  void DropAllChildRefs();
-  void PrintLiveObjects(uint64_t &min_stamp);
 
  private:
   // resize for a new bucket count
@@ -514,9 +318,6 @@ class HashCons
     else if (m_bucket_count < m_object_count)
       Resize(m_bucket_count * 2 + 1);
   }
-
-  // print all objects in this hashcons.
-  void PrintObjects();
 
   struct HashBucket {
     // head and tail of the list of entries in this bucket.

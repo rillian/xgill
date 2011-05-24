@@ -168,17 +168,14 @@ Trace* Trace::ReplaceExp(Trace *trace, Exp *new_value)
   switch (trace->Kind()) {
   case TK_Func: {
     func = trace->GetFunction();
-    func->IncRef();
     for (size_t ind = 0; ind < trace->GetContextCount(); ind++) {
       BlockPPoint where = trace->GetContext(ind);
-      where.id->IncRef();
       context.PushBack(where);
     }
     break;
   }
   case TK_Comp: {
     csu = trace->GetCSUName();
-    csu->IncRef();
     break;
   }
   case TK_Glob:
@@ -231,20 +228,13 @@ class SanitizeMapper : public ExpMapper
         index = var->GetIndex();
       }
 
-      if (name)
-        name->IncRef();
       Variable *new_var = Variable::Make(NULL, kind, name, index, NULL);
-
-      exp->DecRef();
       return Exp::MakeVar(new_var);
     }
 
     case EK_Index: {
       ExpIndex *nexp = exp->AsIndex();
       Exp *target = nexp->GetTarget();
-
-      target->IncRef();
-      exp->DecRef();
       return target;
     }
 
@@ -257,13 +247,9 @@ class SanitizeMapper : public ExpMapper
         // been traversed yet. do this now.
         Exp *new_target = target->DoMap(this);
 
-        if (new_target) {
-          exp->DecRef(); 
+        if (new_target)
           return Exp::MakeDrf(new_target);
-        }
       }
-
-      exp->DecRef();
       return NULL;
     }
 
@@ -273,7 +259,6 @@ class SanitizeMapper : public ExpMapper
       return exp;
 
     default:
-      exp->DecRef();
       return NULL;
     }
   }
@@ -288,7 +273,6 @@ Exp* Trace::SanitizeExp(Exp *exp)
 Trace* Trace::MakeFromExp(BlockId *id, Exp *exp)
 {
   Exp *new_exp = SanitizeExp(exp);
-  exp->DecRef();
 
   if (new_exp == NULL)
     return NULL;
@@ -300,7 +284,6 @@ Trace* Trace::MakeFromExp(BlockId *id, Exp *exp)
     return MakeGlob(new_exp);
 
   Variable *function = id->BaseVar();
-  function->IncRef();
 
   Vector<BlockPPoint> context;
   return MakeFunc(new_exp, function, context);
@@ -345,7 +328,6 @@ void Trace::GetMatches(Vector<Trace*> *matches)
 
     if (remainder == m_value) {
       // if the initial exp is also relative then avoid the duplicate add.
-      remainder->DecRef();
       continue;
     }
 
@@ -355,19 +337,12 @@ void Trace::GetMatches(Vector<Trace*> *matches)
 
       // make the new trace location and consume the reference
       // on remainder we got from GetSubExprs.
-      csu_name->IncRef();
       Trace *rem_trace = MakeComp(remainder, csu_name);
-
-      rem_trace->MoveRef(NULL, matches);
       matches->PushBack(rem_trace);
-    }
-    else {
-      remainder->DecRef();
     }
   }
 
   // every trace matches itself.
-  this->IncRef(matches);
   matches->PushBack(this);
 }
 
@@ -401,16 +376,16 @@ void Trace::Print(OutStream &out) const
   out << m_value;
 }
 
-void Trace::DecMoveChildRefs(ORef ov, ORef nv)
+void Trace::MarkChildren() const
 {
-  m_value->DecMoveRef(ov, nv);
+  m_value->Mark();
   if (m_func)
-    m_func->DecMoveRef(ov, nv);
+    m_func->Mark();
   if (m_csu)
-    m_csu->DecMoveRef(ov, nv);
+    m_csu->Mark();
 
   for (size_t cind = 0; cind < m_context_count; cind++)
-    m_context[cind].id->DecMoveRef(ov, nv);
+    m_context[cind].id->Mark();
 }
 
 void Trace::Persist()
@@ -450,22 +425,17 @@ public:
 
     if (ExpFld *nexp = exp->IfFld()) {
       Field *field = nexp->GetField();
-      field->IncRef();
       Exp *empty = Exp::MakeEmpty();
       Exp *new_fld = Exp::MakeFld(empty, field);
       String *csu_name = field->GetCSUType()->GetCSUName();
-      csu_name->IncRef();
       trace = Trace::MakeComp(new_fld, csu_name);
     }
     else if (Variable *root = exp->Root()) {
-      if (root->IsGlobal()) {
-        exp->IncRef();
+      if (root->IsGlobal())
         trace = Trace::MakeFromExp(NULL, exp);
-      }
     }
 
     if (trace) {
-      trace->MoveRef(NULL, traces);
       traces->PushBack(trace);
     }
     else {

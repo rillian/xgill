@@ -427,7 +427,6 @@ bool GetCallMemoryCopy(PEdgeCall *edge, Exp **target,
     if (TextNameMatch(name, cur_realloc->name)) {
       *target = GetReturnedValue();
       *source = GetArgumentValue(cur_realloc->base_arg);
-      (*source)->IncRef();
       *length = GetByteUpperBound(*source);
       return true;
     }
@@ -707,7 +706,6 @@ void FillBakedSummary(BlockSummary *sum)
     Exp *bound = GetByteUpperBound(object);
 
     // the upper bound is greater or equal to zero.
-    bound->IncRef();
     Exp *zero = Exp::MakeInt(0);
     Bit *bound_nonneg = Exp::MakeCompareBit(B_GreaterEqual, bound, zero);
     sum->AddAssume(bound_nonneg);
@@ -784,8 +782,6 @@ void FillBakedSummary(BlockSummary *sum)
       Exp *terminate = GetNullTerminate(ret_exp);
 
       Exp *zero = Exp::MakeInt(0);
-      zero->IncRef();
-
       Bit *left = Exp::MakeCompareBit(B_NotEqual, arg_exp, zero);
       Bit *right = Exp::MakeCompareBit(B_GreaterThan, terminate, zero);
       Bit *bit = Bit::MakeImply(left, right);
@@ -805,7 +801,6 @@ void FillBakedSummary(BlockSummary *sum)
 
       Exp *terminate = GetNullTerminate(arg_exp);
 
-      retval->IncRef();
       Exp *zero = Exp::MakeInt(0);
       Bit *ge_zero = Exp::MakeCompareBit(B_GreaterEqual, retval, zero);
       sum->AddAssume(ge_zero);
@@ -856,9 +851,6 @@ void FillBakedSummary(BlockSummary *sum)
       Exp *terminate_two = GetNullTerminate(arg_two_exp);
 
       Exp *zero = Exp::MakeInt(0);
-      terminate_one->IncRef();
-      terminate_two->IncRef();
-      length_exp->IncRef();
 
       Bit *left = Exp::MakeCompareBit(B_Equal, retval, zero);
       Bit *term_eq = Exp::MakeCompareBit(B_Equal, terminate_one, terminate_two);

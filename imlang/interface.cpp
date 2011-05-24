@@ -31,8 +31,7 @@
 NAMESPACE_XGILL_USING
 
 #define GET_OBJECT(TYPE, NAME)                  \
-  TYPE * new_ ##NAME = (TYPE*) NAME;            \
-  if (new_ ##NAME) new_ ##NAME ->IncRef();
+  TYPE * new_ ##NAME = (TYPE*) NAME;
 
 /////////////////////////////////////////////////////////////////////
 // Utility
@@ -90,7 +89,6 @@ extern "C" XIL_Location XIL_MakeLocation(const char *file, int line)
     normal_file = normal_files->At(0);
   }
 
-  normal_file->IncRef();
   return (XIL_Location) Location::Make(normal_file, (uint32_t) line);
 }
 
@@ -346,7 +344,6 @@ extern "C" void XIL_SetActiveBlock(XIL_Var var, const char *annot_name,
   Assert(!g_active_cfg);
 
   GET_OBJECT(Variable, var);
-  new_var->IncRef();
 
   // this is different from the active ID for functions, since we are making
   // the initial whole CFG and not the final loop-free CFG.
@@ -368,7 +365,6 @@ extern "C" void XIL_SetActiveBlock(XIL_Var var, const char *annot_name,
       cfg_id = BlockId::Make(B_AnnotationInit, new_var, new_name);
     }
 
-    cfg_id->IncRef();
     g_active_id = cfg_id;
   }
   else if (new_var->Kind() == VK_Func) {
@@ -469,7 +465,6 @@ XIL_Type XIL_TypeFunction(XIL_Type return_type, const char *this_csu,
   Vector<Type*> new_arg_types;
   for (int ind = 0; ind < arg_count; ind++) {
     Type *arg_type = (Type*) arg_types[ind];
-    arg_type->IncRef();
     new_arg_types.PushBack(arg_type);
   }
 
@@ -604,10 +599,8 @@ extern "C" XIL_Var XIL_VarArg(int index, const char *name, int annot)
 {
   BlockId *id = annot ? g_annotation_id : g_active_id;
   Assert(id);
-  id->IncRef();
 
   String *new_name = name ? String::Make(name) : NULL;
-  if (new_name) new_name->IncRef();
 
   return (XIL_Var)
     Variable::Make(id, VK_Arg, new_name, (size_t) index, new_name);
@@ -618,7 +611,6 @@ extern "C" XIL_Var XIL_VarLocal(const char *name,
 {
   BlockId *id = annot ? g_annotation_id : g_active_id;
   Assert(id);
-  id->IncRef();
 
   String *new_name = String::Make(name);
   String *new_source_name = source_name ? String::Make(source_name) : NULL;
@@ -631,7 +623,6 @@ extern "C" XIL_Var XIL_VarReturn(int annot)
 {
   BlockId *id = annot ? g_annotation_id : g_active_id;
   Assert(id);
-  id->IncRef();
 
   return (XIL_Var) Variable::Make(id, VK_Return, NULL, 0, NULL);
 }
@@ -640,7 +631,6 @@ extern "C" XIL_Var XIL_VarThis(int annot)
 {
   BlockId *id = annot ? g_annotation_id : g_active_id;
   Assert(id);
-  id->IncRef();
 
   return (XIL_Var) Variable::Make(id, VK_This, NULL, 0, NULL);
 }
@@ -648,10 +638,8 @@ extern "C" XIL_Var XIL_VarThis(int annot)
 extern "C" XIL_Var XIL_VarTemp(const char *name)
 {
   Assert(g_active_id);
-  g_active_id->IncRef();
 
   String *new_name = String::Make(name);
-  if (new_name) new_name->IncRef();
 
   return (XIL_Var)
     Variable::Make(g_active_id, VK_Temp, new_name, 0, new_name);
@@ -823,11 +811,8 @@ extern "C" XIL_Exp XIL_ExpAddress(XIL_Exp target)
 {
   GET_OBJECT(Exp, target);
 
-  if (ExpDrf *nnew_target = new_target->IfDrf()) {
-    Exp *res = nnew_target->GetTarget();
-    res->IncRef();
-    return (XIL_Exp) res;
-  }
+  if (ExpDrf *nnew_target = new_target->IfDrf())
+    return (XIL_Exp) nnew_target->GetTarget();
 
   return NULL;
 }
@@ -881,10 +866,7 @@ extern "C" XIL_Location XIL_CFGGetPointLocation(XIL_PPoint point)
 {
   Assert(g_active_cfg);
 
-  Location *loc = g_active_cfg->GetPointLocation((PPoint) point);
-  loc->IncRef();
-
-  return (XIL_Location) loc;
+  return (XIL_Location) g_active_cfg->GetPointLocation((PPoint) point);
 }
 
 extern "C" void XIL_CFGSetPointLocation(XIL_PPoint point, XIL_Location loc)
@@ -975,7 +957,6 @@ void XIL_CFGEdgeCall(XIL_PPoint source, XIL_PPoint target, XIL_Type func_type,
   Vector<Exp*> new_args;
   for (int ind = 0; ind < arg_count; ind++) {
     Exp *arg = (Exp*) args[ind];
-    arg->IncRef();
     new_args.PushBack(arg);
   }
 
@@ -1005,7 +986,6 @@ void XIL_CFGEdgeAnnotation(XIL_PPoint source, XIL_PPoint target,
   Variable *func_var = g_active_id->BaseVar();
   Assert(func_var->Kind() == VK_Func);
 
-  func_var->IncRef();
   String *new_name = String::Make(annot_name);
   BlockId *annot = BlockId::Make(B_AnnotationFunc, func_var, new_name);
 
@@ -1024,7 +1004,6 @@ extern "C" void XIL_SetupGenerate(const char *remote_address)
   // at a time and don't know when we're actually done. xsource can be used
   // to signal the manager to finish by the script controlling the build.
   AnalysisPrepare(remote_address);
-  SkipHashConsCounts();
 }
 
 extern "C" void XIL_PrintGenerated()
@@ -1170,7 +1149,6 @@ bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
     out << AnnotationKindString(kind)
         << ":(" << info.annot_text->Value() << ")";
 
-    function->IncRef();
     String *annot_name = String::Make(out.Base());
     BlockId *annot = BlockId::Make(B_AnnotationFunc, function, annot_name);
 
@@ -1192,7 +1170,6 @@ bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
           edge->PrintUI(text_out);
 
           if (!strcmp(text_out.Base(), info.point_text->Value())) {
-            annot->IncRef();
             cfg->AddPointAnnotation(edge->GetSource(), annot);
             changed = true;
           }
@@ -1207,7 +1184,6 @@ bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
         BlockCFG *cfg = split_cfgs[cind];
 
         if (cfg->GetId()->WriteLoop() == info.where) {
-          annot->IncRef();
           cfg->AddPointAnnotation(cfg->GetEntryPoint(), annot);
           changed = true;
         }
@@ -1216,7 +1192,6 @@ bool AddPointAnnotations(const Vector<BlockCFG*> &split_cfgs)
           PEdgeLoop *edge = cfg->GetEdge(eind)->IfLoop();
 
           if (edge && edge->GetLoopId()->WriteLoop() == info.where) {
-            annot->IncRef();
             cfg->AddPointAnnotation(edge->GetTarget(), annot);
             changed = true;
           }
@@ -1281,8 +1256,6 @@ static void WriteProcessedAnnotation()
 
         if (!have_cfg) {
           // clone the base CFG for the new variable.
-          root->IncRef();
-          name->IncRef();
           BlockId *new_id = BlockId::Make(B_AnnotationInit, root, name);
           BlockCFG *new_cfg = BlockCFG::Make(new_id);
           new_cfg->SetAnnotationKind(base_cfg->GetAnnotationKind());
@@ -1292,8 +1265,6 @@ static void WriteProcessedAnnotation()
         }
       }
     }
-
-    DecRefVector<Exp>(lval_list, &lval_list);
   }
 
   // write out all the CFGs we generated.
@@ -1539,20 +1510,14 @@ void XIL_AddAnnotationMsg(XIL_Var var, const char *annot_name,
   cfg->SetAnnotationKind((AnnotationKind) annot_kind);
 
  // make a single local variable '__error__'.
-  cfg_id->IncRef();
   String *error_name = String::Make("__error__");
   Variable *error_var = Variable::Make(cfg_id, VK_Local, error_name, 0, NULL);
 
-  error_var->IncRef();
   cfg->AddVariable(error_var, Type::MakeError());
 
-  new_loc->IncRef();
-  new_loc->IncRef();
   cfg->SetBeginLocation(new_loc);
   cfg->SetEndLocation(new_loc);
 
-  new_loc->IncRef();
-  new_loc->IncRef();
   PPoint entry_point = cfg->AddPoint(new_loc);
   PPoint exit_point = cfg->AddPoint(new_loc);
 

@@ -138,7 +138,7 @@ class Bit : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -177,11 +177,6 @@ class Bit : public HashObject
                              size_t depth);
   static bool IsBitImplied(Bit *bit, Bit *xbit,
                            bool xbit_true, bool *bit_true);
-
-  // cleanup function for reading/writing to buffers.
-  static void BufferCleanupBit(Buffer *buf, void *v) {
-    ((Bit*)v)->DecRef(buf);
-  }
 
  public:
 
@@ -226,7 +221,7 @@ class Bit : public HashObject
 // sorting and duplicate removal for bit objects
 inline void SortBitList(Vector<Bit*> *pdata)
 {
-  SortObjectsRmDups<Bit> (pdata, NULL);
+  SortObjectsRmDups<Bit>(pdata);
 }
 
 // are the bits in data sorted per SortBitList?

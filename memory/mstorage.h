@@ -63,13 +63,9 @@ extern Cache_BlockModset BlockModsetCache;
 extern Cache_BlockSummary BlockSummaryCache;
 
 // add entries to the caches without doing an explicit lookup.
-// consume_references drops the existing references on values in the list.
-void BlockMemoryCacheAddList(const Vector<BlockMemory*> &mcfgs,
-                             bool consume_references = true);
-void BlockModsetCacheAddList(const Vector<BlockModset*> &mods,
-                             bool consume_references = true);
-void BlockSummaryCacheAddList(const Vector<BlockSummary*> &sums,
-                              bool consume_references = true);
+void BlockMemoryCacheAddList(const Vector<BlockMemory*> &mcfgs);
+void BlockModsetCacheAddList(const Vector<BlockModset*> &mods);
+void BlockSummaryCacheAddList(const Vector<BlockSummary*> &sums);
 
 // get a reference on the data for the specified ID. for unknown/failed IDs
 // the memory will be NULL and modset/summary will be non-NULL but empty

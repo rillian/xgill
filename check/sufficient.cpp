@@ -81,7 +81,6 @@ struct SufficientTester
       logout << "SUFFICIENT: " << frame
              << ": Testing " << bit << " [" << bit->Hash() << "]" << endl;
 
-    bit->IncRef(&tested_list);
     tested_list.PushBack(bit);
 
     // don't test for sufficient conditions if a timeout has occurred.
@@ -136,7 +135,6 @@ struct SufficientTester
     }
 
     // this is a good potential sufficient condition, remember it.
-    bit->IncRef(&possible_list);
     possible_list.PushBack(bit);
 
     // check whether the bit is actually a sufficient condition.
@@ -161,7 +159,6 @@ struct SufficientTester
     }
 
     if (!satisfiable) {
-      bit->IncRef(&sufficient_list);
       sufficient_list.PushBack(bit);
       propagate_list->PushBack(test_propagate);
     }
@@ -194,16 +191,10 @@ void GetImplySufficient(CheckerFrame *frame, Vector<Bit*> *imply_list)
     if (bit->Kind() == BIT_Or) {
       for (size_t oind = 0; oind < bit->GetOperandCount(); oind++) {
         Bit *op = bit->GetOperand(oind);
-
-        op->IncRef();
         Bit *nop = Bit::MakeNot(op);
 
-        if (!imply_list->Contains(nop)) {
-          nop->IncRef(imply_list);
+        if (!imply_list->Contains(nop))
           imply_list->PushBack(nop);
-        }
-
-        nop->DecRef();
       }
     }
   }
@@ -219,10 +210,8 @@ Exp* MatchEquality(Exp *base, const BaseCompare &equality)
   Exp *target = equality.target;
 
   // check for the source and base being the same value.
-  if (source == base) {
-    target->IncRef();
+  if (source == base)
     return target;
-  }
 
   // check for the source and base begin different bounds on the same lvalue.
   if (source->IsBound() && base->IsBound()) {
@@ -237,10 +226,8 @@ Exp* MatchEquality(Exp *base, const BaseCompare &equality)
     size_t base_width = nbase->GetStrideType()->Width();
     size_t source_width = nsource->GetStrideType()->Width();
 
-    if (source_width == base_width) {
-      target->IncRef();
+    if (source_width == base_width)
       return target;
-    }
 
     // only handling upper bounds where the base's width is an even multiple
     // of the source's width. this is to handle cases where there is an
@@ -258,7 +245,6 @@ Exp* MatchEquality(Exp *base, const BaseCompare &equality)
 
     // construct a new equality and recurse on it. the base's bound
     // can be compared with (target / factor).
-    target->IncRef();
     Exp *factor_exp = Exp::MakeInt(factor);
     return Exp::MakeBinop(B_Div, target, factor_exp);
   }
@@ -322,8 +308,6 @@ class EqualityMapper : public ExpMultiMapper
           if (equality.target->IsInt() &&
               equality.target->AsInt()->GetInt(&right_value) &&
               right_value == left_value + (kind == B_LessThan ? 1 : 0)) {
-            equality.source->IncRef();
-            right->IncRef();
             Exp *new_exp = Exp::MakeBinop(B_LessEqual, equality.source, right);
             ExpAddResult(new_exp, res);
           }
@@ -346,7 +330,6 @@ class EqualityMapper : public ExpMultiMapper
       return;
     }
 
-    exp->IncRef();
     ExpAddResult(exp, res);
 
     // try to substitute the expression for anything it might share
@@ -365,7 +348,6 @@ class EqualityMapper : public ExpMultiMapper
       if (new_target) {
         // keep track of the tests we use during recursive mapping.
         expand_stack.PushBack(equality.test);
-        new_target->MoveRef(NULL, &new_target);
 
         // list to hold result of mapping this substitution.
         Vector<Exp*> sub_res;
@@ -373,7 +355,6 @@ class EqualityMapper : public ExpMultiMapper
         EqualityMapper sub_mapper(mcfg, verbose, equalities, expand_stack);
         new_target->DoMultiMap(&sub_mapper, &sub_res);
 
-        new_target->DecRef(&new_target);
         expand_stack.PopBack();
 
         // for functions, filter out substitutions which resulted in an
@@ -394,7 +375,6 @@ class EqualityMapper : public ExpMultiMapper
           if (is_loop || res_exp->TermCount() <= base_term_count) {
             if (verbose)
               logout << "  Added: " << res_exp << endl;
-            res_exp->IncRef();
             ExpAddResult(res_exp, res);
           }
           else {
@@ -402,12 +382,8 @@ class EqualityMapper : public ExpMultiMapper
               logout << "  Dropped: " << res_exp << endl;
           }
         }
-
-        DecRefVector<Exp>(sub_res, &sub_res);
       }
     }
-
-    exp->DecRef();
   }
 };
 
@@ -524,12 +500,10 @@ void GetEqualitySufficient(SufficientTester *tester, Bit *safe_bit,
 
     // reduced by the assumed_extra bits to narrow any disjunctions
     // to the paths we are actually taking.
-    bit->IncRef();
     for (size_t xind = 0; xind < frame->m_assumed_extra.Size(); xind++)
       bit = Bit::ReduceBit(bit, frame->m_assumed_extra[xind]);
 
     GetBaseCompares(frame->Memory(), bit, &compares, true);
-    bit->DecRef();
   }
 
   // get compares from nonlinear and other operations in the safe bit.
@@ -568,20 +542,12 @@ void GetEqualitySufficient(SufficientTester *tester, Bit *safe_bit,
         Bit *op = imply_list[bind];
 
         if (BitShareOperands(bit, op)) {
-          bit->IncRef();
-          op->IncRef();
           Bit *combine = Bit::MakeAnd(bit, op);
           tester->TestBit(combine);
-          combine->DecRef();
         }
       }
     }
-
-    bit->DecRef(&equality_res);
   }
-
-  ClearCompareList(&compares);
-  ClearCompareList(&equalities);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -610,10 +576,8 @@ void GetSufficientConditions(CheckerPropagate *propagate, Bit *safe_bit,
   // try to follow possible equalities to get a sufficient condition.
   GetEqualitySufficient(&tester, safe_bit, imply_list);
 
-  for (size_t ind = 0; ind < imply_list.Size(); ind++) {
+  for (size_t ind = 0; ind < imply_list.Size(); ind++)
     tester.TestBit(imply_list[ind]);
-    imply_list[ind]->DecRef(&imply_list);
-  }
 
   // try to mark the bit itself as a sufficient condition.
   tester.TestBit(safe_bit);

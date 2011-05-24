@@ -136,7 +136,6 @@ bool CounterInc(Transaction *t,
   for (size_t ind = 0; ind < counters.Size(); ind++) {
     if (key == counters[ind].name) {
       counters[ind].count++;
-      key->DecRef();
       return true;
     }
   }
@@ -162,19 +161,15 @@ bool CounterDec(Transaction *t,
     if (key == counters[ind].name) {
       if (counters[ind].count == 0) {
         logout << "ERROR: Decrement on empty counter: " << key << endl;
-        key->DecRef();
         return false;
       }
 
       counters[ind].count--;
-      key->DecRef();
       return true;
     }
   }
 
   logout << "ERROR: Decrement on missing counter: " << key << endl;
-
-  key->DecRef();
   return true;
 }
 
@@ -189,13 +184,11 @@ bool CounterValue(Transaction *t,
 
   for (size_t ind = 0; ind < counters.Size(); ind++) {
     if (key == counters[ind].name) {
-      key->DecRef();
       *result = new TOperandInteger(t, counters[ind].count);
       return true;
     }
   }
 
-  key->DecRef();
   *result = new TOperandInteger(t, 0);
   return true;
 }
@@ -238,10 +231,7 @@ static void start_Util()
 }
 
 static void finish_Util()
-{
-  for (size_t ind = 0; ind < Backend_IMPL::counters.Size(); ind++)
-    Backend_IMPL::counters[ind].name->DecRef();
-}
+{}
 
 TransactionBackend backend_Util(start_Util, finish_Util);
 

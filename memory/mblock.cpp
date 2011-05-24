@@ -79,7 +79,6 @@ static void WriteAssume(Buffer *buf, PPoint point, const GuardTrueFalse &v)
   else {
     Bit *false_bit = Bit::MakeConstant(false);
     Bit::Write(buf, false_bit);
-    false_bit->DecRef();
   }
 
   if (v.false_guard) {
@@ -88,7 +87,6 @@ static void WriteAssume(Buffer *buf, PPoint point, const GuardTrueFalse &v)
   else {
     Bit *false_bit = Bit::MakeConstant(false);
     Bit::Write(buf, false_bit);
-    false_bit->DecRef();
   }
 
   WriteCloseTag(buf, TAG_MemoryAssumeEntry);
@@ -177,15 +175,6 @@ void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
   WriteCloseTag(buf, TAG_BlockMemory);
 }
 
-// move a reference for bit to nv, or drop the reference if the bit is 'true'.
-static inline void TryMoveRef(Bit *bit, ORef nv)
-{
-  if (bit->IsTrue())
-    bit->DecRef();
-  else
-    bit->MoveRef(NULL, nv);
-}
-
 BlockMemory* BlockMemory::Read(Buffer *buf)
 {
   BlockMemory *res = NULL;
@@ -237,7 +226,6 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
 
       Vector<Bit*> *entries = res->m_guard_table->Lookup(point, true);
       entries->PushBack(guard);
-      TryMoveRef(guard, entries);
       break;
     }
     case TAG_MemoryAssumeEntry: {
@@ -251,8 +239,6 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
       Vector<GuardTrueFalse> *entries =
         res->m_assume_table->Lookup(point, true);
       entries->PushBack(GuardTrueFalse(true_guard, false_guard));
-      TryMoveRef(true_guard, entries);
-      TryMoveRef(false_guard, entries);
       break;
     }
     case TAG_MemoryReturnEntry:
@@ -275,8 +261,6 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
 
       Vector<GuardExp> *entries = table->Lookup(point, true);
       entries->PushBack(GuardExp(exp, guard));
-      exp->MoveRef(NULL, entries);
-      TryMoveRef(guard, entries);
       break;
     }
     case TAG_MemoryAssignEntry:
@@ -306,11 +290,6 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
 
       Vector<GuardAssign> *entries = table->Lookup(point, true);
       entries->PushBack(GuardAssign(left, right, guard, kind));
-      left->MoveRef(NULL, entries);
-      right->MoveRef(NULL, entries);
-      TryMoveRef(guard, entries);
-      if (kind)
-        kind->MoveRef(NULL, entries);
       break;
     }
     case TAG_MemoryClobberGCEntry: {
@@ -382,7 +361,6 @@ public:
         case B_AnnotationInit:
         case B_AnnotationComp:
           exclude = exp;
-          exp->DecRef();
           return NULL;
         default: break;
         }
@@ -402,23 +380,19 @@ public:
         break;
       default:
         exclude = exp;
-        exp->DecRef();
         return NULL;
       }
       Exp *new_target = exp->GetLvalTarget()->DoMap(this);
       if (new_target) {
         Assert(new_target == exp->GetLvalTarget());
-        new_target->DecRef();
         return exp;
       }
       exclude = exp;
-      exp->DecRef();
       return NULL;
     }
 
     if (exp->IsVal() || exp->IsClobber()) {
       exclude = exp;
-      exp->DecRef();
       return NULL;
     }
     return exp;
@@ -436,7 +410,6 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
   }
 
   BlockId *id = cfg->GetId();
-  id->IncRef();
 
   BlockMemory *mcfg = Make(id, MSIMP_Default, MALIAS_Default, MCLB_Modset);
   mcfg->SetCFG(cfg);
@@ -446,14 +419,12 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
 
   // check if there was a parse error for the annotation first. these will
   // show up as assignments to a local __error__.
-  id->IncRef();
   String *error_name = String::Make("__error__");
   Variable *error_var = Variable::Make(id, VK_Local, error_name, 0, NULL);
   Exp *error_exp = Exp::MakeVar(error_var);
 
   const Vector<GuardExp> &error_vals =
     mcfg->GetVal(error_exp, NULL, exit_point);
-  error_exp->DecRef();
 
   for (size_t ind = 0; ind < error_vals.Size(); ind++) {
     const GuardExp &gs = error_vals[ind];
@@ -463,25 +434,21 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
         cfg->SetAnnotationBit(NULL);
       if (msg_out)
         *msg_out << nexp->GetStringCStr();
-      mcfg->DecRef();
       return NULL;
     }
   }
 
   // get the value of the actual annotation bit. this will show up as an
   // assignment to a local __value__.
-  id->IncRef();
   String *assign_name = String::Make("__value__");
   Variable *assign_var = Variable::Make(id, VK_Local, assign_name, 0, NULL);
   Exp *assign_exp = Exp::MakeVar(assign_var);
   Exp *assign_drf = Exp::MakeDrf(assign_exp);
 
   Bit *assign_bit = Exp::MakeNonZeroBit(assign_drf);
-  assign_drf->DecRef();
 
   Bit *annot_bit = NULL;
   mcfg->TranslateBit(TRK_Point, exit_point, assign_bit, &annot_bit);
-  assign_bit->DecRef();
 
   // scan the bit to make sure it is functional.
   AnnotationBitMapper mapper(cfg->GetAnnotationKind());
@@ -496,19 +463,12 @@ Bit* BlockMemory::GetAnnotationBit(BlockCFG *cfg, bool skip_directives,
     if (msg_out)
       *msg_out << "Could not get annotation value: unexpected "
                << mapper.exclude;
-    new_bit->DecRef();
     new_bit = NULL;
   } else {
     // successfully interpreted the annotation.
-    if (!cfg->IsAnnotationBitComputed()) {
-      new_bit->IncRef();
+    if (!cfg->IsAnnotationBitComputed())
       cfg->SetAnnotationBit(new_bit);
-    }
-    new_bit->DecRef();
   }
-
-  mcfg->DecRef();
-  annot_bit->DecRef(&annot_bit);
 
   if (skip_directives && new_bit && BitHasAnyDirective(new_bit))
     return NULL;
@@ -524,7 +484,7 @@ BlockMemory::BlockMemory(BlockId *id,
                          MemoryAliasKind alias_kind,
                          MemoryClobberKind clobber_kind)
   : m_id(id), m_cfg(NULL), m_simplify(NULL), m_alias(NULL), m_clobber(NULL),
-    m_computed(false), m_true_bit(NULL),
+    m_computed(false),
     m_guard_table(NULL), m_assume_table(NULL),
     m_return_table(NULL), m_target_table(NULL),
     m_assign_table(NULL), m_argument_table(NULL),
@@ -547,10 +507,8 @@ void BlockMemory::SetCFG(BlockCFG *cfg)
   Assert(cfg);
   Assert(cfg->GetId() == GetId());
 
-  if (m_cfg == NULL) {
-    cfg->IncRef(this);
+  if (m_cfg == NULL)
     m_cfg = cfg;
-  }
 }
 
 void BlockMemory::ComputeTables()
@@ -646,15 +604,9 @@ Bit* BlockMemory::GetEdgeTransfer(PEdge *edge) const
   Bit *guard_source = GetGuard(source);
   Bit *edge_cond = GetEdgeCond(edge);
 
-  if (edge_cond) {
-    guard_source->IncRef();
-    edge_cond->IncRef();
+  if (edge_cond)
     return Bit::MakeAnd(guard_source, edge_cond);
-  }
-  else {
-    guard_source->IncRef();
-    return guard_source;
-  }
+  return guard_source;
 }
 
 Bit* BlockMemory::GetEdgeGuard(PEdge *edge, Bit *guard) const
@@ -739,9 +691,6 @@ BlockMemory::GetVal(Exp *lval, Exp *kind, PPoint point)
     return *values;
 
   values = m_val_table->Lookup(key, true);
-  lval->IncRef(values);
-  if (kind)
-    kind->IncRef(values);
 
   // just use an empty set of values if there was a timeout.
   // TODO: need to resolve the case when we have a soft timeout and compute
@@ -762,7 +711,7 @@ BlockMemory::GetVal(Exp *lval, Exp *kind, PPoint point)
 
   if (point == m_cfg->GetEntryPoint()) {
     TransferEntry(lval, kind, &res);
-    res.FillVector(values, true);
+    res.FillVector(values);
     return *values;
   }
 
@@ -823,8 +772,6 @@ BlockMemory::GetVal(Exp *lval, Exp *kind, PPoint point)
         PEdge *edge = incoming[iind];
         for (size_t xind = 0; xind < incoming_exps[iind].Size(); xind++) {
           const GuardExp &gs = incoming_exps[iind][xind];
-          gs.IncRef();
-
           Bit *edge_guard = GetEdgeGuard(edge, gs.guard);
           res.PushBack(GuardExp(gs.exp, edge_guard));
         }
@@ -838,7 +785,7 @@ BlockMemory::GetVal(Exp *lval, Exp *kind, PPoint point)
   }
 
   res.SimplifyGuards();
-  res.FillVector(values, true);
+  res.FillVector(values);
 
 #ifdef CHECK_MEMORY_CONSISTENCY
   CheckMemoryConsistency<GuardExp>(guard, *values);
@@ -856,12 +803,8 @@ void BlockMemory::GetValSimplify(Exp *lval, Exp *kind, PPoint point,
   // this simplification is lossy but the precision can be recovered later.
   if (!values.Empty() && m_simplify->SimplifyValues(values)) {
     // make the resulting ExpVal.
-    lval->IncRef();
-    if (kind)
-      kind->IncRef();
-    m_true_bit->IncRef();
     Exp *new_exp = Exp::MakeVal(lval, kind, point, false);
-    res->PushBack(GuardExp(new_exp, m_true_bit));
+    res->PushBack(GuardExp(new_exp, Bit::MakeConstant(true)));
   }
   else {
     // use the computed values as-is.
@@ -875,14 +818,10 @@ void BlockMemory::GetValComplete(Exp *lval, Exp *kind, PPoint point,
   // make an ExpVal for the lvalue and then remove it and any transitive
   // ExpVal values it refers to.
 
-  lval->IncRef();
-  if (kind)
-    kind->IncRef();
   Exp *new_exp = Exp::MakeVal(lval, kind, point, false);
 
   TranslateKind use_kind = use_try_remove ? TRK_TryRemoveVal : TRK_RemoveVal;
   TranslateExp(use_kind, 0, new_exp, res);
-  new_exp->DecRef();
 
   res->SortCombine();
 }
@@ -952,9 +891,6 @@ void BlockMemory::TranslateExpVal(PPoint point, Exp *value_kind,
 
     for (size_t vind = 0; vind < base_values.Size(); vind++) {
       const GuardExp &vgt = base_values[vind];
-      vgt.IncRef();
-      gt.guard->IncRef();
-
       Bit *guard = Bit::MakeAnd(gt.guard, vgt.guard);
       res->PushBack(GuardExp(vgt.exp, guard));
     }
@@ -975,7 +911,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
   }
 
   translated = m_translate_table->Lookup(key, true);
-  exp->IncRef(translated);
 
   PEdge *call_edge = NULL;
   bool translating_call = false;
@@ -994,7 +929,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
   case EK_Int:
   case EK_Float:
   case EK_Directive: {
-    exp->IncRef();
     Bit *guard = Bit::MakeConstant(true);
     res->PushBack(GuardExp(exp, guard));
     break;
@@ -1012,7 +946,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       if (returns) {
         for (size_t rind = 0; rind < returns->Size(); rind++) {
           const GuardExp &gt = returns->At(rind);
-          gt.IncRef();
           res->PushBack(gt);
         }
       }
@@ -1030,14 +963,10 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
         Exp *new_exp;
 
         Variable *new_var = m_cfg->FindMatchingVariable(var);
-        if (new_var && new_var != var) {
-          new_var->IncRef();
+        if (new_var && new_var != var)
           new_exp = Exp::MakeVar(new_var);
-        }
-        else {
+        else
           new_exp = exp;
-          new_exp->IncRef();
-        }
 
         Bit *guard = Bit::MakeConstant(true);
         res->PushBack(GuardExp(new_exp, guard));
@@ -1092,11 +1021,8 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       if (arguments) {
         for (size_t aind = 0; aind < arguments->Size(); aind++) {
           const GuardAssign &gasn = arguments->At(aind);
-          if (SameArguments(gasn.left, target)) {
-            gasn.right->IncRef();
-            gasn.guard->IncRef();
+          if (SameArguments(gasn.left, target))
             res->PushBack(GuardExp(gasn.right, gasn.guard));
-          }
         }
       }
     }
@@ -1105,11 +1031,8 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       Vector<GuardExp> *targets = m_target_table->Lookup(point, false);
 
       if (targets) {
-        for (size_t tind = 0; tind < targets->Size(); tind++) {
-          const GuardExp &gt = targets->At(tind);
-          gt.IncRef();
-          res->PushBack(gt);
-        }
+        for (size_t tind = 0; tind < targets->Size(); tind++)
+          res->PushBack(targets->At(tind));
       }
     }
     else {
@@ -1131,10 +1054,8 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       res->Clear();
 
       // make the resulting ExpVal.
-      target->IncRef();
-      m_true_bit->IncRef();
       Exp *new_exp = Exp::MakeVal(target, NULL, point, true);
-      res->PushBack(GuardExp(new_exp, m_true_bit));
+      res->PushBack(GuardExp(new_exp, Bit::MakeConstant(true)));
     }
 
     break;
@@ -1150,9 +1071,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
     for (size_t pind = 0; pind < target_res.Size(); pind++) {
       const GuardExp &pgt = target_res[pind];
-      pgt.IncRef();
-      field->IncRef();
-
       Exp *new_exp = Exp::MakeFld(pgt.exp, field);
       res->PushBack(GuardExp(new_exp, pgt.guard));
     }
@@ -1170,9 +1088,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
     for (size_t pind = 0; pind < target_res.Size(); pind++) {
       const GuardExp &pgt = target_res[pind];
-      pgt.IncRef();
-      field->IncRef();
-
       Exp *new_exp = Exp::MakeRfld(pgt.exp, field);
       res->PushBack(GuardExp(new_exp, pgt.guard));
     }
@@ -1196,11 +1111,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       for (size_t sind = 0; sind < index_res.Size(); sind++) {
         const GuardExp &pgt = target_res[pind];
         const GuardExp &igs = index_res[sind];
-
-        pgt.IncRef();
-        igs.IncRef();
-        elem_type->IncRef();
-
         Exp *new_exp = Exp::MakeIndex(pgt.exp, elem_type, igs.exp);
         Bit *guard = Bit::MakeAnd(pgt.guard, igs.guard);
         res->PushBack(GuardExp(new_exp, guard));
@@ -1220,8 +1130,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
     for (size_t oind = 0; oind < op_res.Size(); oind++) {
       const GuardExp &gs = op_res[oind];
-      gs.IncRef();
-
       Exp *new_exp = Exp::MakeUnop(unop, gs.exp, exp->Bits(), exp->Sign());
       res->PushBack(GuardExp(new_exp, gs.guard));
     }
@@ -1246,11 +1154,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       for (size_t rind = 0; rind < right_res.Size(); rind++) {
         const GuardExp &lgs = left_res[lind];
         const GuardExp &rgs = right_res[rind];
-
-        lgs.IncRef();
-        rgs.IncRef();
-        if (stride_type != NULL)
-          stride_type->IncRef();
 
         Exp *new_exp =
           Exp::MakeBinop(binop, lgs.exp, rgs.exp,
@@ -1282,7 +1185,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     }
     else {
       // preserved as is.
-      exp->IncRef();
       Bit *guard = Bit::MakeConstant(true);
       res->PushBack(GuardExp(exp, guard));
     }
@@ -1361,10 +1263,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
         for (size_t ind = 0; ind < target_res.Size(); ind++) {
           const GuardExp &gt = target_res[ind];
-
-          gt.IncRef();
-          if (value_kind)
-            value_kind->IncRef();
           Exp *new_exp = Exp::MakeInitial(gt.exp, value_kind);
           res->PushBack(GuardExp(new_exp, gt.guard));
         }
@@ -1373,10 +1271,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     else {
       for (size_t ind = 0; ind < target_res.Size(); ind++) {
         const GuardExp &gt = target_res[ind];
-
-        gt.IncRef();
-        if (value_kind)
-          value_kind->IncRef();
         Exp *new_exp = Exp::MakeInitial(gt.exp, value_kind);
         res->PushBack(GuardExp(new_exp, gt.guard));
       }
@@ -1394,9 +1288,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     if (kind == TRK_Exit) {
       // preserve the value unchanged. for TRK_Exit we are only operating
       // on the exit expressions.
-      exp->IncRef();
-      m_true_bit->IncRef();
-      res->PushBack(GuardExp(exp, m_true_bit));
+      res->PushBack(GuardExp(exp, Bit::MakeConstant(true)));
       break;
     }
 
@@ -1405,14 +1297,10 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
     // get the actual lvalues being referred to.
     GuardExpVector lval_res;
-    if (nexp->IsRelative()) {
+    if (nexp->IsRelative())
       TranslateExp(TRK_Point, value_point, lval, &lval_res);
-    }
-    else {
-      lval->IncRef();
-      m_true_bit->IncRef();
-      lval_res.PushBack(GuardExp(lval, m_true_bit));
-    }
+    else
+      lval_res.PushBack(GuardExp(lval, Bit::MakeConstant(true)));
 
     // whether we hit the expansion cutoff and are going to revert to
     // the original ExpVal expression.
@@ -1437,9 +1325,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
         for (size_t rind = 0; rind < remove_res.Size(); rind++) {
           const GuardExp &rv = remove_res[rind];
-          rv.IncRef();
-          lv.guard->IncRef();
-          bv.guard->IncRef();
 
           Bit *new_guard = Bit::MakeAnd(bv.guard, rv.guard);
           new_guard = Bit::MakeAnd(new_guard, lv.guard);
@@ -1461,17 +1346,13 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       // hit the cutoff for expanding this value, revert to the original
       // ExpVal expression.
       res->Clear();
-
-      exp->IncRef();
-      m_true_bit->IncRef();
-      res->PushBack(GuardExp(exp, m_true_bit));
+      res->PushBack(GuardExp(exp, Bit::MakeConstant(true)));
     }
 
     break;
   }
 
   case EK_Frame: {
-    exp->IncRef();
     Bit *guard = Bit::MakeConstant(true);
     res->PushBack(GuardExp(exp, guard));
     break;
@@ -1487,8 +1368,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
 
     for (size_t tind = 0; tind < target_res.Size(); tind++) {
       const GuardExp &gt = target_res[tind];
-      gt.IncRef();
-
       Exp *new_exp = exp->ReplaceLvalTarget(gt.exp);
       res->PushBack(GuardExp(new_exp, gt.guard));
     }
@@ -1506,10 +1385,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     GuardExpVector target_res;
     TranslateExp(kind, point, target, &target_res);
 
-    stride_type->IncRef();
-    terminate_test->IncRef();
-    terminate_int->IncRef();
-
     Exp *value_kind = Exp::MakeTerminate(NULL, stride_type,
                                          terminate_test, terminate_int);
 
@@ -1517,8 +1392,6 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     bool get_edge = (kind == TRK_CalleeExit);
 
     TranslateExpVal(point, value_kind, target_res, get_value, get_edge, res);
-    value_kind->DecRef();
-
     break;
   }
 
@@ -1535,9 +1408,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       bool get_edge = (kind == TRK_CalleeExit);
 
       TranslateExpVal(point, value_kind, target_res, get_value, get_edge, res);
-      value_kind->DecRef();
     } else {
-      exp->IncRef();
       Bit *guard = Bit::MakeConstant(true);
       res->PushBack(GuardExp(exp, guard));
     }
@@ -1555,7 +1426,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
   CheckMemoryConsistency<GuardExp>(guard, res->m_vector);
 #endif
 
-  res->FillVector(translated, true);
+  res->FillVector(translated);
 }
 
 void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
@@ -1568,7 +1439,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
   case BIT_True:
   case BIT_False: {
     // preserve the bit as is.
-    bit->IncRef();
     Bit *guard = Bit::MakeConstant(true);
     res->PushBack(GuardBit(bit, guard));
     break;
@@ -1583,7 +1453,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
       const GuardExp &gs = var_res[sind];
 
       Bit *new_bit = Exp::MakeNonZeroBit(gs.exp);
-      gs.guard->IncRef();
       res->PushBack(GuardBit(new_bit, gs.guard));
     }
 
@@ -1633,8 +1502,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
 
     for (size_t ind = 0; ind < neg_res.Size(); ind++) {
       const GuardBit &gb = neg_res[ind];
-      gb.IncRef();
-
       Bit *neg_bit = Bit::MakeNot(gb.bit);
       res->PushBack(GuardBit(neg_bit, gb.guard));
     }
@@ -1659,7 +1526,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
       GuardBitVector prev_res;
       for (size_t ind = 0; ind < res->Size(); ind++) {
         const GuardBit &gb = res->At(ind);
-        gb.IncRef();
         prev_res.PushBack(gb);
       }
       res->Clear();
@@ -1676,9 +1542,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
 
           if (TimerAlarm::ActiveExpired())
             break;
-
-          pgs.IncRef();
-          ngs.IncRef();
 
           Bit *new_bit = NULL;
           if (bit->Kind() == BIT_And)
@@ -1723,8 +1586,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
     if (TimerAlarm::ActiveExpired())
       break;
 
-    gb.IncRef();
-
     Bit *conjunct = Bit::MakeAnd(gb.bit, gb.guard);
     if (disjunct) {
       disjunct = Bit::MakeOr(disjunct, conjunct);
@@ -1740,7 +1601,6 @@ void BlockMemory::TranslateBit(TranslateKind kind, PPoint point,
   }
 
   *res = disjunct;
-  disjunct->MoveRef(NULL, res);
 }
 
 void BlockMemory::TranslateAssign(TranslateKind kind, PPoint point,
@@ -1767,33 +1627,18 @@ void BlockMemory::TranslateAssign(TranslateKind kind, PPoint point,
       const GuardExp &lgt = left_res[tind];
       const GuardExp &rgs = right_res[sind];
 
-      lgt.IncRef();
-      rgs.IncRef();
-
       // get the conjunction of the two conditions.
       Bit *guard = Bit::MakeAnd(lgt.guard, rgs.guard);
 
       // combine with the condition where the assignment occurs.
-      if (when_res) {
-        when_res->IncRef();
+      if (when_res)
         guard = Bit::MakeAnd(guard, when_res);
-      }
 
       // if the conjunction might be satisfiable then add the assign.
-      if (guard->IsFalse()) {
-        // trivially unsat
-        guard->DecRef();
-        lgt.exp->DecRef();
-        rgs.exp->DecRef();
-      }
-      else {
+      if (!guard->IsFalse())
         ComputeSingleAssign(type, lgt.exp, rgs.exp, guard, res);
-      }
     }
   }
-
-  if (when_res)
-    when_res->DecRef(&when_res);
 }
 
 void BlockMemory::TranslateReceiver(PPoint point, GuardExpVector *res)
@@ -1808,12 +1653,10 @@ void BlockMemory::TranslateReceiver(PPoint point, GuardExpVector *res)
     // the function is relative to this object so compose the two.
     Exp *combine = Exp::Compose(call_instance, function);
     TranslateExp(TRK_Point, point, combine, res);
-    combine->DecRef();
   }
   else {
     // standard indirect call through a function pointer.
     TranslateExp(TRK_Point, point, function, res);
-    return;
   }
 }
 
@@ -1897,13 +1740,10 @@ bool BlockMemory::IsLvalClobbered(Exp *lval, Exp *kind, PEdge *edge,
       continue;
 
     Bit *when;
-    if (gasn.guard) {
-      gasn.guard->IncRef();
+    if (gasn.guard)
       when = Bit::MakeAnd(gasn.guard, alias);
-    }
-    else {
+    else
       when = alias;
-    }
 
     *inner = gasn.right;
     *guard = when;
@@ -1926,13 +1766,10 @@ bool BlockMemory::IsLvalClobbered(Exp *lval, Exp *kind, PEdge *edge,
       if (!alias)
         continue;
 
-      if (pgasn.guard) {
-        pgasn.guard->IncRef();
+      if (pgasn.guard)
         when = Bit::MakeAnd(pgasn.guard, alias);
-      }
-      else {
+      else
         when = alias;
-      }
 
       *guard = Bit::MakeOr(*guard, when);
     }
@@ -2011,7 +1848,6 @@ Exp* BlockMemory::GetBaseBuffer(Exp *lval, Type *stride_type)
       lval = nlval->GetTarget();
   }
 
-  lval->IncRef();
   return lval;
 }
 
@@ -2035,17 +1871,14 @@ ExpTerminate* BlockMemory::GetTerminateAssign(PPoint point,
   if (ExpFld *nleft = left->IfFld()) {
     Field *field = nleft->GetField();
 
-    field->IncRef();
     terminate_test = Exp::MakeFld(terminate_test, field);
 
     use_lval = nleft->GetTarget();
     stride_type = field->GetCSUType();
   }
 
-  if (stride_type->Width() == 0) {
-    terminate_test->DecRef();
+  if (stride_type->Width() == 0)
     return NULL;
-  }
 
   // do some filtering on the possible assignments we will consider
   // as establishing a terminator. TODO: should make IsLvalAliased
@@ -2053,18 +1886,13 @@ ExpTerminate* BlockMemory::GetTerminateAssign(PPoint point,
   if (use_lval->IsIndex() || use_lval->IsDrf() || use_lval->IsClobber() ||
       (use_lval->IsVar() && use_lval->AsVar()->GetVariable()->IsGlobal())) {
 
-    stride_type->IncRef();
-    terminate_int->IncRef();
     Exp *res = Exp::MakeTerminate(NULL, stride_type,
                                   terminate_test, terminate_int);
 
     *lval = use_lval;
     return res->AsTerminate();
   }
-  else {
-    terminate_test->DecRef();
-    return NULL;
-  }
+  return NULL;
 }
 
 void BlockMemory::Print(OutStream &out) const
@@ -2123,66 +1951,90 @@ void BlockMemory::Print(OutStream &out) const
   }
 }
 
-// as with TryMoveRef, drop a reference on bit unless it is true.
-static inline void TryDecRef(Bit *bit, ORef ov)
-{
-  if (!bit->IsTrue())
-    bit->DecRef(ov);
-}
-
-static void DecRefGuard(const Vector<Bit*> &bits)
+static void MarkGuard(const Vector<Bit*> &bits)
 {
   Assert(bits.Size() == 1);
-  TryDecRef(bits[0], &bits);
+  bits[0]->Mark();
 }
 
-static void DecRefAssume(const Vector<GuardTrueFalse> &vals)
+static void MarkAssume(const Vector<GuardTrueFalse> &vals)
 {
   Assert(vals.Size() == 1);
   if (vals[0].true_guard)
-    TryDecRef(vals[0].true_guard, &vals);
+    vals[0].true_guard->Mark();
   if (vals[0].false_guard)
-    TryDecRef(vals[0].false_guard, &vals);
+    vals[0].false_guard->Mark();
 }
 
-static void DecRefGuardExp(const Vector<GuardExp> &vals)
+static void MarkGuardExp(const Vector<GuardExp> &vals)
 {
   for (size_t ind = 0; ind < vals.Size(); ind++) {
     const GuardExp &v = vals[ind];
-    v.exp->DecRef(&vals);
-    TryDecRef(v.guard, &vals);
+    v.exp->Mark();
+    v.guard->Mark();
   }
 }
 
-static void DecRefGuardAssign(const Vector<GuardAssign> &vals)
+static void MarkGuardAssign(const Vector<GuardAssign> &vals)
 {
   for (size_t ind = 0; ind < vals.Size(); ind++) {
     const GuardAssign &v = vals[ind];
-    v.left->DecRef(&vals);
-    v.right->DecRef(&vals);
+    v.left->Mark();
+    v.right->Mark();
     if (v.kind)
-      v.kind->DecRef(&vals);
-    TryDecRef(v.guard, &vals);
+      v.kind->Mark();
+    v.guard->Mark();
   }
 }
 
-void BlockMemory::DecMoveChildRefs(ORef ov, ORef nv)
+void BlockMemory::MarkChildren() const
 {
-  m_id->DecMoveRef(ov, nv);
+  m_id->Mark();
 
   if (m_cfg)
-    m_cfg->DecMoveRef(ov, nv);
+    m_cfg->Mark();
 
   if (!m_computed)
     return;
 
-  Assert(nv == NULL);
+  HashIteratePtr(m_guard_table)
+    MarkGuard(m_guard_table->ItValues());
 
-  // remaining table references are removed during UnPersist. we don't
-  // really need to call this since it will get called during normal
-  // teardown, but if we leak references then this will be called without
-  // unpersist so we want to make sure the extra references are cleaned up.
-  UnPersist();
+  HashIteratePtr(m_assume_table)
+    MarkAssume(m_assume_table->ItValues());
+
+  HashIteratePtr(m_return_table)
+    MarkGuardExp(m_return_table->ItValues());
+
+  HashIteratePtr(m_target_table)
+    MarkGuardExp(m_target_table->ItValues());
+
+  HashIteratePtr(m_assign_table)
+    MarkGuardAssign(m_assign_table->ItValues());
+
+  HashIteratePtr(m_argument_table)
+    MarkGuardAssign(m_argument_table->ItValues());
+
+  HashIteratePtr(m_clobber_table)
+    MarkGuardAssign(m_clobber_table->ItValues());
+
+  HashIteratePtr(m_val_table) {
+    const Vector<GuardExp> &vals = m_val_table->ItValues();
+    MarkGuardExp(vals);
+
+    const PointValue &o = m_val_table->ItKey();
+    o.lval->Mark();
+    if (o.kind)
+      o.kind->Mark();
+  }
+
+  HashIteratePtr(m_translate_table) {
+    const Vector<GuardExp> &vals = m_translate_table->ItValues();
+    MarkGuardExp(vals);
+
+    const PointTranslate &o = m_translate_table->ItKey();
+    o.exp->Mark();
+  }
 }
 
 void BlockMemory::Persist()
@@ -2194,45 +2046,6 @@ void BlockMemory::UnPersist()
 {
   if (!m_computed)
     return;
-
-  HashIteratePtr(m_guard_table)
-    DecRefGuard(m_guard_table->ItValues());
-
-  HashIteratePtr(m_assume_table)
-    DecRefAssume(m_assume_table->ItValues());
-
-  HashIteratePtr(m_return_table)
-    DecRefGuardExp(m_return_table->ItValues());
-
-  HashIteratePtr(m_target_table)
-    DecRefGuardExp(m_target_table->ItValues());
-
-  HashIteratePtr(m_assign_table)
-    DecRefGuardAssign(m_assign_table->ItValues());
-
-  HashIteratePtr(m_argument_table)
-    DecRefGuardAssign(m_argument_table->ItValues());
-
-  HashIteratePtr(m_clobber_table)
-    DecRefGuardAssign(m_clobber_table->ItValues());
-
-  HashIteratePtr(m_val_table) {
-    const Vector<GuardExp> &vals = m_val_table->ItValues();
-    DecRefGuardExp(vals);
-
-    const PointValue &o = m_val_table->ItKey();
-    o.lval->DecRef(&vals);
-    if (o.kind)
-      o.kind->DecRef(&vals);
-  }
-
-  HashIteratePtr(m_translate_table) {
-    const Vector<GuardExp> &vals = m_translate_table->ItValues();
-    DecRefGuardExp(vals);
-
-    const PointTranslate &o = m_translate_table->ItKey();
-    o.exp->DecRef(&vals);
-  }
 
   delete m_guard_table;
   delete m_assume_table;
@@ -2257,9 +2070,6 @@ void BlockMemory::UnPersist()
   m_translate_table = NULL;
 
   m_computed = false;
-
-  // have to remove this reference last as the tables depend on it.
-  m_true_bit->DecRef(this);
 }
 
 void BlockMemory::MakeTables()
@@ -2274,9 +2084,6 @@ void BlockMemory::MakeTables()
   m_gc_table = new Vector<PPoint>();
   m_val_table = new ValueTable();
   m_translate_table = new TranslateTable();
-
-  m_true_bit = Bit::MakeConstant(true);
-  m_true_bit->MoveRef(NULL, this);
 }
 
 void BlockMemory::CheckOutgoingEdges(const Vector<PEdge*> &outgoing)
@@ -2338,7 +2145,6 @@ void BlockMemory::ComputeGuard(PPoint point)
   Assert(guard_bit != NULL);
 
   entries->PushBack(guard_bit);
-  TryMoveRef(guard_bit, entries);
 }
 
 void BlockMemory::ComputeEdgeAssume(PEdgeAssume *edge)
@@ -2359,8 +2165,6 @@ void BlockMemory::ComputeEdgeAssume(PEdgeAssume *edge)
   Bit *cond_res;
   TranslateBit(TRK_Point, edge->GetSource(), cond_holds, &cond_res);
 
-  cond_holds->DecRef();
-
   if (nonzero) {
     Assert(entries->At(0).true_guard == NULL);
     entries->At(0).true_guard = cond_res;
@@ -2369,9 +2173,6 @@ void BlockMemory::ComputeEdgeAssume(PEdgeAssume *edge)
     Assert(entries->At(0).false_guard == NULL);
     entries->At(0).false_guard = cond_res;
   }
-
-  cond_res->MoveRef(&cond_res, NULL);
-  TryMoveRef(cond_res, entries);
 }
 
 void BlockMemory::ComputeEdgeAssign(PEdgeAssign *edge)
@@ -2405,7 +2206,7 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
   GuardExpVector target_res;
   TranslateExp(TRK_Point, point, call_target, &target_res);
-  target_res.FillVector(target_values, true);
+  target_res.FillVector(target_values);
 
   // add the call argument assignments.
 
@@ -2421,7 +2222,6 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
       Type *arg_type = NULL;
       if (aind < type->GetArgumentCount()) {
         arg_type = type->GetArgumentType(aind);
-        arg_type->IncRef();
       }
       else {
         // just use a void type. this should only show up for varargs
@@ -2438,13 +2238,8 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
       for (size_t sind = 0; sind < argval_res.Size(); sind++) {
         const GuardExp &ags = argval_res[sind];
-        ags.IncRef();
-        arg_exp->IncRef();
         ComputeSingleAssign(arg_type, arg_exp, ags.exp, ags.guard, arguments);
       }
-
-      arg_type->DecRef();
-      arg_exp->DecRef();
     }
   }
 
@@ -2464,7 +2259,7 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
     GuardExpVector retval_res;
     TranslateExp(TRK_Point, point, retval, &retval_res);
-    retval_res.FillVector(returns, true);
+    retval_res.FillVector(returns);
   }
 
   // generate clobbering info and any additional assignments.
@@ -2513,10 +2308,6 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
 
           for (size_t ind = 0; ind < arg_res.Size(); ind++) {
             const GuardExp &ag = arg_res[ind];
-            ag.IncRef();
-            rgt.IncRef();
-
-            type->IncRef();
             Exp *rval = Exp::MakeBound(BND_Upper, ag.exp, type);
             Bit *guard = Bit::MakeAnd(rgt.guard, ag.guard);
 
@@ -2531,12 +2322,8 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
       Exp *ret_exp = Exp::MakeVar(NULL, VK_Return, NULL, 0, NULL);
 
       Location *location = m_cfg->GetPointLocation(point);
-      location->IncRef();
-
-      rgt.exp->IncRef();
       Exp *rval = Exp::MakeClobber(ret_exp, NULL, rgt.exp, point, location);
 
-      rgt.IncRef();
       ComputeSingleAssign(return_type, rgt.exp, rval, rgt.guard, assigns);
     }
   }
@@ -2565,8 +2352,6 @@ bool BlockMemory::EdgeCanGC(PEdge *edge)
     BlockModset *modset = GetBlockModset(callee);
     if (modset->CanGC())
       result = true;
-    modset->DecRef();
-    callee->DecRef();
   }
   else if (edge->IsCall()) {
     Variable *function = GetId()->BaseVar();
@@ -2579,13 +2364,10 @@ bool BlockMemory::EdgeCanGC(PEdge *edge)
         if (cedge.where.version == GetCFG()->GetVersion() &&
             cedge.where.id == GetId() &&
             cedge.where.point == edge->GetSource()) {
-          cedge.callee->IncRef();
           BlockId *callee = BlockId::Make(B_Function, cedge.callee);
           BlockModset *modset = GetBlockModset(callee);
           if (modset->CanGC())
             result = true;
-          modset->DecRef();
-          callee->DecRef();
         }
       }
     }
@@ -2609,16 +2391,10 @@ void BlockMemory::ComputeSingleAssign(Type *type,
         for (size_t find = 0; find < csu->GetFieldCount(); find++) {
           const DataField &df = csu->GetField(find);
 
-          left->IncRef();
-          df.field->IncRef();
           Exp *left_fld = Exp::MakeFld(left, df.field);
-
-          target->IncRef();
-          df.field->IncRef();
           Exp *target_fld = Exp::MakeFld(target, df.field);
           Exp *right_fld = Exp::MakeDrf(target_fld);
 
-          guard->IncRef();
           ComputeSingleAssign(df.field->GetType(),
                               left_fld, right_fld, guard, assigns);
         }
@@ -2626,22 +2402,14 @@ void BlockMemory::ComputeSingleAssign(Type *type,
 
       CompositeCSUCache.Release(csu_name);
     }
-
-    left->DecRef();
-    right->DecRef();
-    guard->DecRef();
   }
   else {
     assigns->PushBack(GuardAssign(left, right, guard));
-    left->MoveRef(NULL, assigns);
-    right->MoveRef(NULL, assigns);
-    TryMoveRef(guard, assigns);
   }
 }
 
 void BlockMemory::TransferEntryDrf(Exp *lval, GuardExpVector *res)
 {
-  lval->IncRef();
   Exp *value = Exp::MakeDrf(lval);
   Bit *guard = Bit::MakeConstant(true);
   res->PushBack(GuardExp(value, guard));
@@ -2664,11 +2432,7 @@ void BlockMemory::TransferEdgeDrf(Exp *lval, PEdge *edge, GuardExpVector *res)
       continue;
 
     // found a direct or indirect aliased assignment to the lvalue.
-
-    gasn.guard->IncRef();
     Bit *when = Bit::MakeAnd(gasn.guard, alias);
-
-    gasn.right->IncRef();
     res->PushBack(GuardExp(gasn.right, when));
   }
 }
@@ -2676,7 +2440,6 @@ void BlockMemory::TransferEdgeDrf(Exp *lval, PEdge *edge, GuardExpVector *res)
 void BlockMemory::TransferEntryTerminate(Exp *lval, ExpTerminate *kind,
                                          GuardExpVector *res)
 {
-  lval->IncRef();
   Exp *value = kind->ReplaceLvalTarget(lval);
   Bit *guard = Bit::MakeConstant(true);
   res->PushBack(GuardExp(value, guard));
@@ -2730,12 +2493,8 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
       }
     }
 
-    if (!equal_kind) {
-      new_kind->DecRef();
+    if (!equal_kind)
       continue;
-    }
-
-    new_kind->DecRef();
 
     // check for aliasing between the updated lvalue and the interested buffer.
     // this aliasing will test whether the two locations are within the
@@ -2749,32 +2508,18 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
     // treat the terminator as unchanged if it is greater than the offset
     // of this updated position, so use a Max binop.
 
-    gasn.guard->IncRef();
     Bit *when = Bit::MakeAnd(gasn.guard, alias);
-    when->MoveRef(NULL, &when);
-
-    use_left->IncRef();
-    lval->IncRef();
-    stride_type->IncRef();
     Exp *value = Exp::MakeBinop(B_MinusPP, use_left, lval, stride_type);
-    value->MoveRef(NULL, &value);
 
     GuardExpVector terminators;
     GetValSimplify(lval, kind, point, &terminators);
 
     for (size_t ind = 0; ind < terminators.Size(); ind++) {
       const GuardExp &term = terminators[ind];
-      term.IncRef();
-
-      value->IncRef();
-      when->IncRef();
       Exp *maximum = Exp::MakeBinop(B_Max, value, term.exp);
       Bit *combine = Bit::MakeAnd(when, term.guard);
       res->PushBack(GuardExp(maximum, combine));
     }
-
-    when->DecRef(&when);
-    value->DecRef(&value);
   }
 
   Exp *target;
@@ -2831,32 +2576,20 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
               // term(lval) is assigned term(source) + (target -p lval) if:
               // term(target) < (length / sizeof(stride_type))
 
-              ctarg.exp->IncRef();
-              lval->IncRef();
-              stride_type->IncRef();
               Exp *diff = Exp::MakeBinop(B_MinusPP, ctarg.exp, lval,
                                          stride_type);
 
-              srcterm.exp->IncRef();
-              lvterm.exp->IncRef();
               Exp *value = Exp::MakeBinop(B_Plus, srcterm.exp, diff);
               Exp *maximum = Exp::MakeBinop(B_Max, value, lvterm.exp);
 
-              ctarg.exp->IncRef();
               Exp *target_term = kind->ReplaceLvalTarget(ctarg.exp);
 
-              clen.exp->IncRef();
               Exp *size_exp = Exp::MakeInt(stride_type->Width());
               Exp *len_div = Exp::MakeBinop(B_Div, clen.exp, size_exp);
 
               Bit *less = Exp::MakeCompareBit(B_LessThan,
                                               target_term, len_div);
 
-              alias->IncRef();
-              ctarg.guard->IncRef();
-              clen.guard->IncRef();
-              lvterm.guard->IncRef();
-              srcterm.guard->IncRef();
               Bit *combine = Bit::MakeAnd(alias, less);
               combine = Bit::MakeAnd(combine, ctarg.guard);
               combine = Bit::MakeAnd(combine, clen.guard);
@@ -2868,13 +2601,7 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
           }
         }
       }
-
-      alias->DecRef();
     }
-
-    target->DecRef();
-    source->DecRef();
-    length->DecRef();
   }
 
   // check for memory initialization which can introduce a terminator.
@@ -2914,26 +2641,17 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
           // term(lval) is assigned:
           // (length / sizeof(stride_type)) - 1 + (target -p lval)
 
-          ctarg.exp->IncRef();
-          lval->IncRef();
-          stride_type->IncRef();
           Exp *diff = Exp::MakeBinop(B_MinusPP, ctarg.exp, lval, stride_type);
 
-          clen.exp->IncRef();
           Exp *size_exp = Exp::MakeInt(stride_type->Width());
           Exp *len_div = Exp::MakeBinop(B_Div, clen.exp, size_exp);
 
           Exp *one_exp = Exp::MakeInt(1);
           Exp *len_sub = Exp::MakeBinop(B_Minus, len_div, one_exp);
 
-          term.exp->IncRef();
           Exp *value = Exp::MakeBinop(B_Plus, len_sub, diff);
           Exp *maximum = Exp::MakeBinop(B_Max, value, term.exp);
 
-          alias->IncRef();
-          ctarg.guard->IncRef();
-          clen.guard->IncRef();
-          term.guard->IncRef();
           Bit *combine = Bit::MakeAnd(alias, ctarg.guard);
           combine = Bit::MakeAnd(combine, clen.guard);
           combine = Bit::MakeAnd(combine, term.guard);
@@ -2941,12 +2659,7 @@ void BlockMemory::TransferEdgeTerminate(Exp *lval, ExpTerminate *kind,
           res->PushBack(GuardExp(maximum, combine));
         }
       }
-
-      alias->DecRef();
     }
-
-    target->DecRef();
-    length->DecRef();
   }
 }
 
@@ -2967,11 +2680,6 @@ void BlockMemory::TransferClobberTerminate(Exp *lval, ExpTerminate *kind,
 
   for (size_t ind = 0; ind < entry_res.Size(); ind++) {
     const GuardExp &gs = entry_res[ind];
-    gs.IncRef();
-
-    lval->IncRef();
-    clobber->IncRef();
-    stride_type->IncRef();
     Exp *diff = Exp::MakeBinop(B_MinusPP, gs.exp, lval, stride_type);
     Exp *term = Exp::MakeBinop(B_Plus, diff, clobber);
 
@@ -2982,7 +2690,6 @@ void BlockMemory::TransferClobberTerminate(Exp *lval, ExpTerminate *kind,
 void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
 				      GuardExpVector *res)
 {
-  lval->IncRef();
   Exp *value = kind->ReplaceLvalTarget(lval);
   Bit *guard = Bit::MakeConstant(true);
   res->PushBack(GuardExp(value, guard));
@@ -3005,10 +2712,6 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
   // been clobbered by a GC.
 
   Location *location = m_cfg->GetPointLocation(point);
-  location->IncRef();
-
-  lval->IncRef();
-  kind->IncRef();
   Exp *value = Exp::MakeClobber(kind, NULL, lval, point, location);
 
   Bit *guard = Bit::MakeConstant(true);
@@ -3046,14 +2749,11 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
 
   for (size_t ind = 0; ind < res->Size(); ind++) {
     Bit *bit = res->At(ind).guard;
-    bit->IncRef();
-
     Bit *not_bit = Bit::MakeNot(bit);
     preserve = Bit::MakeAnd(preserve, not_bit);
   }
 
   if (preserve->IsFalse()) {
-    preserve->DecRef();
     res->SortCombine();
     return;
   }
@@ -3067,20 +2767,12 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
 
     // get the condition where the clobber occurs. and restrict
     // the preserved guard to cover only the non-clobber cases.
-    clobber_guard->IncRef();
     Bit *not_clobber = Bit::MakeNot(clobber_guard);
 
-    preserve->IncRef();
     clobber_guard = Bit::MakeAnd(preserve, clobber_guard);
     preserve = Bit::MakeAnd(preserve, not_clobber);
 
     Location *location = m_cfg->GetPointLocation(point);
-    location->IncRef();
-
-    lval->IncRef();
-    clobber_inner->IncRef();
-    if (kind)
-      kind->IncRef();
     ExpClobber *clobber = Exp::MakeClobber(clobber_inner, kind, lval,
                                            point, location);
 
@@ -3091,14 +2783,9 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
 
       for (size_t ind = 0; ind < clobber_res.Size(); ind++) {
         const GuardExp &gs = clobber_res[ind];
-        gs.IncRef();
-        clobber_guard->IncRef();
         Bit *combine_guard = Bit::MakeAnd(clobber_guard, gs.guard);
         res->PushBack(GuardExp(gs.exp, combine_guard));
       }
-
-      clobber->DecRef();
-      clobber_guard->DecRef();
     }
     else {
       res->PushBack(GuardExp(clobber, clobber_guard));
@@ -3106,7 +2793,6 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
   }
 
   if (preserve->IsFalse()) {
-    preserve->DecRef();
     res->SortCombine();
     return;
   }
@@ -3126,18 +2812,11 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
       Exp *callee = clobber->GetCallee();
       Exp *remainder = Exp::GetSubExprRemainder(lval, clobber);
 
-      callee->IncRef();
       Exp *callee_exit = Exp::MakeExit(callee, NULL);
       Exp *callee_lval = Exp::Compose(callee_exit, remainder);
-      callee_exit->DecRef();
-      remainder->DecRef();
 
       Location *location = m_cfg->GetPointLocation(point);
-      location->IncRef();
 
-      if (kind)
-        kind->IncRef();
-      lval->IncRef();
       Exp *exit_value = Exp::MakeClobber(callee_lval, kind, lval,
                                          point, location);
 
@@ -3153,16 +2832,10 @@ void BlockMemory::TransferEdge(Exp *lval, Exp *kind, PEdge *edge,
 
   for (size_t vind = 0; vind < old_values.Size(); vind++) {
     const GuardExp &ogs = old_values[vind];
-
-    preserve->IncRef();
-    ogs.guard->IncRef();
     Bit *guard = Bit::MakeAnd(preserve, ogs.guard);
-
-    ogs.exp->IncRef();
     res->PushBack(GuardExp(ogs.exp, guard));
   }
 
-  preserve->DecRef();
   res->SortCombine();
 }
 

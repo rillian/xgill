@@ -100,7 +100,7 @@ class BlockId : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   BlockKind m_kind;
@@ -461,7 +461,7 @@ class BlockCFG : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -653,7 +653,7 @@ class PEdgeAssume : public PEdge
   void DoVisit(ExpVisitor *visitor) const;
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Exp *m_cond;
@@ -679,7 +679,7 @@ class PEdgeAssign : public PEdge
   void DoVisit(ExpVisitor *visitor) const;
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Type *m_type;
@@ -730,7 +730,7 @@ class PEdgeCall : public PEdge
   void DoVisit(ExpVisitor *visitor) const;
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -760,7 +760,7 @@ class PEdgeLoop : public PEdge
   BlockId* GetDirectCallee() const;
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   BlockId *m_loop;
@@ -792,7 +792,7 @@ class PEdgeAnnotation : public PEdge
   // inherited methods
   void Print(OutStream &out) const;
   void PrintUI(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   BlockId *m_annot;

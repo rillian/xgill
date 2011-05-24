@@ -147,10 +147,8 @@ void GetCalleeModsets(Transaction *t,
     for (size_t eind = 0; eind < cfg->GetEdgeCount(); eind++) {
       if (PEdgeCall *edge = cfg->GetEdge(eind)->IfCall()) {
         Variable *callee = edge->GetDirectFunction();
-        if (callee && !callees->Contains(callee)) {
-          callee->IncRef();
+        if (callee && !callees->Contains(callee))
           callees->PushBack(callee);
-        }
       }
     }
   }
@@ -172,10 +170,8 @@ void GetCalleeModsets(Transaction *t,
     CallEdgeSet *cset = CalleeCache.Lookup(function);
     for (size_t ind = 0; cset && ind < cset->GetEdgeCount(); ind++) {
       Variable *callee = cset->GetEdge(ind).callee;
-      if (!callees->Contains(callee)) {
-        callee->IncRef();
+      if (!callees->Contains(callee))
         callees->PushBack(callee);
-      }
     }
     CalleeCache.Release(function);
   }
@@ -194,7 +190,6 @@ void GetCalleeModsets(Transaction *t,
     TOperand *callee_arg = new TOperandString(t, callee->GetName()->Value());
 
     // don't get the modset if it is already cached.
-    callee->IncRef();
     BlockId *id = BlockId::Make(B_Function, callee);
 
     if (!BlockModsetCache.IsMember(id)) {
@@ -203,8 +198,6 @@ void GetCalleeModsets(Transaction *t,
       t->PushAction(Backend::ListPush(t, modset_list_arg, modset_data,
                                       modset_list_result));
     }
-
-    id->DecRef();
   }
 
   SubmitTransaction(t);
@@ -251,7 +244,6 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
     MemoryClobberKind clobber_kind =
       indirect ? MCLB_Modset : MCLB_ModsetNoIndirect;
 
-    id->IncRef();
     BlockMemory *mem =
       BlockMemory::Make(id, MSIMP_Scalar, MALIAS_Buffer, clobber_kind);
 
@@ -264,8 +256,6 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
     // this uses a cloned ID as we need to distinguish the modsets
     // we are generating during this pass from the modsets we generated
     // during a previous pass.
-    function->IncRef();
-    if (loop) loop->IncRef();
     BlockId *mod_id = BlockId::Make(id->Kind(), function, loop, true);
     BlockModset *mod = BlockModset::Make(mod_id);
 
@@ -278,8 +268,6 @@ bool GenerateMemory(const Vector<BlockCFG*> &block_cfgs, size_t stage,
     // add an entry to the modset cache. we process the function CFGs from
     // innermost loop to the outermost function, and will add loop modsets
     // to the cache as we go.
-    id->IncRef(&BlockModsetCache);
-    mod->IncRef(&BlockModsetCache);
     BlockModsetCache.Insert(id, mod);
 
     if (print_memory.IsSpecified()) {
@@ -498,12 +486,6 @@ void RunAnalysis(const Vector<const char*> &functions)
       // write out any indirect callgraph edges we generated.
       WritePendingEscape();
     }
-
-    DecRefVector<Variable>(callees);
-    DecRefVector<BlockCFG>(block_cfgs);
-    DecRefVector<BlockMemory>(block_mems);
-    DecRefVector<BlockModset>(block_mods);
-    DecRefVector<BlockModset>(old_mods);
   }
 
   t->Clear();
@@ -561,7 +543,6 @@ void RunAnalysis(const Vector<const char*> &functions)
       if (print_cfgs.IsSpecified())
         logout << cfg << endl;
 
-      id->IncRef();
       BlockMemory *mem =
         BlockMemory::Make(id, MSIMP_Scalar, MALIAS_Buffer, MCLB_Modset);
 
@@ -579,9 +560,6 @@ void RunAnalysis(const Vector<const char*> &functions)
                                       init_key, memory_data_arg));
     SubmitTransaction(t);
     t->Clear();
-
-    DecRefVector<BlockCFG>(block_cfgs, NULL);
-    DecRefVector<BlockMemory>(block_mems, NULL);
   }
 
   delete t;

@@ -52,24 +52,15 @@ T* HashCons<T>::Lookup(T &o)
 
   HashObject *xo = bucket->e_begin;
   while (xo != NULL) {
-    if (o.Hash() == xo->Hash() && T::Compare(&o, (T*) xo) == 0) {
-      o.DecMoveChildRefs(NULL, NULL);
-      xo->IncRef();
+    if (o.Hash() == xo->Hash() && T::Compare(&o, (T*) xo) == 0)
       return (T*) xo;
-    }
     xo = xo->m_next;
   }
 
   T *no = T::Copy(&o);
 
-#ifdef DEBUG
-  no->DecMoveChildRefs(NULL, no);
-#endif
-
   no->HashInsert((HashObject***) &bucket->e_pend, &m_object_count);
   no->Persist();
-
-  no->IncRef();
   return no;
 }
 
@@ -89,53 +80,6 @@ bool HashCons<T>::IsMember(const T *o)
   }
 
   return false;
-}
-
-template <class T>
-void HashCons<T>::DropAllChildRefs()
-{
-  // can only drop child references if it will not end up deleting objects,
-  // i.e. we are finding reference leaks at program teardown.
-  Assert(!HashObject::g_delete_unused);
-
-  for (size_t ind = 0; ind < m_bucket_count; ind++) {
-    HashBucket *bucket = &m_buckets[ind];
-
-    HashObject *o = bucket->e_begin;
-    while (o != NULL) {
-      o->DecMoveChildRefs(o, NULL);
-      o = o->m_next;
-    }
-  }
-}
-
-template <class T>
-void HashCons<T>::PrintLiveObjects(uint64_t &min_stamp)
-{
-  for (size_t ind = 0; ind < m_bucket_count; ind++) {
-    HashBucket *bucket = &m_buckets[ind];
-
-    HashObject *o = bucket->e_begin;
-    while (o != NULL) {
-      if (o->Refs() != 0) {
-        logout << "  " << o->Refs() << ": [" << o->Hash() << "]" << endl;
-
-#ifdef DEBUG
-        o->PrintRefStamps();
-        logout << endl;
-
-        // remember the earliest leaked reference.
-        uint64_t o_min_stamp = o->MinRefStamp();
-        if (o_min_stamp < min_stamp)
-          min_stamp = o_min_stamp;
-#else
-        logout << "  " << o << endl << endl;
-#endif
-      }
-
-      o = o->m_next;
-    }
-  }
 }
 
 template <class T>
@@ -164,19 +108,4 @@ void HashCons<T>::Resize(size_t bucket_count)
 
   m_buckets = buckets;
   m_bucket_count = bucket_count;
-}
-
-template <class T>
-void HashCons<T>::PrintObjects()
-{
-  logout << "HashCons contents:" << endl;
-  for (size_t ind = 0; ind < m_bucket_count; ind++) {
-    HashBucket *bucket = &m_buckets[ind];
-
-    HashObject *o = bucket->e_begin;
-    while (o != NULL) {
-      logout << o->Refs() << ": " << o << endl;
-      o = o->m_next;
-    }
-  }
 }

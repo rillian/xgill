@@ -266,14 +266,12 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
       Vector<FileData> *entries = file_table.Lookup(file, true);
       if (entries->Empty()) {
         entries->PushBack(FileData());
-        file->MoveRef(NULL, &file_table);
 
         cur_data = &entries->Back();
         cur_data->contents = new Buffer();
         cur_data->cur_line = 1;
       }
       else {
-        file->DecRef();
         Assert(entries->Size() == 1);
         cur_data = &entries->Back();
       }
@@ -313,7 +311,6 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
       Vector<FileData> *entries = file_table.Lookup(file, true);
       Assert(entries->Empty());
 
-      file->MoveRef(NULL, entries);
       entries->PushBack(FileData());
 
       cur_data = &entries->Back();
@@ -348,10 +345,8 @@ void ProcessPreprocessedFile(istream &in, const char *input_file)
   delete query;
   delete dump;
 
-  HashIterate(file_table) {
-    file_table.ItKey()->DecRef(&file_table);
+  HashIterate(file_table)
     delete file_table.ItValueSingle().contents;
-  }
 }
 
 NAMESPACE_XGILL_END

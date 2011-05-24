@@ -34,32 +34,20 @@ public:
 
   void SetTest(ExpDrf *lval, ExpInt *int_exp)
   {
-    if (m_exclude) {
-      lval->DecRef();
-      int_exp->DecRef();
+    if (m_exclude)
       return;
-    }
 
     if (m_lval) {
       if (m_lval != lval) {
         m_exclude = true;
-
-        m_lval->DecRef();
-        m_int_exp->DecRef();
-
         m_lval = NULL;
         m_int_exp = NULL;
       }
       else if (m_int_exp != int_exp) {
         // if the lvalue is compared against multiple ints then treat
         // as a comparison against zero.
-
-        m_int_exp->DecRef();
         m_int_exp = Exp::MakeInt(0);
       }
-
-      lval->DecRef();
-      int_exp->DecRef();
     }
     else {
       m_lval = lval;
@@ -72,7 +60,6 @@ public:
     // match against particular test forms: *x, *x == n, *x != n
 
     if (ExpDrf *ntest = test->IfDrf()) {
-      ntest->IncRef();
       ExpInt *int_exp = Exp::MakeInt(0);
       SetTest(ntest, int_exp);
       return;
@@ -85,7 +72,6 @@ public:
         long value;
         if (Exp *nonconst = ntest->HasConstant(&value)) {
           if (ExpDrf *nnonconst = nonconst->IfDrf()) {
-            nnonconst->IncRef();
             ExpInt *int_exp = Exp::MakeInt(value);
             SetTest(nnonconst, int_exp);
             return;
@@ -158,33 +144,23 @@ void InferTerminatorTests(BlockSummary *sum,
         if (sanitize_target) {
           if (arithmetic_list.Contains(sanitize_target))
             include_target = true;
-          sanitize_target->DecRef();
         }
       }
       else if (target->IsIndex()) {
         include_target = true;
       }
 
-      if (!include_target) {
-        compare_lval->DecRef();
-        terminate_int->DecRef();
+      if (!include_target)
         continue;
-      }
 
       Exp *terminate_test = Exp::MakeEmpty();
-      if (target_field) {
-        target_field->IncRef();
+      if (target_field)
         terminate_test = Exp::MakeFld(terminate_test, target_field);
-      }
 
       TerminatorInfo info(target, terminate_test, terminate_int);
 
       if (!terminators->Contains(info)) {
         terminators->PushBack(info);
-
-        target->IncRef(terminators);
-        terminate_test->MoveRef(NULL, terminators);
-        terminate_int->MoveRef(NULL, terminators);
 
         // also add a zero terminator test if this is scanning for a specific
         // character in what looks like a string buffer.
@@ -194,24 +170,10 @@ void InferTerminatorTests(BlockSummary *sum,
           ExpInt *zero_int = Exp::MakeInt(0);
           TerminatorInfo info(target, terminate_test, zero_int);
 
-          if (!terminators->Contains(info)) {
+          if (!terminators->Contains(info))
             terminators->PushBack(info);
-
-            target->IncRef(terminators);
-            terminate_test->IncRef(terminators);
-            zero_int->MoveRef(NULL, terminators);
-          }
-          else {
-            zero_int->DecRef();
-          }
         }
       }
-      else {
-        terminate_test->DecRef();
-        terminate_int->DecRef();
-      }
-
-      compare_lval->DecRef();
     }
   }
 }
@@ -226,23 +188,11 @@ Bit* GetTerminatorInvariant(Type *stride_type, Exp *target, Exp *init_target,
 
   // make an invariant test: (term(init_target) >= 0 ==> term(target) >= 0)
 
-  target->IncRef();
-  stride_type->IncRef();
-  terminate_test->IncRef();
-  terminate_int->IncRef();
-
   Exp *terminate =
     Exp::MakeTerminate(target, stride_type, terminate_test, terminate_int);
 
   Exp *zero = Exp::MakeInt(0);
-  zero->IncRef();
-
   Bit *base_test = Exp::MakeCompareBit(B_GreaterEqual, terminate, zero);
-
-  init_target->IncRef();
-  stride_type->IncRef();
-  terminate_test->IncRef();
-  terminate_int->IncRef();
 
   Exp *init_terminate =
     Exp::MakeTerminate(init_target, stride_type, terminate_test, terminate_int);

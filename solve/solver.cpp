@@ -209,7 +209,6 @@ void Solver::CheckDisjointBits(Bit *guard,
   Vector<Bit*> op_list;
   for (size_t ind = 0; ind < bit_list.Size(); ind++) {
     Bit *bit = bit_list[ind];
-    bit->IncRef();
     op_list.PushBack(bit);
   }
 
@@ -232,8 +231,6 @@ void Solver::CheckDisjointBits(Bit *guard,
   }
 
   g_test_solver->PopContext();
-
-  not_disjunct->DecRef();
 
   // check the individual bits are pairwise disjoint, excluding cases
   // where the guard itself does not hold.
@@ -614,8 +611,6 @@ void Solver::AddConstraint(FrameId frame, Bit *bit)
     m_base->PrintRawData(expr, true);
     logout << endl;
   }
-
-  bit->DecRef();
 }
 
 void Solver::AddAssertList(FrameId frame, const GuardBitVector &bit_list,
@@ -628,10 +623,8 @@ void Solver::AddAssertList(FrameId frame, const GuardBitVector &bit_list,
       AddAssert(frame, gb.bit, side_conditions);
     }
     else {
-      gb.IncRef();
       Bit *imply_bit = Bit::MakeImply(gb.guard, gb.bit);
       AddAssert(frame, imply_bit);
-      imply_bit->DecRef();
 
       if (side_conditions) {
         SideConditionVisitor side_visitor;
@@ -639,8 +632,6 @@ void Solver::AddAssertList(FrameId frame, const GuardBitVector &bit_list,
 
         for (size_t ind = 0; ind < side_visitor.side_list.Size(); ind++) {
           Bit *side_bit = side_visitor.side_list[ind];
-
-          gb.guard->IncRef();
           Bit *side_imply = Bit::MakeImply(gb.guard, side_bit);
           AddConstraint(frame, side_imply);
         }
@@ -686,7 +677,6 @@ bool Solver::ExpandVal(FrameId frame, Exp *exp, bool pending)
     mcfg->TranslateExp(TRK_Point, point, lval, &lval_res);
   }
   else {
-    lval->IncRef();
     Bit *true_bit = Bit::MakeConstant(true);
     lval_res.PushBack(GuardExp(lval, true_bit));
   }
@@ -697,20 +687,12 @@ bool Solver::ExpandVal(FrameId frame, Exp *exp, bool pending)
 
     for (size_t ind = 0; ind < values.Size(); ind++) {
       const GuardExp &val = values[ind];
-
-      lv.guard->IncRef();
-      val.guard->IncRef();
       Bit *combine = Bit::MakeAnd(lv.guard, val.guard);
-
-      val.exp->IncRef();
       Exp *use_exp = replace ? exp->ReplaceLvalTarget(val.exp) : val.exp;
 
       AddEquality(frame, frame,
                   exp, NULL, false,
                   use_exp, combine, pending);
-
-      combine->DecRef();
-      use_exp->DecRef();
     }
   }
 
@@ -846,7 +828,6 @@ void Solver::GetPendingExps(FrameId frame, Vector<Exp*> *exp_list)
     Exp *exp = m_expr_pending_table.ItKey();
     AddHandledExp(frame, exp);
 
-    exp->IncRef(exp_list);
     exp_list->PushBack(exp);
   }
 
@@ -871,8 +852,6 @@ void Solver::ExpandPendingVal(FrameId frame)
     for (size_t ind = 0; ind < exp_list.Size(); ind++) {
       Exp *exp = exp_list[ind];
       ExpandVal(frame, exp);
-
-      exp->DecRef(&exp_list);
     }
   }
 }
@@ -1032,18 +1011,12 @@ void Solver::TryFixUninterpreted()
       Exp *operand_int = Exp::MakeInt(info.operand_val);
       Exp *result_int = Exp::MakeInt(info.result_val);
 
-      operand->IncRef();
       Bit *operand_equal = Exp::MakeCompareBit(B_Equal, operand, operand_int);
-
-      unop->IncRef();
       Bit *unop_equal = Exp::MakeCompareBit(B_Equal, unop, result_int);
 
       ConvertState state(key->frame, false);
       SlvExpr operand_expr = ConvertBit(state, operand_equal);
       SlvExpr unop_expr = ConvertBit(state, unop_equal);
-
-      operand_equal->DecRef();
-      unop_equal->DecRef();
 
       m_satisfiable = false;
 
@@ -1113,23 +1086,14 @@ void Solver::TryFixUninterpreted()
       Exp *right_int = Exp::MakeInt(info.right_val);
       Exp *result_int = Exp::MakeInt(info.result_val);
 
-      left_exp->IncRef();
       Bit *left_equal = Exp::MakeCompareBit(B_Equal, left_exp, left_int);
-
-      right_exp->IncRef();
       Bit *right_equal = Exp::MakeCompareBit(B_Equal, right_exp, right_int);
-
-      binop->IncRef();
       Bit *binop_equal = Exp::MakeCompareBit(B_Equal, binop, result_int);
 
       ConvertState state(key->frame, false);
       SlvExpr left_expr = ConvertBit(state, left_equal);
       SlvExpr right_expr = ConvertBit(state, right_equal);
       SlvExpr binop_expr = ConvertBit(state, binop_equal);
-
-      left_equal->DecRef();
-      right_equal->DecRef();
-      binop_equal->DecRef();
 
       m_satisfiable = false;
 
@@ -1197,12 +1161,6 @@ void Solver::Clear()
 
   for (size_t ind = 0; ind < m_constraint_tables.Size(); ind++)
     m_constraint_tables[ind]->Clear();
-
-  for (size_t ind = 0; ind < m_frames.Size(); ind++) {
-    BlockMemory *mcfg = m_frames[ind];
-    if (mcfg)
-      mcfg->DecRef(this);
-  }
 
   m_frames.Clear();
   m_frames.PushBack(NULL);
@@ -1520,11 +1478,8 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
         ExpBound *exp_bound = entry->exp->AsBound();
 
         if (Exp *equal = GetBoundEquivalent(nexp, exp_bound)) {
-          if (AsnExpValue(frame, equal, res)) {
-            equal->DecRef();
+          if (AsnExpValue(frame, equal, res))
             return true;
-          }
-          equal->DecRef();
         }
 
         entry = entry->key_next;
@@ -1552,7 +1507,6 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
 
       mpz_clear(base_val);
       mpz_clear(upper_val);
-      offset_upper->DecRef();
 
       return base_asn && upper_asn;
     }
@@ -1658,7 +1612,6 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
     }
     else {
       lval = nexp->GetLvalue();
-      lval->IncRef();
     }
 
     // get the possible values of the lvalue at the point.
@@ -1669,12 +1622,7 @@ bool Solver::AsnExpValue(FrameId frame, Exp *exp, mpz_t res)
     val_list.FillFromVector(values);
     Exp *exp = AsnChooseExp(frame, val_list);
 
-    bool assigned = AsnExpValue(frame, exp, res);
-
-    exp->DecRef();
-    lval->DecRef();
-
-    return assigned;
+    return AsnExpValue(frame, exp, res);
   }
 
   case EK_Frame: {
@@ -1706,7 +1654,6 @@ Exp* Solver::AsnChooseExp(FrameId frame, const GuardExpVector &vals)
     if (guard_value) {
       Assert(res == NULL);
       res = gs.exp;
-      res->IncRef();
     }
   }
 
@@ -1905,7 +1852,6 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
       if (exp->AsBound()->GetBoundKind() == BND_Offset) {
         Exp *key = exp->ReplaceLvalTarget(NULL);
         m_constraint_offset.Insert(0, key, state.frame, exp);
-        key->DecRef();
       }
     }
     else if (exp->IsTerminate()) {
@@ -1923,8 +1869,6 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
       if (offset_upper) {
         ConvertState abs_state(0, false);
         SlvExpr offset_expr = ConvertExp(abs_state, offset_upper);
-        offset_upper->DecRef();
-
         return m_base->GetBinop(B_Minus, offset_expr, offset_base);
       }
       else {
@@ -2147,11 +2091,9 @@ SlvExpr Solver::ConvertExp(const ConvertState &state, Exp *exp)
         // this is a combine key which will collect all applications of the
         // same binop within some frame.
         Exp *empty_exp = Exp::MakeEmpty();
-        empty_exp->IncRef();
         Exp *base_exp = Exp::MakeBinop(binop, empty_exp, empty_exp);
 
         m_constraint_combine_binop.Insert(state.frame, base_exp, state.frame, exp);
-        base_exp->DecRef();
       }
     }
     else {
@@ -2205,8 +2147,6 @@ SlvExpr Solver::ConvertExpIntegral(const ConvertState &state, Exp *exp)
 
 SlvExpr Solver::ConvertOffset(const ConvertState &state, Exp *lval, Type *type)
 {
-  lval->IncRef();
-  type->IncRef();
   Exp *offset = Exp::MakeBound(BND_Offset, lval, type);
 
   SlvExpr res;
@@ -2228,20 +2168,13 @@ SlvExpr Solver::ConvertOffset(const ConvertState &state, Exp *lval, Type *type)
     res = ConvertExp(state, offset);
   }
 
-  offset->DecRef();
   return res;
 }
 
 bool Solver::AsnOffset(FrameId frame, Exp *lval, Type *type, mpz_t res)
 {
-  lval->IncRef();
-  type->IncRef();
   Exp *offset = Exp::MakeBound(BND_Offset, lval, type);
-
-  bool assigned = AsnExpValue(frame, offset, res);
-  offset->DecRef();
-
-  return assigned;
+  return AsnExpValue(frame, offset, res);
 }
 
 SlvDecl Solver::GetDeclaration(const ConvertState &state,

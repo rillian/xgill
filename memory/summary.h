@@ -136,10 +136,6 @@ struct AssumeInfo
   Bit *bit;
 
   AssumeInfo() : annot(NULL), point(0), bit(NULL) {}
-  void DecRef(ORef ov) const {
-    if (annot) annot->DecRef(ov);
-    bit->DecRef(ov);
-  }
 };
 
 // remove duplicates in a list of assumptions.
@@ -153,7 +149,6 @@ inline void CombineAssumeList(Vector<AssumeInfo> *assumes)
         duplicate = true;
     }
     if (duplicate) {
-      info.DecRef(assumes);
       assumes->At(ind) = assumes->Back();
       assumes->PopBack();
       ind--;
@@ -213,7 +208,7 @@ class BlockSummary : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 

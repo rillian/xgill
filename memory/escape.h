@@ -107,7 +107,7 @@ class EscapeEdgeSet : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -216,7 +216,7 @@ class EscapeAccessSet : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -285,7 +285,6 @@ class EscapeStatus
   // make empty escape information with the specified exploration direction
   // and cutoff. use cutoff == 0 for no cutoff.
   EscapeStatus(bool forward, size_t cutoff);
-  ~EscapeStatus();
 
   // visit all traces reachable from source via escape edges in a depth first
   // search. the result indicates whether the search was exhaustive;

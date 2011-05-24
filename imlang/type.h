@@ -169,7 +169,7 @@ class TypePointer : public Type
   // inherited methods
   size_t Width() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Type *m_target_type;
@@ -191,7 +191,7 @@ class TypeArray : public Type
   // inherited methods
   size_t Width() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   Type* m_element_type;
@@ -210,7 +210,7 @@ class TypeCSU : public Type
   // inherited methods
   size_t Width() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   String *m_csu_name;
@@ -250,7 +250,7 @@ class TypeFunction : public Type
   // inherited methods
   size_t Width() const;
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -392,7 +392,7 @@ class CompositeCSU : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
   void Persist();
   void UnPersist();
 
@@ -452,7 +452,7 @@ class Field : public HashObject
 
   // inherited methods
   void Print(OutStream &out) const;
-  void DecMoveChildRefs(ORef ov, ORef nv);
+  void MarkChildren() const;
 
  private:
   String *m_name;

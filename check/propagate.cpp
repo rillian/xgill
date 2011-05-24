@@ -47,17 +47,6 @@ CheckerPropagate::~CheckerPropagate()
 {
   if (m_where)
     delete m_where;
-
-  if (m_base_bit)
-    m_base_bit->DecRef(this);
-  if (m_point_bit)
-    m_point_bit->DecRef(this);
-
-  DecRefVector<Exp>(m_point_terms, &m_point_terms);
-
-  DecRefVector<Bit>(m_sufficient_tested_list, &m_sufficient_tested_list);
-  DecRefVector<Bit>(m_sufficient_possible_list, &m_sufficient_possible_list);
-  DecRefVector<Bit>(m_sufficient_list, &m_sufficient_list);
 }
 
 // ordering for which sufficient conditions we want to process first.
@@ -84,10 +73,7 @@ void CheckerPropagate::SetBaseBit(Bit *base_bit, Bit *point_bit)
   Assert(!m_base_bit);
   Assert(!m_point_bit);
 
-  base_bit->IncRef(this);
   m_base_bit = base_bit;
-
-  point_bit->IncRef(this);
   m_point_bit = point_bit;
 
   Solver *solver = m_frame->State()->GetSolver();
@@ -198,8 +184,6 @@ void CheckerPropagate::SetTest(Bit *safe_bit)
       m_where = new WhereNone(RK_Finished);
     }
   }
-
-  DecRefVector<Exp>(safe_terms, &safe_terms);
 }
 
 Where* CheckerPropagate::TryPropagate(Bit *bit, Exp *lval)
@@ -247,9 +231,6 @@ Where* CheckerPropagate::TryPropagate(Bit *bit, Exp *lval)
     Exp *callee_size;
 
     if (callee && GetAllocationFunction(callee, &callee_base, &callee_size)) {
-      callee_base->DecRef();
-      callee_size->DecRef();
-
       if (lval->IsBound())
         lval = lval->GetLvalTarget();
 

@@ -85,7 +85,7 @@ static StringSet g_body_new;
 static StringSet g_body_reanalyze;
 
 // map from function names to the files containing them.
-// subset of g_write_body. filenames hold references.
+// subset of g_write_body.
 static StringMap g_body_file;
 
 // map from function names to their version. subset of g_write_body.
@@ -116,14 +116,7 @@ struct KeyAnnotationInfo
   // database_cfgs or removed_cfgs.
   Vector<BlockCFG*> write_cfgs;
 
-  KeyAnnotationInfo(String *_key) : key(_key) { key->IncRef(this); }
-
-  ~KeyAnnotationInfo() {
-    key->DecRef(this);
-    DecRefVector<BlockCFG>(database_cfgs, this);
-    DecRefVector<BlockCFG>(removed_cfgs, this);
-    DecRefVector<BlockCFG>(write_cfgs, this);
-  }
+  KeyAnnotationInfo(String *_key) : key(_key) {}
 };
 
 // information about annotations for all blocks queried or written at some
@@ -189,9 +182,6 @@ KeyAnnotationInfo* GetAnnotations(Xdb *xdb, AnnotationHash &hash, String *key)
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     BlockCFG::ReadList(&read_buf, &info->database_cfgs, true);
     scratch_buf.Reset();
-
-    for (size_t ind = 0; ind < info->database_cfgs.Size(); ind++)
-      info->database_cfgs[ind]->MoveRef(NULL, info);
   }
 
   entries->PushBack(info);
@@ -243,12 +233,10 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
         if (edge.callee->GetName() == function &&
             edge.where.id->Kind() != B_Initializer) {
           String *function = edge.where.id->Function();
-          if (!g_body_reanalyze.Insert(function))
-            function->IncRef();
+          g_body_reanalyze.Insert(function);
         }
       }
 
-      callers->DecRef();
       scratch_buf.Reset();
     }
   }
@@ -266,11 +254,8 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
         Trace *heap_trace = heap_traces[ind];
         String *heap_key = GetTraceKey(heap_trace);
 
-        if (!XdbFindUncompressed(xdb, heap_key, &scratch_buf)) {
-          heap_key->DecRef();
+        if (!XdbFindUncompressed(xdb, heap_key, &scratch_buf))
           continue;
-        }
-        heap_key->DecRef();
 
         Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
         Vector<EscapeAccessSet*> aset_list;
@@ -286,17 +271,13 @@ void MarkReanalyzedBlocks(BlockCFG *cfg)
             if (access.kind == EAK_Write &&
                 access.where.id->Kind() != B_Initializer) {
               String *function = access.where.id->Function();
-              if (!g_body_reanalyze.Insert(function))
-                function->IncRef();
+              g_body_reanalyze.Insert(function);
             }
           }
         }
 
-        DecRefVector<EscapeAccessSet>(aset_list);
         scratch_buf.Reset();
       }
-
-      DecRefVector<Trace>(heap_traces, &heap_traces);
     }
   }
 }
@@ -333,7 +314,6 @@ void WriteAnnotations(Xdb *xdb, KeyAnnotationInfo *info)
     }
 
     if (duplicate) {
-      cfg->DecRef(info);
       info->database_cfgs[ind] = info->database_cfgs.Back();
       info->database_cfgs.PopBack();
     }
@@ -369,7 +349,6 @@ void WriteAnnotations(Xdb *xdb, KeyAnnotationInfo *info)
 
   // update the lists to reflect the new state.
 
-  DecRefVector<BlockCFG>(info->removed_cfgs, info);
   info->removed_cfgs.Clear();
 
   for (size_t ind = 0; ind < info->write_cfgs.Size(); ind++)
@@ -424,11 +403,8 @@ void WriteEscapeEdges(bool forward, String *key,
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     while (read_buf.pos != read_buf.base + read_buf.size) {
       EscapeEdgeSet *eset = CombineEscapeEdge(&read_buf);
-      if (!eset_list.Contains(eset)) {
-        eset->IncRef(&eset_list);
+      if (!eset_list.Contains(eset))
         eset_list.PushBack(eset);
-      }
-      eset->DecRef();
     }
     scratch_buf.Reset();
   }
@@ -436,13 +412,11 @@ void WriteEscapeEdges(bool forward, String *key,
   for (size_t ind = 0; ind < eset_list.Size(); ind++) {
     EscapeEdgeSet *eset = eset_list[ind];
     EscapeEdgeSet::Write(&scratch_buf, eset);
-    eset->DecRef(&eset_list);
   }
 
   XdbReplaceCompress(xdb, key, &scratch_buf);
 
   scratch_buf.Reset();
-  key->DecRef(&eset_list);
 }
 
 // read an escape access set from buf and combine it with any in memory data.
@@ -487,11 +461,8 @@ void WriteEscapeAccesses(String *key,
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     while (read_buf.pos != read_buf.base + read_buf.size) {
       EscapeAccessSet *aset = CombineEscapeAccess(&read_buf);
-      if (!aset_list.Contains(aset)) {
-        aset->IncRef(&aset_list);
+      if (!aset_list.Contains(aset))
         aset_list.PushBack(aset);
-      }
-      aset->DecRef();
     }
     scratch_buf.Reset();
   }
@@ -499,13 +470,11 @@ void WriteEscapeAccesses(String *key,
   for (size_t ind = 0; ind < aset_list.Size(); ind++) {
     EscapeAccessSet *aset = aset_list[ind];
     EscapeAccessSet::Write(&scratch_buf, aset);
-    aset->DecRef(&aset_list);
   }
 
   XdbReplaceCompress(xdb, key, &scratch_buf);
 
   scratch_buf.Reset();
-  key->DecRef(&aset_list);
 }
 
 // read a call edge set from buf and combine it with any in memory data.
@@ -548,7 +517,6 @@ void WriteCallEdges(bool callers, CallEdgeSet *cset)
     Buffer read_buf(scratch_buf.base, scratch_buf.pos - scratch_buf.base);
     CallEdgeSet *new_cset = CombineCallEdge(&read_buf);
     Assert(new_cset == cset);
-    new_cset->DecRef();
     scratch_buf.Reset();
   }
 
@@ -557,7 +525,6 @@ void WriteCallEdges(bool callers, CallEdgeSet *cset)
   XdbReplaceCompress(xdb, key, &scratch_buf);
 
   scratch_buf.Reset();
-  cset->DecRef();
 }
 
 // write all pending escape/callgraph info to databases.
@@ -797,7 +764,6 @@ void WriteWorklistIncremental()
 
     if (g_body_new.Lookup(function)) {
       // this function is new/changed and has already been written out.
-      function->DecRef();
       continue;
     }
 
@@ -834,20 +800,14 @@ void WriteWorklistIncremental()
       String *stub_file = String::Make("<deleted>");
       Location *stub_loc = Location::Make(stub_file, 0);
 
-      stub_file->IncRef();
       g_body_file.Insert(function, stub_file);
 
       Variable *func_var = old_cfgs.Back()->GetId()->BaseVar();
-      func_var->IncRef();
-
       BlockId *id = BlockId::Make(B_Function, func_var);
       BlockCFG *stub_cfg = BlockCFG::Make(id);
 
       // increment the version number for the stub CFG.
       stub_cfg->SetVersion(old_cfgs.Back()->GetVersion() + 1);
-
-      stub_loc->IncRef();
-      stub_loc->IncRef();
 
       stub_cfg->SetBeginLocation(stub_loc);
       stub_cfg->SetEndLocation(stub_loc);
@@ -855,7 +815,6 @@ void WriteWorklistIncremental()
       PPoint point = stub_cfg->AddPoint(stub_loc);
       stub_cfg->SetEntryPoint(point);
 
-      DecRefVector<BlockCFG>(old_cfgs);
       stub_buf.Reset();
 
       BlockCFG::Write(&stub_buf, stub_cfg);
@@ -863,7 +822,6 @@ void WriteWorklistIncremental()
       stub_buf.Reset();
 
       new_functions.PushBack(function);
-      file->DecRef();
       continue;
     }
 
@@ -902,10 +860,6 @@ void WriteWorklistIncremental()
   // write out the list of old functions.
   worklist_out << "#old" << endl;
   WriteWorklistFunctions(worklist_out, old_functions);
-
-  // this will leave dangling references to the old functions in g_body_file,
-  // so no more inserts/lookups can be done on g_body_file.
-  DecRefVector<String>(old_functions, NULL);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -943,7 +897,6 @@ void FlushModsets()
       Buffer write_buf(buf->base, buf->pos - buf->base);
       modset_xdb->Replace(&key_buf, &write_buf);
 
-      key->DecRef(&g_pending_modsets);
       delete buf;
     }
     g_pending_modsets.Clear();
@@ -980,17 +933,6 @@ void FinishBlockBackend()
       WriteWorklistInitial();
   }
 
-  // drop references on written names.
-
-  HashIterate(g_write_comp)  g_write_comp.ItKey()->DecRef();
-  HashIterate(g_write_body)  g_write_body.ItKey()->DecRef();
-  HashIterate(g_write_init)  g_write_init.ItKey()->DecRef();
-  HashIterate(g_write_files) g_write_files.ItKey()->DecRef(&g_write_files);
-  HashIterate(g_body_file)   g_body_file.ItValues()[0]->DecRef();
-
-  HashIterate(g_body_reanalyze) g_body_reanalyze.ItKey()->DecRef();
-  DecRefVector<String>(g_file_changed, &g_file_changed);
-
   // drop references on annotations.
 
   HashIterate(g_annot_body)
@@ -1006,11 +948,8 @@ void FinishBlockBackend()
 
   for (size_t ind = 0; ind < g_stage_worklist.Size(); ind++) {
     Vector<String*> *data = g_stage_worklist[ind];
-    DecRefVector<String>(*data, NULL);
     delete data;
   }
-
-  DecRefVector<String>(g_overflow_worklist, NULL);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -1040,8 +979,6 @@ bool BlockQueryAnnot(Transaction *t, const Vector<TOperand*> &arguments,
     info = GetAnnotations(g_annot_comp_xdb, g_annot_comp, new_var_name);
   else
     Assert(false);
-
-  new_var_name->DecRef();
 
   bool found = false;
 
@@ -1095,13 +1032,8 @@ bool BlockWriteAnnot(Transaction *t, const Vector<TOperand*> &arguments,
   // watch out for duplicate writes. this will only show up if there
   // are multiple workers trying to add this annotation, and we got
   // QUERYA;QUERYB;WRITEA;WRITEB sequence.
-  if (info->write_cfgs.Contains(annot_cfg)) {
-    annot_cfg->DecRef();
-  }
-  else {
-    annot_cfg->MoveRef(NULL, info);
+  if (!info->write_cfgs.Contains(annot_cfg))
     info->write_cfgs.PushBack(annot_cfg);
-  }
 
   return true;
 }
@@ -1127,12 +1059,9 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
     case TAG_Name: {
       String *name = String::ReadWithTag(&read_buf, TAG_Name);
 
-      if (!g_write_comp.Insert(name)) {
-        name->IncRef();
+      if (!g_write_comp.Insert(name))
         String::WriteWithTag(&result_buf, name, TAG_Name);
-      }
 
-      name->DecRef();
       break;
     }
 
@@ -1141,22 +1070,17 @@ bool BlockQueryList(Transaction *t, const Vector<TOperand*> &arguments,
       String *name = id->Function();
 
       if (id->Kind() == B_FunctionWhole) {
-        if (!g_write_body.Insert(name)) {
-          name->IncRef();
+        if (!g_write_body.Insert(name))
           BlockId::Write(&result_buf, id);
-        }
       }
       else if (id->Kind() == B_Initializer) {
-        if (!g_write_init.Insert(name)) {
-          name->IncRef();
+        if (!g_write_init.Insert(name))
           BlockId::Write(&result_buf, id);
-        }
       }
       else {
         Assert(false);
       }
 
-      id->DecRef();
       break;
     }
 
@@ -1215,7 +1139,6 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
       XdbReplaceCompress(g_comp_xdb, name, &write_buf);
       RemoveAnnotations(g_annot_comp_xdb, g_annot_comp, name);
 
-      csu->DecRef();
       write_buf.Reset();
       break;
     }
@@ -1282,7 +1205,6 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
           for (size_t ind = 0; ind < count; ind++)
             function_cfgs[ind]->SetVersion(new_version);
 
-          DecRefVector<BlockCFG>(old_cfgs);
           compare_buf.Reset();
         }
         else {
@@ -1311,7 +1233,6 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
 
         // remember the file this function was defined in.
         String *file = function_cfgs.Back()->GetBeginLocation()->FileName();
-        file->IncRef();
         g_body_file.Insert(name, file);
       }
       else if (id->Kind() == B_Initializer) {
@@ -1325,7 +1246,6 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
         Assert(false);
       }
 
-      DecRefVector<BlockCFG>(function_cfgs);
       write_buf.Reset();
       break;
     }
@@ -1335,10 +1255,8 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
     case TAG_EscapeEdgeSet: {
       EscapeEdgeSet *eset = CombineEscapeEdge(&read_buf);
 
-      if (g_seen_escape_edges.Insert(eset)) {
-        eset->DecRef();
+      if (g_seen_escape_edges.Insert(eset))
         break;
-      }
 
       String *key = GetTraceKey(eset->GetSource());
 
@@ -1346,46 +1264,32 @@ bool BlockWriteList(Transaction *t, const Vector<TOperand*> &arguments,
           g_escape_forward.Lookup(key, true)
         : g_escape_backward.Lookup(key, true);
 
-      if (eset_list->Empty())
-        key->IncRef(eset_list);
-      eset->MoveRef(NULL, eset_list);
       eset_list->PushBack(eset);
-
-      key->DecRef();
       break;
     }
 
     case TAG_EscapeAccessSet: {
       EscapeAccessSet *aset = CombineEscapeAccess(&read_buf);
 
-      if (g_seen_escape_accesses.Insert(aset)) {
-        aset->DecRef();
+      if (g_seen_escape_accesses.Insert(aset))
         break;
-      }
 
       String *key = GetTraceKey(aset->GetValue());
 
       Vector<EscapeAccessSet*> *aset_list =
         g_escape_accesses.Lookup(key, true);
 
-      if (aset_list->Empty())
-        key->IncRef(aset_list);
-      aset->MoveRef(NULL, aset_list);
       aset_list->PushBack(aset);
-
-      key->DecRef();
       break;
     }
 
     case TAG_CallEdgeSet: {
       CallEdgeSet *cset = CombineCallEdge(&read_buf);
 
-      bool exists = (cset->IsCallers()) ?
-          g_callers.Insert(cset)
-        : g_callees.Insert(cset);
-
-      if (exists)
-        cset->DecRef();
+      if (cset->IsCallers())
+        g_callers.Insert(cset);
+      else
+        g_callees.Insert(cset);
       break;
     }
 
@@ -1430,11 +1334,6 @@ bool BlockQueryFile(Transaction *t, const Vector<TOperand*> &arguments,
   String *file = String::Make((const char*) file_name);
   bool found = g_write_files.Insert(file);
 
-  if (found)
-    file->DecRef();
-  else
-    file->MoveRef(NULL, &g_write_files);
-
   *result = new TOperandBoolean(t, found);
   return true;
 }
@@ -1466,10 +1365,8 @@ bool BlockWriteFile(Transaction *t, const Vector<TOperand*> &arguments,
       preproc_new = true;
     }
 
-    if (preproc_new && !g_file_changed.Contains(file)) {
-      file->IncRef(&g_file_changed);
+    if (preproc_new && !g_file_changed.Contains(file))
       g_file_changed.PushBack(file);
-    }
   }
 
   static Buffer scratch_buf;
@@ -1482,7 +1379,6 @@ bool BlockWriteFile(Transaction *t, const Vector<TOperand*> &arguments,
   XdbReplaceCompress(g_preproc_xdb, file, &scratch_buf);
   scratch_buf.Reset();
 
-  file->DecRef();
   return true;
 }
 
@@ -1604,12 +1500,7 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
     if (modset_wait.IsSpecified()) {
       uint64_t expires =
         GetCurrentTime() + (modset_wait.UIntValue() * 1000000);
-
-      function->MoveRef(NULL, &g_wait_modsets);
       g_wait_modsets.Insert(function, expires);
-    }
-    else {
-      function->DecRef();
     }
 
     *result = new TOperandString(t, new_function);
@@ -1633,8 +1524,6 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
     return true;
 
   // clear any modset results which timed out.
-  HashIterate(g_wait_modsets)
-    g_wait_modsets.ItKey()->DecRef(&g_wait_modsets);
   g_wait_modsets.Clear();
 
   // flush any pending modsets.
@@ -1653,11 +1542,9 @@ bool BlockPopWorklist(Transaction *t, const Vector<TOperand*> &arguments,
       GetNamedHash((const uint8_t*) WORKLIST_FUNC_NEXT);
 
     if (next_hash) {
-      HashIteratePtr(next_hash) {
-        next_hash->ItKey()->IncRef();
+      HashIteratePtr(next_hash)
         g_overflow_worklist.PushBack(next_hash->ItKey());
-      }
-      ClearStringHash(next_hash);
+      next_hash->Clear();
     }
   }
 
@@ -1673,11 +1560,8 @@ bool BlockWriteModset(Transaction *t, const Vector<TOperand*> &arguments,
 
   String *key = String::Make((const char*) name);
 
-  if (g_pending_modsets.Lookup(key)) {
-    key->DecRef();
+  if (g_pending_modsets.Lookup(key))
     BACKEND_FAIL(arguments[0]);
-  }
-  key->MoveRef(NULL, &g_pending_modsets);
 
   Buffer *buf = new Buffer();
   buf->Append(modset_data, modset_length);

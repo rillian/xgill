@@ -134,7 +134,6 @@ SlvDecl SolverCVC3::MakeDeclaration(FrameId frame, Exp *exp)
   pinfo->frame = frame;
   pinfo->exp = exp;
 
-  name_key->DecRef();
   return res;
 }
 
@@ -275,7 +274,6 @@ void SolverCVC3::GetAssignment(SolverDeclTable &decl_table,
     String *var_key = String::Make(var_str);
 
     FrameExp *pinfo = m_decl_names.Lookup(0, var_key, false);
-    var_key->DecRef();
 
     if (!pinfo)
       continue;

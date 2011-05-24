@@ -117,7 +117,6 @@ class NormalizeCalleeMapper : public ExpMapper
       if (var->Kind() == VK_Arg) {
         Variable *new_var = Variable::Make(NULL, VK_Arg,
                                            NULL, var->GetIndex(), NULL);
-        exp->DecRef();
         return Exp::MakeVar(new_var);
       }
     }
@@ -176,7 +175,6 @@ class CalleeMapper : public ExpMapper
       Exp *new_callee = NULL;
 
       if (mcfg && point && !mcfg->GetCFG()->PointEdgeIsCall(point)) {
-        callee->IncRef();
         new_callee = callee;
       }
       else {
@@ -184,14 +182,7 @@ class CalleeMapper : public ExpMapper
         new_callee = callee->DoMap(&callee_mapper);
       }
 
-      Assert(new_callee);
-
-      if (value_kind)
-        value_kind->IncRef();
-      Exp *res = Exp::MakeExit(new_callee, value_kind);
-
-      exp->DecRef();
-      return res;
+      return Exp::MakeExit(new_callee, value_kind);
     }
 
     if (ExpVar *nexp = exp->IfVar()) {
@@ -216,12 +207,8 @@ class CalleeMapper : public ExpMapper
       // changes in terminator position by the callee.
       Exp *target = nexp->GetTarget();
 
-      target->IncRef();
       Exp *value_kind = exp->ReplaceLvalTarget(NULL);
-      Exp *res = Exp::MakeExit(target, value_kind);
-
-      exp->DecRef();
-      return res;
+      return Exp::MakeExit(target, value_kind);
     }
 
     // other expressions can be handled as is.
@@ -231,29 +218,21 @@ class CalleeMapper : public ExpMapper
   exit:
     // we don't have a callee representation of the expression.
 
-    if (exp)
-      exp->DecRef();
-
     // see if we can map this into the callee as a function argument.
     if (mcfg && point) {
       const Vector<GuardAssign> *arguments = mcfg->GetArguments(point);
       if (arguments) {
         for (size_t ind = 0; ind < arguments->Size(); ind++) {
           const GuardAssign &gasn = arguments->At(ind);
-          if (gasn.right == old && gasn.guard->IsTrue()) {
-            gasn.left->IncRef();
+          if (gasn.right == old && gasn.guard->IsTrue())
             return Exp::MakeDrf(gasn.left);
-          }
         }
       }
     }
 
-    if (old->IsFrame()) {
-      old->IncRef();
+    if (old->IsFrame())
       return old;
-    }
 
-    old->IncRef();
     return Exp::MakeFrame(old, caller_frame_id);
   }
 };
@@ -264,9 +243,6 @@ PPoint UseCalleeExp(Exp *exp)
   Exp *res = exp->DoMap(&mapper);
 
   bool useful = res ? !res->IsFrame() : false;
-
-  if (res)
-    res->DecRef();
 
   if (useful && mapper.point)
     return mapper.point;
@@ -333,12 +309,8 @@ class HeapMapper : public ExpMapper
 
   Exp* Map(Exp *exp, Exp *old)
   {
-    if (old == old_lval) {
-      if (exp != NULL)
-        exp->DecRef();
-      new_lval->IncRef();
+    if (old == old_lval)
       return new_lval;
-    }
 
     if (exp == NULL)
       return NULL;
@@ -352,32 +324,23 @@ class HeapMapper : public ExpMapper
     if (use_exit) {
       if (ExpDrf *nexp = exp->IfDrf()) {
         Exp *target = nexp->GetTarget();
-        target->IncRef();
-        exp->DecRef();
-
         return Exp::MakeExit(target, NULL);
       }
 
       if (ExpTerminate *nexp = exp->IfTerminate()) {
         Exp *target = nexp->GetTarget();
-        target->IncRef();
-        exp->DecRef();
-
         Exp *kind = exp->ReplaceLvalTarget(NULL);
         return Exp::MakeExit(target, kind);
       }
     }
 
-    if (exp->IsClobber()) {
-      exp->DecRef();
+    if (exp->IsClobber())
       return NULL;
-    }
 
     if (exp->IsRvalue() || exp->IsDrf() ||
         exp->IsFld() || exp->IsRfld() || exp->IsIndex())
       return exp;
 
-    exp->DecRef();
     return NULL;
   }
 };
@@ -400,16 +363,10 @@ Exp* ConvertCallsiteMapper::Map(Exp *value, Exp *old)
   if (!unrolling) {
     if (ExpInitial *nvalue = value->IfInitial()) {
       Exp *target = nvalue->GetTarget();
-      target->IncRef();
 
-      Exp *res = NULL;
       if (Exp *kind = nvalue->GetValueKind())
-        res = kind->ReplaceLvalTarget(target);
-      else
-        res = Exp::MakeDrf(target);
-
-      value->DecRef();
-      return res;
+        return kind->ReplaceLvalTarget(target);
+      return Exp::MakeDrf(target);
     }
   }
 
@@ -455,21 +412,14 @@ Exp* ConvertCallsiteMapper::Map(Exp *value, Exp *old)
   }
 
   if (call_argument) {
-    value->DecRef();
-    if (argument_index < edge->GetArgumentCount()) {
-      Exp *arg = edge->GetArgument(argument_index);
-      arg->IncRef();
-      return arg;
-    }
+    if (argument_index < edge->GetArgumentCount())
+      return edge->GetArgument(argument_index);
     return Exp::MakeInt(0);
   }
 
   if (call_this) {
-    value->DecRef();
-    if (Exp *object = edge->GetInstanceObject()) {
-      object->IncRef();
+    if (Exp *object = edge->GetInstanceObject())
       return object;
-    }
     return Exp::MakeInt(0);
   }
 
