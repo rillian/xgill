@@ -20,6 +20,8 @@
 #include "bit.h"
 #include "storage.h"
 
+#include <memory/baked.h>
+
 NAMESPACE_XGILL_BEGIN
 
 /////////////////////////////////////////////////////////////////////
@@ -1948,6 +1950,22 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
 Exp* Exp::MakeGCSafe(Exp *target)
 {
   ExpGCSafe xexp(target);
+
+  if (!target)
+    return g_table.Lookup(xexp);
+
+  // rooted variables are safe to access anywhere.
+  if (ExpVar *nvar = target->IfVar()) {
+    if (VariableIsRooted(nvar->GetVariable()))
+      return Exp::MakeInt(1);
+  }
+
+  // rooted fields are safe to access anywhere.
+  if (ExpFld *nfld = target->IfFld()) {
+    if (FieldIsRooted(nfld->GetField()))
+      return Exp::MakeInt(1);
+  }
+
   return g_table.Lookup(xexp);
 }
 
@@ -3961,7 +3979,7 @@ void ExpGCSafe::PrintUI(OutStream &out, bool parens) const
 {
   out << "gcsafe(";
   if (m_target)
-    m_target->PrintUIRval(out, false);
+    m_target->PrintUI(out, false);
   out << ")";
 }
 

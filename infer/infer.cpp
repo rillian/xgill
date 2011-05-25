@@ -270,35 +270,36 @@ class GCScanVisitor : public ExpVisitor
   PPoint point;
 
   GCScanVisitor(Vector<AssertInfo> &_asserts, PPoint _point)
-    : ExpVisitor(VISK_Lval),
+    : ExpVisitor(VISK_All),
       asserts(_asserts), point(_point)
   {}
 
   void Visit(Exp *lval)
   {
-    // peel off any leading field or index accesses.
-    while (true) {
-      if (ExpFld *nlval = lval->IfFld())
-        lval = nlval->GetTarget();
-      else if (ExpIndex *nlval = lval->IfIndex())
-        lval = nlval->GetTarget();
-      else
-        break;
-    }
+    // match any access which uses a GC thing type as an rvalue,
+    // including those where the thing is not actually dereferenced.
+    // we are watching not just for direct accesses to the thing,
+    // but to places where it is copied to arguments, a return value,
+    // a variable or heap location. any use of an GC thing pointer
+    // not protected against GC is considered to be an error, and adding
+    // these asserts aggressively lets us discharge reports easier and
+    // generate reports close to the site of the actual problem.
 
-    if (ExpDrf *nlval = lval->IfDrf()) {
-      Type *type = nlval->GetType();
-      if (type && type->IsCSU() && TypeIsGCThing(type->AsCSU())) {
-        AssertInfo info;
-        info.kind = ASK_GCSafe;
-        info.cls = ASC_Check;
-        info.point = point;
+    if (!lval->IsDrf())
+      return;
+    ExpDrf *nlval = lval->AsDrf();
 
-        Exp *gcsafe = Exp::MakeGCSafe(lval);
-        info.bit = Bit::MakeVar(gcsafe);
+    Type *type = nlval->GetType();
+    if (type && type->IsCSU() && TypeIsGCThing(type->AsCSU())) {
+      AssertInfo info;
+      info.kind = ASK_GCSafe;
+      info.cls = ASC_Check;
+      info.point = point;
 
-        asserts.PushBack(info);
-      }
+      Exp *gcsafe = Exp::MakeGCSafe(nlval->GetTarget());
+      info.bit = Bit::MakeVar(gcsafe);
+
+      asserts.PushBack(info);
     }
   }
 };

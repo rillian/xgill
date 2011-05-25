@@ -2690,6 +2690,16 @@ void BlockMemory::TransferClobberTerminate(Exp *lval, ExpTerminate *kind,
 void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
 				      GuardExpVector *res)
 {
+  // plain argument GC things are always safe at entry points of functions,
+  // as the value must have been copied at the call site.
+  if (m_id->Kind() == B_Function && lval->IsVar()) {
+    Variable *var = lval->AsVar()->GetVariable();
+    if (var->Kind() == VK_Arg) {
+      res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+      return;
+    }
+  }
+
   Exp *value = kind->ReplaceLvalTarget(lval);
   Bit *guard = Bit::MakeConstant(true);
   res->PushBack(GuardExp(value, guard));
@@ -2699,6 +2709,22 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
 				     GuardExpVector *res)
 {
   PPoint point = edge->GetSource();
+
+  // any assignment directly into the lval marks the later access to that
+  // lval's contents as safe. whenever a GC thing is copied we ensure that
+  // it is safe at the point of the copy.
+
+  Exp *lhs = NULL;
+  if (PEdgeAssign *nedge = edge->IfAssign())
+    lhs = nedge->GetLeftSide();
+  else if (PEdgeCall *nedge = edge->IfCall())
+    lhs = nedge->GetReturnValue();
+  if (lhs && lhs == lval) {
+    res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+    return;
+  }
+
+  // check if the lvalue might be clobbered at this GC point.
 
   bool found = false;
   for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {

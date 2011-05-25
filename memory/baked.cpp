@@ -891,4 +891,63 @@ bool TypeIsGCThing(TypeCSU *type)
   return false;
 }
 
+struct RootedVariable {
+  const char *function;
+  const char *name;
+};
+
+RootedVariable g_rooted_vars[] = {
+  { "virtual bool cls_testBug604087::run()", "compartment2" },
+  { "virtual bool cls_testBug604087::run()", "compartment3" },
+  { "virtual bool cls_testBug604087::run()", "compartment4" },
+  { "void root_arg(JSObject*, JSObject*)", "obj" },
+  { NULL, NULL }
+};
+
+bool VariableIsRooted(Variable *var)
+{
+  if (!var->GetId() || !var->GetSourceName())
+    return false;
+
+  const char *function = var->GetId()->Function()->Value();
+  const char *name = var->GetSourceName()->Value();
+
+  RootedVariable *root = g_rooted_vars;
+  while (root->function) {
+    if (!strcmp(root->function, function) && !strcmp(root->name, name))
+      return true;
+    root++;
+  }
+
+  return false;
+}
+
+struct RootedField {
+  const char *csu;
+  const char *name;
+};
+
+RootedField g_rooted_fields[] = {
+  { "Heap", "obj" },
+  { NULL, NULL }
+};
+
+bool FieldIsRooted(Field *field)
+{
+  if (!field->GetSourceName())
+    return false;
+
+  const char *csu = field->GetCSUType()->GetCSUName()->Value();
+  const char *name = field->GetSourceName()->Value();
+
+  RootedField *root = g_rooted_fields;
+  while (root->csu) {
+    if (!strcmp(root->csu, csu) && !strcmp(root->name, name))
+      return true;
+    root++;
+  }
+
+  return false;
+}
+
 NAMESPACE_XGILL_END

@@ -129,4 +129,8 @@ void FillBakedSummary(BlockSummary *sum);
 // values of the specified type are monitored by a moving GC.
 bool TypeIsGCThing(TypeCSU *type);
 
+// whether to treat a var or field as always being safe against GC.
+bool VariableIsRooted(Variable *var);
+bool FieldIsRooted(Field *field);
+
 NAMESPACE_XGILL_END

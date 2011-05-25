@@ -60,7 +60,8 @@ CallEdgeSet* CallEdgeSet::Read(Buffer *buf)
   ReadMerge(buf, &function, &callers, &edges);
 
   CallEdgeSet *res = Make(function, callers);
-  Assert(res->GetEdgeCount() == 0);
+  if (res->GetEdgeCount() != 0)
+    return res;
 
   for (size_t eind = 0; eind < edges.Size(); eind++)
     res->AddEdge(edges[eind]);

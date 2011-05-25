@@ -934,7 +934,14 @@ class ExpTerminate : public Exp
 class ExpGCSafe : public Exp
 {
  public:
-  // get the value this indicates GC safety for.
+  // get the lvalue this indicates GC safety for. note that GCSafe is
+  // interpreted here as a property of an lvalue itself, rather than of
+  // the value it holds. It is a flow-sensitive property which asks
+  // 'is the value held in this location safe to dereference?' Because
+  // a moving GC can manipulate the stack and change the values of
+  // variables indirectly, we need to worry about how a value is stored
+  // to determine whether it will survive the GC intact.
+
   Exp* GetTarget() const { return m_target; }
 
   // inherited methods
