@@ -496,6 +496,16 @@ class BlockMemory : public HashObject
   ExpTerminate* GetTerminateAssign(PPoint point, Exp *left, Exp *right,
                                    Exp **lval);
 
+  // whether a variable is protected from GC by a call in this block.
+  bool HasProtectedVariable(Variable *var)
+  {
+    for (size_t ind = 0; ind < m_gc_protect_table->Size(); ind++) {
+      if (m_gc_protect_table->At(ind) == var)
+        return true;
+    }
+    return false;
+  }
+
   // inherited methods
   void Print(OutStream &out) const;
   void MarkChildren() const;
@@ -555,7 +565,10 @@ class BlockMemory : public HashObject
   GuardAssignTable *m_clobber_table;
 
   // table of points for calls and loops which may GC.
-  Vector<PPoint> *m_gc_table;
+  Vector<PPoint> *m_gc_clobber_table;
+
+  // table of variables which are protected against GC.
+  Vector<Variable*> *m_gc_protect_table;
 
   // derived tables. these are memoization results computed on demand and
   // are thrown away when we are finished with the BlockMemory.

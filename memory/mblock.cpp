@@ -167,9 +167,18 @@ void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
                      mcfg->m_clobber_table->ItKey(),
                      mcfg->m_clobber_table->ItValues());
 
-  if (mcfg->m_gc_table) {
-    for (size_t ind = 0; ind < mcfg->m_gc_table->Size(); ind++)
-      WriteTagUInt32(buf, TAG_MemoryClobberGCEntry, mcfg->m_gc_table->At(ind));
+  if (mcfg->m_gc_clobber_table) {
+    for (size_t ind = 0; ind < mcfg->m_gc_clobber_table->Size(); ind++)
+      WriteTagUInt32(buf, TAG_MemoryClobberGCEntry,
+                     mcfg->m_gc_clobber_table->At(ind));
+  }
+
+  if (mcfg->m_gc_protect_table) {
+    for (size_t ind = 0; ind < mcfg->m_gc_protect_table->Size(); ind++) {
+      WriteOpenTag(buf, TAG_MemoryProtectGCEntry);
+      Variable::Write(buf, mcfg->m_gc_protect_table->At(ind));
+      WriteCloseTag(buf, TAG_MemoryProtectGCEntry);
+    }
   }
 
   WriteCloseTag(buf, TAG_BlockMemory);
@@ -294,7 +303,14 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
     }
     case TAG_MemoryClobberGCEntry: {
       Try(ReadTagUInt32(buf, TAG_MemoryClobberGCEntry, &point));
-      res->m_gc_table->PushBack(point);
+      res->m_gc_clobber_table->PushBack(point);
+      break;
+    }
+    case TAG_MemoryProtectGCEntry: {
+      Try(ReadOpenTag(buf, TAG_MemoryProtectGCEntry));
+      Variable *var = Variable::Read(buf);
+      res->m_gc_protect_table->PushBack(var);
+      Try(ReadCloseTag(buf, TAG_MemoryProtectGCEntry));
       break;
     }
     default:
@@ -488,7 +504,8 @@ BlockMemory::BlockMemory(BlockId *id,
     m_guard_table(NULL), m_assume_table(NULL),
     m_return_table(NULL), m_target_table(NULL),
     m_assign_table(NULL), m_argument_table(NULL),
-    m_clobber_table(NULL), m_gc_table(NULL),
+    m_clobber_table(NULL),
+    m_gc_clobber_table(NULL), m_gc_protect_table(NULL),
     m_val_table(NULL), m_translate_table(NULL)
 {
   Assert(m_id);
@@ -1944,11 +1961,14 @@ void BlockMemory::Print(OutStream &out) const
       }
     }
 
-    for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
-      if (m_gc_table->At(ind) == point)
+    for (size_t ind = 0; ind < m_gc_clobber_table->Size(); ind++) {
+      if (m_gc_clobber_table->At(ind) == point)
         out << "cangc" << endl;
     }
   }
+
+  for (size_t ind = 0; ind < m_gc_protect_table->Size(); ind++)
+    out << "protectGC " << m_gc_protect_table->At(ind) << endl;
 }
 
 static void MarkGuard(const Vector<Bit*> &bits)
@@ -2054,7 +2074,8 @@ void BlockMemory::UnPersist()
   delete m_assign_table;
   delete m_argument_table;
   delete m_clobber_table;
-  delete m_gc_table;
+  delete m_gc_clobber_table;
+  delete m_gc_protect_table;
   delete m_val_table;
   delete m_translate_table;
 
@@ -2065,7 +2086,8 @@ void BlockMemory::UnPersist()
   m_assign_table = NULL;
   m_argument_table = NULL;
   m_clobber_table = NULL;
-  m_gc_table = NULL;
+  m_gc_clobber_table = NULL;
+  m_gc_protect_table = NULL;
   m_val_table = NULL;
   m_translate_table = NULL;
 
@@ -2081,7 +2103,8 @@ void BlockMemory::MakeTables()
   m_assign_table = new GuardAssignTable();
   m_argument_table = new GuardAssignTable();
   m_clobber_table = new GuardAssignTable();
-  m_gc_table = new Vector<PPoint>();
+  m_gc_clobber_table = new Vector<PPoint>();
+  m_gc_protect_table = new Vector<Variable*>();
   m_val_table = new ValueTable();
   m_translate_table = new TranslateTable();
 }
@@ -2273,7 +2296,7 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
   m_clobber->ComputeClobber(this, edge, assigns, clobbered);
 
   if (EdgeCanGC(edge))
-    m_gc_table->PushBack(point);
+    m_gc_clobber_table->PushBack(point);
 
   // add a return value assignment if there isn't already an explicit one.
 
@@ -2327,6 +2350,10 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
       ComputeSingleAssign(return_type, rgt.exp, rval, rgt.guard, assigns);
     }
   }
+
+  // determine if this edge is protecting a variable against GC.
+  if (Variable *var = CallProtectsFromGC(edge))
+    m_gc_protect_table->PushBack(var);
 }
 
 void BlockMemory::ComputeEdgeLoop(PEdgeLoop *edge)
@@ -2342,7 +2369,7 @@ void BlockMemory::ComputeEdgeLoop(PEdgeLoop *edge)
   m_clobber->ComputeClobber(this, edge, NULL, clobbered);
 
   if (EdgeCanGC(edge))
-    m_gc_table->PushBack(point);
+    m_gc_clobber_table->PushBack(point);
 }
 
 bool BlockMemory::EdgeCanGC(PEdge *edge)
@@ -2727,8 +2754,8 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
   // check if the lvalue might be clobbered at this GC point.
 
   bool found = false;
-  for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
-    if (m_gc_table->At(ind) == point)
+  for (size_t ind = 0; ind < m_gc_clobber_table->Size(); ind++) {
+    if (m_gc_clobber_table->At(ind) == point)
       found = true;
   }
   if (!found)

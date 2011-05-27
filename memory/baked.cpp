@@ -17,6 +17,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "baked.h"
+#include "mstorage.h"
 
 NAMESPACE_XGILL_BEGIN
 
@@ -912,35 +913,35 @@ bool TypeIsGCThing(TypeCSU *type)
   return false;
 }
 
-struct RootedVariable {
-  const char *function;
-  const char *name;
+static const char* g_gcprotect_functions[] = {
+  "AutoObjectRooter",
+  "AutoStringRooter",
+  "AutoShapeRooter",
+  NULL
 };
 
-RootedVariable g_rooted_vars[] = {
-  { "virtual bool cls_testBug604087::run()", "compartment2" },
-  { "virtual bool cls_testBug604087::run()", "compartment3" },
-  { "virtual bool cls_testBug604087::run()", "compartment4" },
-  { "void root_arg(JSObject*, JSObject*)", "obj" },
-  { NULL, NULL }
-};
-
-bool VariableIsRooted(Variable *var)
+Variable* CallProtectsFromGC(PEdgeCall *edge)
 {
-  if (!var->GetId() || !var->GetSourceName())
-    return false;
+  if (edge->GetArgumentCount() != 2)
+    return NULL;
 
-  const char *function = var->GetId()->Function()->Value();
-  const char *name = var->GetSourceName()->Value();
+  BlockId *callee = edge->GetDirectCallee();
+  if (!callee)
+    return NULL;
 
-  RootedVariable *root = g_rooted_vars;
-  while (root->function) {
-    if (!strcmp(root->function, function) && !strcmp(root->name, name))
-      return true;
-    root++;
+  const char *name = callee->BaseVar()->GetSourceName()->Value();
+
+  const char **pos = g_gcprotect_functions;
+  while (*pos) {
+    if (!strcmp(*pos, name)) {
+      Exp *arg = edge->GetArgument(1);
+      if (ExpVar *narg = arg->IfVar())
+        return narg->GetVariable();
+    }
+    pos++;
   }
 
-  return false;
+  return NULL;
 }
 
 struct RootedField {
@@ -953,19 +954,33 @@ RootedField g_rooted_fields[] = {
   { NULL, NULL }
 };
 
-bool FieldIsRooted(Field *field)
+bool ExpIsGCSafe(Exp *exp)
 {
-  if (!field->GetSourceName())
-    return false;
+  // rooted variables are safe to access anywhere.
+  if (ExpVar *nexp = exp->IfVar()) {
+    Variable *var = nexp->GetVariable();
+    BlockId *id = var->GetId();
+    if (id) {
+      BlockMemory *mcfg = GetBlockMemory(id);
+      if (mcfg && mcfg->HasProtectedVariable(var))
+        return true;
+    }
+  }
 
-  const char *csu = field->GetCSUType()->GetCSUName()->Value();
-  const char *name = field->GetSourceName()->Value();
+  // rooted fields are safe to access anywhere.
+  if (ExpFld *nexp = exp->IfFld()) {
+    Field *field = nexp->GetField();
+    if (field->GetSourceName()) {
+      const char *csu = field->GetCSUType()->GetCSUName()->Value();
+      const char *name = field->GetSourceName()->Value();
 
-  RootedField *root = g_rooted_fields;
-  while (root->csu) {
-    if (!strcmp(root->csu, csu) && !strcmp(root->name, name))
-      return true;
-    root++;
+      RootedField *root = g_rooted_fields;
+      while (root->csu) {
+        if (!strcmp(root->csu, csu) && !strcmp(root->name, name))
+          return true;
+        root++;
+      }
+    }
   }
 
   return false;

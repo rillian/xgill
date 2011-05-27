@@ -87,7 +87,8 @@
 //   list of TAG_MemoryAssignEntry
 //   list of TAG_MemoryArgumentEntry
 //   list of TAG_MemoryClobberEntry
-//   list of TAG_MemoryGCEntry
+//   list of TAG_MemoryClobberGCEntry
+//   list of TAG_MemoryProtectGCEntry
 #define TAG_BlockMemory  3100
 
 // children: TAG_UInt32
@@ -95,6 +96,9 @@
 #define TAG_MemoryKindAlias     3112
 #define TAG_MemoryKindClobber   3114
 #define TAG_MemoryClobberGCEntry  3116
+
+// children: TAG_Variable
+#define TAG_MemoryProtectGCEntry  3118
 
 // children:
 //   TAG_Index

@@ -132,8 +132,10 @@ bool BlockCannotGC(BlockId *id);
 // values of the specified type are monitored by a moving GC.
 bool TypeIsGCThing(TypeCSU *type);
 
-// whether to treat a var or field as always being safe against GC.
-bool VariableIsRooted(Variable *var);
-bool FieldIsRooted(Field *field);
+// any variable protected from GC by a call.
+Variable* CallProtectsFromGC(PEdgeCall *edge);
+
+// whether an expression is safe against GC.
+bool ExpIsGCSafe(Exp *exp);
 
 NAMESPACE_XGILL_END
