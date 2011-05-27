@@ -126,6 +126,9 @@ void FillBakedSummary(BlockSummary *sum);
 
 // GC safety.
 
+// mark a block as not being able to GC.
+bool BlockCannotGC(BlockId *id);
+
 // values of the specified type are monitored by a moving GC.
 bool TypeIsGCThing(TypeCSU *type);
 

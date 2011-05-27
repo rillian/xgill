@@ -2694,7 +2694,7 @@ void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
   // as the value must have been copied at the call site.
   if (m_id->Kind() == B_Function && lval->IsVar()) {
     Variable *var = lval->AsVar()->GetVariable();
-    if (var->Kind() == VK_Arg) {
+    if (!var->IsGlobal()) {
       res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
       return;
     }

@@ -301,8 +301,10 @@ void BlockModset::ComputeModsetCall(BlockMemory *mcfg, PEdge *edge,
     }
   }
 
-  if (modset->CanGC())
+  if (modset->CanGC() && !BlockCannotGC(m_id)) {
+    logout << "Callee can GC: " << callee << endl;
     SetCanGC();
+  }
 }
 
 bool BlockModset::MergeModset(BlockModset *omod)

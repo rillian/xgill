@@ -870,6 +870,27 @@ void FillBakedSummary(BlockSummary *sum)
 // GC Safety
 /////////////////////////////////////////////////////////////////////
 
+static const char* g_cannotgc_blocks[] = {
+
+  /* Leaves trace and returns first, otherwise PopulateReportBlame could GC. */
+  "js_ReportOutOfMemory",
+
+  NULL
+};
+
+bool BlockCannotGC(BlockId *id)
+{
+  const char *name = id->BaseVar()->GetSourceName()->Value();
+
+  const char **pos = g_cannotgc_blocks;
+  while (*pos) {
+    if (!strcmp(*pos, name))
+      return true;
+    pos++;
+  }
+  return false;
+}
+
 static const char* g_gcthing_types[] = {
   "JSObject",
   "JSString",
