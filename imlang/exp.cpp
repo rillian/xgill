@@ -386,6 +386,9 @@ void Exp::Write(Buffer *buf, const Exp *exp)
     const ExpGCSafe *nexp = exp->AsGCSafe();
     if (Exp *target = nexp->GetTarget())
       Exp::Write(buf, target);
+
+    // this should only show up during checking.
+    Assert(!nexp->NeedsRoot());
     break;
   }
 
@@ -570,7 +573,7 @@ Exp* Exp::Read(Buffer *buf)
     res = MakeTerminate(exp2, type, exp0, exp1->AsInt());
     break;
   case EK_GCSafe:
-    res = MakeGCSafe(exp0);
+    res = MakeGCSafe(exp0, false);
     break;
 
   default:
@@ -1945,9 +1948,9 @@ Exp* Exp::MakeTerminate(Exp *target, Type *stride_type,
   return exp;
 }
 
-Exp* Exp::MakeGCSafe(Exp *target)
+Exp* Exp::MakeGCSafe(Exp *target, bool needs_root)
 {
-  ExpGCSafe xexp(target);
+  ExpGCSafe xexp(target, needs_root);
   return g_table.Lookup(xexp);
 }
 
@@ -3887,11 +3890,12 @@ void ExpTerminate::MarkChildren() const
 // ExpGCSafe
 /////////////////////////////////////////////////////////////////////
 
-ExpGCSafe::ExpGCSafe(Exp *target)
-  : Exp(EK_GCSafe), m_target(target)
+ExpGCSafe::ExpGCSafe(Exp *target, bool needs_root)
+  : Exp(EK_GCSafe), m_target(target), m_needs_root(needs_root)
 {
   if (m_target)
     m_hash = Hash32(m_hash, m_target->Hash());
+  m_hash = Hash32(m_hash, m_needs_root);
 }
 
 Exp* ExpGCSafe::GetLvalTarget() const
@@ -3901,7 +3905,7 @@ Exp* ExpGCSafe::GetLvalTarget() const
 
 Exp* ExpGCSafe::ReplaceLvalTarget(Exp *new_target)
 {
-  return MakeGCSafe(new_target);
+  return MakeGCSafe(new_target, m_needs_root);
 }
 
 void ExpGCSafe::DoVisit(ExpVisitor *visitor)
@@ -3926,7 +3930,7 @@ Exp* ExpGCSafe::DoMap(ExpMapper *mapper)
   Exp *new_this = NULL;
   Exp *new_target = m_target->DoMap(mapper);
   if (new_target)
-    new_this = MakeGCSafe(new_target);
+    new_this = MakeGCSafe(new_target, m_needs_root);
   return BaseMap(new_this, mapper);
 }
 
@@ -3941,7 +3945,7 @@ void ExpGCSafe::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
   m_target->DoMultiMap(mapper, &target_res);
 
   for (size_t ind = 0; ind < target_res.Size(); ind++) {
-    Exp *new_this = MakeGCSafe(target_res[ind]);
+    Exp *new_this = MakeGCSafe(target_res[ind], m_needs_root);
     ExpAddResult(new_this, res);
 
     if (LimitRevertResult(mapper, res, this))
@@ -3951,7 +3955,8 @@ void ExpGCSafe::DoMultiMap(ExpMultiMapper *mapper, Vector<Exp*> *res)
 
 void ExpGCSafe::Print(OutStream &out) const
 {
-  out << "gcsafe(";
+  const char *name = m_needs_root ? "needsroot" : "gcsafe";
+  out << name << "(";
   if (m_target)
     out << m_target;
   out << ")";
@@ -3959,7 +3964,8 @@ void ExpGCSafe::Print(OutStream &out) const
 
 void ExpGCSafe::PrintUI(OutStream &out, bool parens) const
 {
-  out << "gcsafe(";
+  const char *name = m_needs_root ? "needsroot" : "gcsafe";
+  out << name << "(";
   if (m_target)
     m_target->PrintUI(out, false);
   out << ")";

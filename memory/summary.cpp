@@ -518,6 +518,50 @@ bool BlockSummary::GetAssertFunction(const char *name, Buffer *buf)
   return true;
 }
 
+struct GCSafeFieldVisitor : public ExpVisitor
+{
+  Field *field;
+  bool safe;
+
+  GCSafeFieldVisitor(Field *field)
+    : ExpVisitor(VISK_All), field(field), safe(false)
+  {}
+
+  void Visit(Exp *exp)
+  {
+    if (ExpGCSafe *nexp = exp->IfGCSafe()) {
+      Exp *target = nexp->GetLvalTarget();
+      if (ExpFld *ntarget = target->IfFld()) {
+        if (ntarget->GetField() == field)
+          safe = true;
+      }
+    }
+  }
+};
+
+bool BlockSummary::FieldIsGCSafe(Field *field)
+{
+  String *csu_name = field->GetCSUType()->GetCSUName();
+  Vector<BlockCFG*> *annot_list = CompAnnotCache.Lookup(csu_name);
+
+  for (size_t ind = 0; annot_list && ind < annot_list->Size(); ind++) {
+    BlockCFG *annot_cfg = annot_list->At(ind);
+    Assert(annot_cfg->GetAnnotationKind() == AK_Invariant ||
+           annot_cfg->GetAnnotationKind() == AK_InvariantAssume);
+
+    Bit *bit = BlockMemory::GetAnnotationBit(annot_cfg);
+    if (!bit) continue;
+
+    GCSafeFieldVisitor visitor(field);
+    bit->DoVisit(&visitor);
+
+    if (visitor.safe)
+      return true;
+  }
+
+  return false;
+}
+
 /////////////////////////////////////////////////////////////////////
 // BlockSummary
 /////////////////////////////////////////////////////////////////////

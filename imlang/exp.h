@@ -173,7 +173,7 @@ class Exp : public HashObject
   static Exp* MakeDirective(DirectiveKind kind);
   static Exp* MakeTerminate(Exp *target, Type *stride_type,
                             Exp *terminate_test, ExpInt *terminate_int);
-  static Exp* MakeGCSafe(Exp *target);
+  static Exp* MakeGCSafe(Exp *target, bool needs_root);
 
   // for an lvalue, fills in all the subexpressions and remainders.
   // if either vector is NULL that vector is not computed. if both vectors
@@ -941,8 +941,11 @@ class ExpGCSafe : public Exp
   // a moving GC can manipulate the stack and change the values of
   // variables indirectly, we need to worry about how a value is stored
   // to determine whether it will survive the GC intact.
-
   Exp* GetTarget() const { return m_target; }
+
+  // whether the lvalue must have been explicitly rooted for the access
+  // to be safe: it will subsequently be held live across a GC.
+  bool NeedsRoot() const { return m_needs_root; }
 
   // inherited methods
   Exp* GetLvalTarget() const;
@@ -955,9 +958,10 @@ class ExpGCSafe : public Exp
   void MarkChildren() const;
 
  private:
-  Exp *m_target;
+  Exp* m_target;
+  bool m_needs_root;
 
-  ExpGCSafe(Exp *target);
+  ExpGCSafe(Exp *target, bool needs_root);
   friend class Exp;
 };
 

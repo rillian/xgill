@@ -296,8 +296,14 @@ class GCScanVisitor : public ExpVisitor
       info.cls = ASC_Check;
       info.point = point;
 
-      Exp *gcsafe = Exp::MakeGCSafe(nlval->GetTarget());
-      info.bit = Bit::MakeVar(gcsafe);
+      Exp *target = nlval->GetTarget();
+      if (target->IsFld() &&
+          BlockSummary::FieldIsGCSafe(target->AsFld()->GetField())) {
+        info.bit = Bit::MakeConstant(true);
+      } else {
+        Exp *gcsafe = Exp::MakeGCSafe(nlval->GetTarget(), false);
+        info.bit = Bit::MakeVar(gcsafe);
+      }
 
       asserts.PushBack(info);
     }

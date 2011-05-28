@@ -167,18 +167,10 @@ void BlockMemory::Write(Buffer *buf, const BlockMemory *mcfg)
                      mcfg->m_clobber_table->ItKey(),
                      mcfg->m_clobber_table->ItValues());
 
-  if (mcfg->m_gc_clobber_table) {
-    for (size_t ind = 0; ind < mcfg->m_gc_clobber_table->Size(); ind++)
-      WriteTagUInt32(buf, TAG_MemoryClobberGCEntry,
-                     mcfg->m_gc_clobber_table->At(ind));
-  }
-
-  if (mcfg->m_gc_protect_table) {
-    for (size_t ind = 0; ind < mcfg->m_gc_protect_table->Size(); ind++) {
-      WriteOpenTag(buf, TAG_MemoryProtectGCEntry);
-      Variable::Write(buf, mcfg->m_gc_protect_table->At(ind));
-      WriteCloseTag(buf, TAG_MemoryProtectGCEntry);
-    }
+  if (mcfg->m_gc_table) {
+    for (size_t ind = 0; ind < mcfg->m_gc_table->Size(); ind++)
+      WriteTagUInt32(buf, TAG_MemoryGCEntry,
+                     mcfg->m_gc_table->At(ind));
   }
 
   WriteCloseTag(buf, TAG_BlockMemory);
@@ -301,16 +293,9 @@ BlockMemory* BlockMemory::Read(Buffer *buf)
       entries->PushBack(GuardAssign(left, right, guard, kind));
       break;
     }
-    case TAG_MemoryClobberGCEntry: {
-      Try(ReadTagUInt32(buf, TAG_MemoryClobberGCEntry, &point));
-      res->m_gc_clobber_table->PushBack(point);
-      break;
-    }
-    case TAG_MemoryProtectGCEntry: {
-      Try(ReadOpenTag(buf, TAG_MemoryProtectGCEntry));
-      Variable *var = Variable::Read(buf);
-      res->m_gc_protect_table->PushBack(var);
-      Try(ReadCloseTag(buf, TAG_MemoryProtectGCEntry));
+    case TAG_MemoryGCEntry: {
+      Try(ReadTagUInt32(buf, TAG_MemoryGCEntry, &point));
+      res->m_gc_table->PushBack(point);
       break;
     }
     default:
@@ -504,8 +489,7 @@ BlockMemory::BlockMemory(BlockId *id,
     m_guard_table(NULL), m_assume_table(NULL),
     m_return_table(NULL), m_target_table(NULL),
     m_assign_table(NULL), m_argument_table(NULL),
-    m_clobber_table(NULL),
-    m_gc_clobber_table(NULL), m_gc_protect_table(NULL),
+    m_clobber_table(NULL), m_gc_table(NULL),
     m_val_table(NULL), m_translate_table(NULL)
 {
   Assert(m_id);
@@ -1416,19 +1400,25 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
     ExpGCSafe *nexp = exp->AsGCSafe();
     Exp *target = nexp->GetTarget();
 
-    if (target) {
-      GuardExpVector target_res;
-      TranslateExp(kind, point, target, &target_res);
-
-      Exp *value_kind = Exp::MakeGCSafe(NULL);
-      bool get_value = (kind == TRK_Point || kind == TRK_Callee);
-      bool get_edge = (kind == TRK_CalleeExit);
-
-      TranslateExpVal(point, value_kind, target_res, get_value, get_edge, res);
-    } else {
-      Bit *guard = Bit::MakeConstant(true);
-      res->PushBack(GuardExp(exp, guard));
+    if (!target) {
+      res->PushBack(GuardExp(exp, Bit::MakeConstant(true)));
+      break;
     }
+
+    if (target->IsFld() &&
+        BlockSummary::FieldIsGCSafe(target->AsFld()->GetField())) {
+      res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+      break;
+    }
+
+    GuardExpVector target_res;
+    TranslateExp(kind, point, target, &target_res);
+
+    Exp *value_kind = Exp::MakeGCSafe(NULL, nexp->NeedsRoot());
+    bool get_value = (kind == TRK_Point || kind == TRK_Callee);
+    bool get_edge = (kind == TRK_CalleeExit);
+
+    TranslateExpVal(point, value_kind, target_res, get_value, get_edge, res);
     break;
   }
 
@@ -1961,14 +1951,11 @@ void BlockMemory::Print(OutStream &out) const
       }
     }
 
-    for (size_t ind = 0; ind < m_gc_clobber_table->Size(); ind++) {
-      if (m_gc_clobber_table->At(ind) == point)
+    for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
+      if (m_gc_table->At(ind) == point)
         out << "cangc" << endl;
     }
   }
-
-  for (size_t ind = 0; ind < m_gc_protect_table->Size(); ind++)
-    out << "protectGC " << m_gc_protect_table->At(ind) << endl;
 }
 
 static void MarkGuard(const Vector<Bit*> &bits)
@@ -2074,8 +2061,7 @@ void BlockMemory::UnPersist()
   delete m_assign_table;
   delete m_argument_table;
   delete m_clobber_table;
-  delete m_gc_clobber_table;
-  delete m_gc_protect_table;
+  delete m_gc_table;
   delete m_val_table;
   delete m_translate_table;
 
@@ -2086,8 +2072,7 @@ void BlockMemory::UnPersist()
   m_assign_table = NULL;
   m_argument_table = NULL;
   m_clobber_table = NULL;
-  m_gc_clobber_table = NULL;
-  m_gc_protect_table = NULL;
+  m_gc_table = NULL;
   m_val_table = NULL;
   m_translate_table = NULL;
 
@@ -2103,8 +2088,7 @@ void BlockMemory::MakeTables()
   m_assign_table = new GuardAssignTable();
   m_argument_table = new GuardAssignTable();
   m_clobber_table = new GuardAssignTable();
-  m_gc_clobber_table = new Vector<PPoint>();
-  m_gc_protect_table = new Vector<Variable*>();
+  m_gc_table = new Vector<PPoint>();
   m_val_table = new ValueTable();
   m_translate_table = new TranslateTable();
 }
@@ -2296,7 +2280,7 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
   m_clobber->ComputeClobber(this, edge, assigns, clobbered);
 
   if (EdgeCanGC(edge))
-    m_gc_clobber_table->PushBack(point);
+    m_gc_table->PushBack(point);
 
   // add a return value assignment if there isn't already an explicit one.
 
@@ -2350,10 +2334,6 @@ void BlockMemory::ComputeEdgeCall(PEdgeCall *edge)
       ComputeSingleAssign(return_type, rgt.exp, rval, rgt.guard, assigns);
     }
   }
-
-  // determine if this edge is protecting a variable against GC.
-  if (Variable *var = CallProtectsFromGC(edge))
-    m_gc_protect_table->PushBack(var);
 }
 
 void BlockMemory::ComputeEdgeLoop(PEdgeLoop *edge)
@@ -2369,7 +2349,7 @@ void BlockMemory::ComputeEdgeLoop(PEdgeLoop *edge)
   m_clobber->ComputeClobber(this, edge, NULL, clobbered);
 
   if (EdgeCanGC(edge))
-    m_gc_clobber_table->PushBack(point);
+    m_gc_table->PushBack(point);
 }
 
 bool BlockMemory::EdgeCanGC(PEdge *edge)
@@ -2718,11 +2698,13 @@ void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
 				      GuardExpVector *res)
 {
   // plain argument GC things are always safe at entry points of functions,
-  // as the value must have been copied at the call site.
+  // as the value must have been copied at the call site. If the variable
+  // needs a root, a subsequent GC call is not safe.
   if (m_id->Kind() == B_Function && lval->IsVar()) {
     Variable *var = lval->AsVar()->GetVariable();
     if (!var->IsGlobal()) {
-      res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+      int value = kind->NeedsRoot() ? 0 : 1;
+      res->PushBack(GuardExp(Exp::MakeInt(value), Bit::MakeConstant(true)));
       return;
     }
   }
@@ -2739,36 +2721,61 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
 
   // any assignment directly into the lval marks the later access to that
   // lval's contents as safe. whenever a GC thing is copied we ensure that
-  // it is safe at the point of the copy.
+  // it is safe at the point of the copy. this only holds if we are not
+  // checking for a root call to validate a later GC call.
 
-  Exp *lhs = NULL;
-  if (PEdgeAssign *nedge = edge->IfAssign())
-    lhs = nedge->GetLeftSide();
-  else if (PEdgeCall *nedge = edge->IfCall())
-    lhs = nedge->GetReturnValue();
-  if (lhs && lhs == lval) {
-    res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+  if (!kind->NeedsRoot()) {
+    Exp *lhs = NULL;
+    if (PEdgeAssign *nedge = edge->IfAssign())
+      lhs = nedge->GetLeftSide();
+    else if (PEdgeCall *nedge = edge->IfCall())
+      lhs = nedge->GetReturnValue();
+    if (lhs && lhs == lval) {
+      res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
+      return;
+    }
+  }
+
+  if (kind->NeedsRoot()) {
+    if (!lval->IsVar() || !edge->IsCall())
+      return;
+
+    // if a rooter is being destructed for the lvalue, mark as false.
+    if (Exp *exp = CallDestructsGCRoot(edge->AsCall())) {
+      const Vector<GuardExp> &values = GetVal(exp, NULL, point);
+      for (size_t ind = 0; ind < values.Size(); ind++) {
+        if (values[ind].exp == lval) {
+          res->PushBack(GuardExp(Exp::MakeInt(0), Bit::MakeConstant(true)));
+          return;
+        }
+      }
+    }
+
+    // if a rooter is being constructed for the lvalue, continue checking
+    // to make sure its current value is safe to access.
+    if (lval == CallConstructsGCRoot(edge->AsCall())) {
+      Exp *nkind = Exp::MakeGCSafe(NULL, false);
+      GetValSimplify(lval, nkind, point, res);
+      return;
+    }
+
     return;
   }
 
-  // check if the lvalue might be clobbered at this GC point.
-
+  // check if a GC might happen at this point.
   bool found = false;
-  for (size_t ind = 0; ind < m_gc_clobber_table->Size(); ind++) {
-    if (m_gc_clobber_table->At(ind) == point)
+  for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
+    if (m_gc_table->At(ind) == point)
       found = true;
   }
-  if (!found)
+  if (!found) {
+    // no GC possible, keep using the current kind.
     return;
+  }
 
-  // use an empty GCSafe as a standin for any value which may have
-  // been clobbered by a GC.
-
-  Location *location = m_cfg->GetPointLocation(point);
-  Exp *value = Exp::MakeClobber(kind, NULL, lval, point, location);
-
-  Bit *guard = Bit::MakeConstant(true);
-  res->PushBack(GuardExp(value, guard));
+  // this access is safe only if it refers to rooted memory.
+  Exp *nkind = Exp::MakeGCSafe(NULL, true);
+  GetValSimplify(lval, nkind, point, res);
 }
 
 void BlockMemory::TransferEntry(Exp *lval, Exp *kind, GuardExpVector *res)

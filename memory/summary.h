@@ -183,6 +183,9 @@ class BlockSummary : public HashObject
   // the parse was successful.
   static bool GetAssertFunction(const char *name, Buffer *buf);
 
+  // whether a field is traversed on GC and always safe to access.
+  static bool FieldIsGCSafe(Field *field);
+
  public:
   // get the ID of the CFG for this block.
   BlockId* GetId() const { return m_id; }

@@ -19,6 +19,8 @@
 #include "baked.h"
 #include "mstorage.h"
 
+#include <imlang/storage.h>
+
 NAMESPACE_XGILL_BEGIN
 
 /////////////////////////////////////////////////////////////////////
@@ -913,77 +915,44 @@ bool TypeIsGCThing(TypeCSU *type)
   return false;
 }
 
-static const char* g_gcprotect_functions[] = {
-  "AutoObjectRooter",
-  "AutoStringRooter",
-  "AutoShapeRooter",
-  NULL
-};
-
-Variable* CallProtectsFromGC(PEdgeCall *edge)
+Exp* CallConstructsGCRoot(PEdgeCall *edge)
 {
+  Variable *name = edge->GetDirectFunction();
+  if (!name || strcmp(name->GetSourceName()->Value(), "AutoRooter"))
+    return NULL;
   if (edge->GetArgumentCount() != 2)
     return NULL;
 
-  BlockId *callee = edge->GetDirectCallee();
-  if (!callee)
-    return NULL;
-
-  const char *name = callee->BaseVar()->GetSourceName()->Value();
-
-  const char **pos = g_gcprotect_functions;
-  while (*pos) {
-    if (!strcmp(*pos, name)) {
-      Exp *arg = edge->GetArgument(1);
-      if (ExpVar *narg = arg->IfVar())
-        return narg->GetVariable();
-    }
-    pos++;
-  }
-
-  return NULL;
+  Exp *exp = edge->GetArgument(1);
+  return exp->IsVar() ? exp : NULL;
 }
 
-struct RootedField {
-  const char *csu;
-  const char *name;
-};
-
-RootedField g_rooted_fields[] = {
-  { "Heap", "obj" },
-  { NULL, NULL }
-};
-
-bool ExpIsGCSafe(Exp *exp)
+Exp* CallDestructsGCRoot(PEdgeCall *edge)
 {
-  // rooted variables are safe to access anywhere.
-  if (ExpVar *nexp = exp->IfVar()) {
-    Variable *var = nexp->GetVariable();
-    BlockId *id = var->GetId();
-    if (id) {
-      BlockMemory *mcfg = GetBlockMemory(id);
-      if (mcfg && mcfg->HasProtectedVariable(var))
-        return true;
+  Variable *name = edge->GetDirectFunction();
+  if (!name || strcmp(name->GetSourceName()->Value(), "~AutoRooter"))
+    return NULL;
+
+  Exp *target = edge->GetInstanceObject();
+  if (!target || !target->GetType() || !target->GetType()->IsCSU())
+    return NULL;
+
+  // inspect the class for a 'ptr' field.
+  String *csu_name = target->GetType()->AsCSU()->GetCSUName();
+  CompositeCSU *csu = CompositeCSUCache.Lookup(csu_name);
+
+  Exp *res = NULL;
+  for (size_t ind = 0; ind < csu->GetFieldCount(); ind++) {
+    Field *field = csu->GetField(ind).field;
+    if (!strcmp(field->GetSourceName()->Value(), "ptr")) {
+      res = Exp::MakeFld(target, field);
+      break;
     }
   }
 
-  // rooted fields are safe to access anywhere.
-  if (ExpFld *nexp = exp->IfFld()) {
-    Field *field = nexp->GetField();
-    if (field->GetSourceName()) {
-      const char *csu = field->GetCSUType()->GetCSUName()->Value();
-      const char *name = field->GetSourceName()->Value();
+  CompositeCSUCache.Release(csu_name);
 
-      RootedField *root = g_rooted_fields;
-      while (root->csu) {
-        if (!strcmp(root->csu, csu) && !strcmp(root->name, name))
-          return true;
-        root++;
-      }
-    }
-  }
-
-  return false;
+  return res;
 }
 
 NAMESPACE_XGILL_END

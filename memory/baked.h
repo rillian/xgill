@@ -132,10 +132,8 @@ bool BlockCannotGC(BlockId *id);
 // values of the specified type are monitored by a moving GC.
 bool TypeIsGCThing(TypeCSU *type);
 
-// any variable protected from GC by a call.
-Variable* CallProtectsFromGC(PEdgeCall *edge);
-
-// whether an expression is safe against GC.
-bool ExpIsGCSafe(Exp *exp);
+// any expression which call constructs/destructs a root for.
+Exp* CallConstructsGCRoot(PEdgeCall *edge);
+Exp* CallDestructsGCRoot(PEdgeCall *edge);
 
 NAMESPACE_XGILL_END
