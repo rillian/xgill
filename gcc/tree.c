@@ -881,6 +881,25 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
       return;
     }
 
+    // check if this declaration indicates a safe GC field in an
+    // annotation we are processing. these show up as initializers
+    // for variables named __gcsafe.
+    if (xil_has_annotation && DECL_NAME(decl) &&
+        !strcmp(IDENTIFIER_POINTER(DECL_NAME(decl)), "__gcsafe")) {
+      XIL_Exp xil_value;
+      MAKE_ENV(gcsafe_env, env->point, env->post_edges);
+      gcsafe_env.result_lval = &xil_value;
+      XIL_TranslateTree(&gcsafe_env, value);
+
+      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+      XIL_Exp value_init = XIL_ExpGCSafe(xil_value);
+      XIL_CFGEdgeAssign(*env->point, after_point,
+                        xil_type, exp_decl, value_init);
+
+      *env->point = after_point;
+      return;
+    }
+
     MAKE_ENV(initial_env, env->point, env->post_edges);
     initial_env.result_assign = exp_decl;
     initial_env.result_assign_type = xil_type;

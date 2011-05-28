@@ -532,8 +532,12 @@ struct GCSafeFieldVisitor : public ExpVisitor
     if (ExpGCSafe *nexp = exp->IfGCSafe()) {
       Exp *target = nexp->GetLvalTarget();
       if (ExpFld *ntarget = target->IfFld()) {
-        if (ntarget->GetField() == field)
+        // hack around broken fields in annotations. FIXME
+        Field *new_field = ntarget->GetField();
+        if (new_field->GetCSUType() == field->GetCSUType() &&
+            new_field->GetSourceName() == field->GetSourceName()) {
           safe = true;
+        }
       }
     }
   }

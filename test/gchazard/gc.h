@@ -31,3 +31,5 @@ class AutoRooterVar {
     T *ptr;
     AutoRooter<T> root;
 };
+
+}

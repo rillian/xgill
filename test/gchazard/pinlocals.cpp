@@ -1,6 +1,8 @@
 
 #include "gc.h"
 
+using namespace js;
+
 void bad(JSObject *obj)
 {
   js_GC();
@@ -42,5 +44,3 @@ void other_split(JSContext *cx, JSObject *obj)
   bad(obj2);
 }
   */
-
-}

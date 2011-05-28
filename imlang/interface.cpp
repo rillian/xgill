@@ -772,6 +772,12 @@ extern "C" XIL_Exp XIL_ExpZTerm(XIL_Exp target, XIL_Type stride_type)
                                       empty_exp, zero_exp);
 }
 
+extern "C" XIL_Exp XIL_ExpGCSafe(XIL_Exp target)
+{
+  GET_OBJECT(Exp, target);
+  return (XIL_Exp) Exp::MakeGCSafe(new_target, false);
+}
+
 extern "C" XIL_Exp XIL_ExpSkipInference()
 {
   return (XIL_Exp) Exp::MakeDirective(DIRECTIVE_SkipInference);

@@ -1405,7 +1405,7 @@ void BlockMemory::TranslateExp(TranslateKind kind, PPoint point, Exp *exp,
       break;
     }
 
-    if (target->IsFld() &&
+    if (target->IsFld() && m_id->Kind() != B_AnnotationComp &&
         BlockSummary::FieldIsGCSafe(target->AsFld()->GetField())) {
       res->PushBack(GuardExp(Exp::MakeInt(1), Bit::MakeConstant(true)));
       break;
@@ -2707,6 +2707,12 @@ void BlockMemory::TransferEntryGCSafe(Exp *lval, ExpGCSafe *kind,
       res->PushBack(GuardExp(Exp::MakeInt(value), Bit::MakeConstant(true)));
       return;
     }
+  }
+
+  if (m_id->Kind() == B_Function) {
+    // for now, nuke all other gcsafe expressions at function entry.
+    res->PushBack(GuardExp(Exp::MakeInt(0), Bit::MakeConstant(true)));
+    return;
   }
 
   Exp *value = kind->ReplaceLvalTarget(lval);
