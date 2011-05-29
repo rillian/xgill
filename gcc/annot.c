@@ -1950,6 +1950,8 @@ void XIL_ProcessAnnotation(tree node, XIL_PPoint *point, bool all_locals,
 
   if (state->type) {
     // scan and add a definition for the type containing the annotation.
+    if (c_dialect_cxx())
+      XIL_ScanPrintType(state->type, true);
     XIL_ScanDefineType(state->type);
   }
 

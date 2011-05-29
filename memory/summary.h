@@ -48,8 +48,9 @@ enum AssertKind {
   ASK_IntegerOverflow = 14,
   ASK_IntegerUnderflow = 15,
 
-  // GC-safe memory access.
-  ASK_GCSafe = 20
+  // GC-safe memory accesses.
+  ASK_GCSafe = 20,
+  ASK_CanGC = 21
 };
 
 // classes of program assertions.
@@ -84,6 +85,7 @@ inline const char* AssertKindString(AssertKind kind)
   case ASK_IntegerUnderflow:   return "integer_underflow";
 
   case ASK_GCSafe:             return "gcsafe";
+  case ASK_CanGC:              return "cangc";
 
   default: Assert(false);
   }

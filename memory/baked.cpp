@@ -343,6 +343,9 @@ static const char* g_cutoff_functions[] =
   "strdup",
   "strchr",
 
+  // Firefox functions.
+  "js_GC",
+
   NULL
 };
 

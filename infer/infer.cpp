@@ -708,6 +708,23 @@ void InferSummaries(const Vector<BlockSummary*> &summary_list)
       edge->DoVisit(&gcsafe_visitor);
     }
 
+    if (cfg->GetId()->Kind() == B_Function) {
+      BlockModset *modset = GetBlockModset(cfg->GetId());
+      if (modset->CanGC()) {
+        AssertInfo info;
+        info.kind = ASK_CanGC;
+        info.cls = ASC_Check;
+        info.point = cfg->GetExitPoint();
+
+        String *name = cfg->GetId()->BaseVar()->GetName();
+        Variable *var = Variable::Make(NULL, VK_Glob, name, 0, name);
+        Exp *varexp = Exp::MakeVar(var);
+        Exp *gcsafe = Exp::MakeGCSafe(varexp, false);
+        info.bit = Bit::MakeVar(gcsafe);
+        asserts.PushBack(info);
+      }
+    }
+
     MarkRedundantAssertions(mcfg, asserts);
 
     // move the finished assertion list into the summary.

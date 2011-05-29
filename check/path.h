@@ -34,7 +34,7 @@ class Where;
 // path:  name frame+ point+ frameindex+
 // frame: frameindex beginpoint endpoint text file beginline endline
 //        maintext wheretext framechild? framenext? annotation* hook+
-// point: pointindex line linetext value*
+// point: pointindex line linetext highlight? value*
 // value: lval rval newval?
 // hook: text name+
 
@@ -98,6 +98,9 @@ struct DisplayPoint
 
   // text to display when browsing to this point in the frame.
   const char *m_line_text;
+
+  // whether to highlight this point in the generated path.
+  bool m_highlight;
 
   // list of values to display at this point.
   Vector<DisplayValue> m_values;

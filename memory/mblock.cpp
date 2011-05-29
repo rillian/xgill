@@ -2779,6 +2779,15 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
     return;
   }
 
+  if (ExpVar *nlval = lval->IfVar()) {
+    if (nlval->GetVariable()->IsGlobal()) {
+      Location *location = m_cfg->GetPointLocation(point);
+      Exp *exp = Exp::MakeClobber(lval, kind, lval, point, location);
+      res->PushBack(GuardExp(exp, Bit::MakeConstant(true)));
+      return;
+    }
+  }
+
   // this access is safe only if it refers to rooted memory.
   Exp *nkind = Exp::MakeGCSafe(NULL, true);
   GetValSimplify(lval, nkind, point, res);

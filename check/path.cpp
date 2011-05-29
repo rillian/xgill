@@ -112,7 +112,8 @@ public:
 };
 
 DisplayPoint::DisplayPoint()
-  : m_index(0), m_frame(NULL), m_cfg_point(0), m_line_text(NULL)
+  : m_index(0), m_frame(NULL), m_cfg_point(0),
+    m_line_text(NULL), m_highlight(false)
 {}
 
 DisplayValue& DisplayPoint::GetDisplayValue(Exp *lval, Exp *kind,
@@ -179,6 +180,9 @@ void DisplayPoint::WriteXML(Buffer *buf)
   }
 
   WriteXMLTagString(buf, "linetext", m_line_text);
+
+  if (m_highlight)
+    WriteXMLTagInt(buf, "highlight", 1);
 
   for (size_t ind = 0; ind < m_values.Size(); ind++)
     m_values[ind].WriteXML(buf);
@@ -742,8 +746,15 @@ DisplayPoint* DisplayPath::MakePoint(CheckerFrame *chk_frame, PPoint cfg_point)
 
   if (outgoing.Size() == 1) {
     PEdge *edge = outgoing[0];
-    if (edge->IsAssign() || edge->IsLoop() || edge->IsCall())
+    if (edge->IsAssign() || edge->IsLoop() || edge->IsCall()) {
       after_edge = edge;
+
+      // highlight edges which can GC when generating GC safety reports.
+      if (chk_frame->State()->GetAssertKind() == ASK_GCSafe &&
+          edge->IsCall() && chk_frame->Memory()->EdgeCanGC(edge)) {
+        point->m_highlight = true;
+      }
+    }
   }
 
   const Vector<GuardAssign> *edge_assigns = mcfg->GetAssigns(cfg_point);

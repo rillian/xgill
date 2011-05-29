@@ -175,6 +175,13 @@ a.code_link {
   background-color: #CCCCFF;
 }
 
+a.code_highlight {
+  font-weight: bold;
+  text-decoration: none;
+  color: black;
+  background-color: #FF0000;
+}
+
 span.helptext {
   font-size: 12pt;
   color: #DD0000;
@@ -342,7 +349,8 @@ for my $frame (@{$frame_entries}) {
 }
 print "\n";
 
-# source lines to highlight in each frame
+# source lines to mark or highlight in each frame
+my %mark_lines;
 my %highlight_lines;
 
 my $point_entries = $path->{point};
@@ -356,8 +364,8 @@ for my $point (@{$point_entries}) {
 
     my $line = get_single_xml_tag($point, 'line');
 
-    if (not (defined $highlight_lines{"$frameindex:$line"})) {
-        $highlight_lines{"$frameindex:$line"} = $index;
+    if (not (defined $mark_lines{"$frameindex:$line"})) {
+        $mark_lines{"$frameindex:$line"} = $index;
     }
 
     my $beginpoint = get_single_xml_tag($frame, 'beginpoint');
@@ -381,6 +389,11 @@ for my $point (@{$point_entries}) {
     my $main_text = get_single_xml_tag($frame, 'maintext');
     my $where_text = get_single_xml_tag($frame, 'wheretext');
     my $line_text = get_single_xml_tag($point, 'linetext');
+
+    my $highlight = has_xml_tag($point, 'highlight');
+    if ($highlight) {
+        $highlight_lines{"$frameindex:$line"} = 1;
+    }
 
     my $value_text = "";
     my $value_entries = $point->{value};
@@ -898,9 +911,13 @@ while ($frameindex <= $maxframe) {
 
         my $extra = "";
 
-        my $pointindex = $highlight_lines{"$frameindex:$line"};
+        my $pointindex = $mark_lines{"$frameindex:$line"};
         if (defined $pointindex) {
-            print "<td><a class='code_link' href='#' onClick='setMoveIndex($pointindex); return false;'>$line:</a></td>";
+            my $code_class = 'code_link';
+            if (defined $highlight_lines{"$frameindex:$line"}) {
+                $code_class = 'code_highlight';
+            }
+            print "<td><a class='$code_class' href='#' onClick='setMoveIndex($pointindex); return false;'>$line:</a></td>";
         }
         else {
             $extra = "class='code_omit'";
@@ -1005,6 +1022,17 @@ sub recursive_parse_xml {
     }
 
     return $table;
+}
+
+sub has_xml_tag {
+    my $table = shift or die;
+    my $tag = shift or die;
+
+    my $entries = $table->{$tag};
+    my $entry = @{$entries}[0];
+    my $data = $entry->{'#data'};
+
+    return (defined $data);
 }
 
 sub get_single_xml_tag {

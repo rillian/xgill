@@ -496,6 +496,9 @@ class BlockMemory : public HashObject
   ExpTerminate* GetTerminateAssign(PPoint point, Exp *left, Exp *right,
                                    Exp **lval);
 
+  // whether an edge may induce a GC.
+  bool EdgeCanGC(PEdge *edge);
+
   // inherited methods
   void Print(OutStream &out) const;
   void MarkChildren() const;
@@ -583,9 +586,6 @@ class BlockMemory : public HashObject
   void ComputeEdgeAssign(PEdgeAssign *edge);
   void ComputeEdgeCall(PEdgeCall *edge);
   void ComputeEdgeLoop(PEdgeLoop *edge);
-
-  // whether an edge may induce a GC.
-  bool EdgeCanGC(PEdge *edge);
 
   // fill in assigns with the result of a single assignment from right to left
   // of the specified type. if type is a CSU then it will be split into
