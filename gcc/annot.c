@@ -1469,7 +1469,7 @@ void WriteAnnotationFile(FILE *file)
 "#define lbound(X) ({ extern typeof((X)[0]) __data; extern long __lbound(typeof((X)[0]) *ptr); __lbound(X); })\n"
 "#define zterm(X) ({ extern typeof((X)[0]) __data; extern long __zterm(typeof((X)[0]) *ptr); __zterm(X); })\n"
 "#define initial(X) ({ typeof(X) __initial = (X); __initial; })\n"
-"#define gcsafe(X) ({ typeof(X) __gcsafe = (X); (int) __gcsafe; })\n"
+"#define gcsafe(X) ({ typeof(X) __gcsafe = (X); (long) __gcsafe; })\n"
 "int skip_inference();\n"
   );
 
