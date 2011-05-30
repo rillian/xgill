@@ -852,15 +852,6 @@ int Field::Compare(const Field *f0, const Field *f1)
 {
   TryCompareObjects(f0->GetCSUType(), f1->GetCSUType(), Type);
   TryCompareObjects(f0->GetName(), f1->GetName(), String);
-
-  // in general, the name/index/CSU data should be enough to distinguish
-  // different fields. however, in some frontend error cases we can get
-  // confused when making fields and we want to check the other components
-  // of the field.
-
-  TryCompareObjects(f0->GetSourceName(), f1->GetSourceName(), String);
-  TryCompareObjects(f0->GetType(), f1->GetType(), Type);
-
   TryCompareValues((int)f0->IsInstanceFunction(),
                    (int)f1->IsInstanceFunction());
   return 0;

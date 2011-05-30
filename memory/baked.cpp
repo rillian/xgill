@@ -881,6 +881,12 @@ static const char* g_cannotgc_blocks[] = {
   /* Leaves trace and returns first, otherwise PopulateReportBlame could GC. */
   "js_ReportOutOfMemory",
 
+  /* Can throw on API misuse, which could trigger GC. Ignore this. */
+  "DeflateStringToUTF8Buffer",
+  "InflateUTF8StringToBuffer",
+
+  "allocSlots",
+
   NULL
 };
 

@@ -457,6 +457,15 @@ bool CheckSingleCallee(CheckerState *state, CheckerFrame *frame, PPoint point,
   PPoint exit_point = callee_frame->Memory()->GetCFG()->GetExitPoint();
   callee_frame->AssertPointGuard(exit_point, true);
 
+  for (size_t ind = 0; ind < state->m_stack.Size(); ind++) {
+    CheckerPropagate *propagate = state->m_stack[ind];
+    if (propagate->m_frame->Memory() == callee_frame->Memory()) {
+      Bit *bit = NULL;
+      callee_frame->Memory()->TranslateBit(TRK_Point, exit_point, propagate->m_base_bit, &bit);
+      callee_frame->AddAssert(bit);
+    }
+  }
+
   if (is_call) {
     frame->ConnectCallee(callee_frame, point, true);
   }
