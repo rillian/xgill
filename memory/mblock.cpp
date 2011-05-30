@@ -2768,6 +2768,23 @@ void BlockMemory::TransferEdgeGCSafe(Exp *lval, ExpGCSafe *kind, PEdge *edge,
     return;
   }
 
+  if (edge->IsCall() || edge->IsLoop()) {
+    // if the lvalue is clobbered as an OUT parameter to a call,
+    // then use a clobbered value at callee exit. the value is live
+    // from when it was written to the end of the callee, and if it
+    // it cannot be clobbered by GC in that interval then it is safe.
+    Exp *clobber_inner = NULL;
+    Bit *clobber_guard = NULL;
+    if (IsLvalClobbered(lval, NULL, edge, &clobber_inner, &clobber_guard) &&
+        clobber_guard->IsTrue()) {
+      Location *location = m_cfg->GetPointLocation(point);
+      ExpClobber *clobber = Exp::MakeClobber(clobber_inner, kind, lval,
+                                             point, location);
+      res->PushBack(GuardExp(clobber, Bit::MakeConstant(true)));
+      return;
+    }
+  }
+
   // check if a GC might happen at this point.
   bool found = false;
   for (size_t ind = 0; ind < m_gc_table->Size(); ind++) {
