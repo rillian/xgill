@@ -774,6 +774,20 @@ void XIL_TranslateBinary(struct XIL_TreeEnv *env, tree node)
   XIL_ProcessResult(env, result);
 }
 
+static bool is_annotation_variable(const char *name)
+{
+  return !strcmp(name, "__initial") || !strcmp(name, "__gcsafe");
+}
+
+static XIL_Exp get_annotation_variable_value(const char *name, XIL_Exp base)
+{
+  if (!strcmp(name, "__initial"))
+    return XIL_ExpInitial(base);
+  if (!strcmp(name, "__gcsafe"))
+    return XIL_ExpGCSafe(base);
+  gcc_assert(false);
+}
+
 void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
 {
   XIL_Location loc = XIL_TryUpdateLocation(*env->point, node);
@@ -862,42 +876,23 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
     if (!value)
       return;
 
-    // check if this declaration indicates the initial value of a location
-    // for an annotation we are processing. these show up as initializers
-    // for variables named __initial.
-    if (xil_has_annotation && DECL_NAME(decl) &&
-        !strcmp(IDENTIFIER_POINTER(DECL_NAME(decl)), "__initial")) {
-      XIL_Exp xil_value;
-      MAKE_ENV(initial_env, env->point, env->post_edges);
-      initial_env.result_lval = &xil_value;
-      XIL_TranslateTree(&initial_env, value);
+    // check if this declaration annotates a special Initial or GCSafe expression.
+    if (xil_has_annotation && DECL_NAME(decl)) {
+      const char *name = IDENTIFIER_POINTER(DECL_NAME(decl));
+      if (is_annotation_variable(name)) {
+        XIL_Exp xil_value;
+        MAKE_ENV(initial_env, env->point, env->post_edges);
+        initial_env.result_lval = &xil_value;
+        XIL_TranslateTree(&initial_env, value);
 
-      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
-      XIL_Exp value_init = XIL_ExpInitial(xil_value);
-      XIL_CFGEdgeAssign(*env->point, after_point,
-                        xil_type, exp_decl, value_init);
+        XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+        XIL_Exp value = get_annotation_variable_value(name, xil_value);
+        XIL_CFGEdgeAssign(*env->point, after_point,
+                          xil_type, exp_decl, value);
 
-      *env->point = after_point;
-      return;
-    }
-
-    // check if this declaration indicates a safe GC field in an
-    // annotation we are processing. these show up as initializers
-    // for variables named __gcsafe.
-    if (xil_has_annotation && DECL_NAME(decl) &&
-        !strcmp(IDENTIFIER_POINTER(DECL_NAME(decl)), "__gcsafe")) {
-      XIL_Exp xil_value;
-      MAKE_ENV(gcsafe_env, env->point, env->post_edges);
-      gcsafe_env.result_lval = &xil_value;
-      XIL_TranslateTree(&gcsafe_env, value);
-
-      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
-      XIL_Exp value_init = XIL_ExpGCSafe(xil_value);
-      XIL_CFGEdgeAssign(*env->point, after_point,
-                        xil_type, exp_decl, value_init);
-
-      *env->point = after_point;
-      return;
+        *env->point = after_point;
+        return;
+      }
     }
 
     MAKE_ENV(initial_env, env->point, env->post_edges);
@@ -1580,22 +1575,27 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     left_env.result_lval = &xil_left;
     XIL_TranslateTree(&left_env, left);
 
-    // check if we are assigning to an __initial variable for an annotation.
-    if (xil_has_annotation && TREE_CODE(left) == VAR_DECL &&
-        !strcmp(IDENTIFIER_POINTER(DECL_NAME(left)), "__initial")) {
-      XIL_Exp xil_value;
-      MAKE_ENV(right_env, env->point, post_edges);
-      right_env.result_lval = &xil_value;
-      XIL_TranslateTree(&right_env, right);
+    // check if we are assigning to an annotation variable.
+    bool processed = false;
+    if (xil_has_annotation && TREE_CODE(left) == VAR_DECL) {
+      const char *name = IDENTIFIER_POINTER(DECL_NAME(left));
+      if (is_annotation_variable(name)) {
+        XIL_Exp xil_value;
+        MAKE_ENV(right_env, env->point, post_edges);
+        right_env.result_lval = &xil_value;
+        XIL_TranslateTree(&right_env, right);
 
-      XIL_PPoint after_point = XIL_CFGAddPoint(loc);
-      XIL_Exp value_init = XIL_ExpInitial(xil_value);
-      XIL_CFGEdgeAssign(*env->point, after_point,
-                        xil_type, xil_left, value_init);
+        XIL_PPoint after_point = XIL_CFGAddPoint(loc);
+        XIL_Exp value = get_annotation_variable_value(name, xil_value);
+        XIL_CFGEdgeAssign(*env->point, after_point,
+                          xil_type, xil_left, value);
 
-      *env->point = after_point;
+        *env->point = after_point;
+        processed = true;
+      }
     }
-    else {
+
+    if (!processed) {
       // standard assignment otherwise.
       MAKE_ENV(right_env, env->point, post_edges);
       right_env.result_assign = xil_left;
