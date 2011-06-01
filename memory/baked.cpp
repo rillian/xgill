@@ -881,11 +881,27 @@ static const char* g_cannotgc_blocks[] = {
   /* Leaves trace and returns first, otherwise PopulateReportBlame could GC. */
   "js_ReportOutOfMemory",
 
-  /* Can throw on API misuse, which could trigger GC. Ignore this. */
+  /* Takes a specialized path when on trace to avoid expanding the stack. */
+  "js_InferFlags",
+
+  /*
+   * Methods which can throw on error, with the constructed exception possibly
+   * triggering a GC. Ignoring these for now, but the real solution is to delay
+   * the generation of the exception object until ready to return to script.
+   */
+
   "DeflateStringToUTF8Buffer",
+  "DeflateStringToBuffer",
   "InflateUTF8StringToBuffer",
+  "InflateStringToBuffer",
+  "GetDeflatedUTF8StringLength",
 
   "allocSlots",
+  "reportAllocOverflow",
+
+  "ReportIncompatibleMethod",
+  "AdjustBlockSlot",
+  "js_ReportOutOfScriptQuota",
 
   NULL
 };
@@ -929,10 +945,10 @@ Exp* CallConstructsGCRoot(PEdgeCall *edge)
   Variable *name = edge->GetDirectFunction();
   if (!name || strcmp(name->GetSourceName()->Value(), "AutoRooter"))
     return NULL;
-  if (edge->GetArgumentCount() != 2)
+  if (edge->GetArgumentCount() != 1)
     return NULL;
 
-  Exp *exp = edge->GetArgument(1);
+  Exp *exp = edge->GetArgument(0);
   return exp->IsVar() ? exp : NULL;
 }
 

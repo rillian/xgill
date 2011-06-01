@@ -366,6 +366,13 @@ void XIL_GenerateBlock(tree decl)
     XIL_ProcessAnnotationRead(decl, where, point_text, annot_text, trusted);
   }
 
+  // process annotations discovered for CSU types.
+  while (xil_active_env.annots) {
+    struct XIL_PendingAnnotation *annot = xil_active_env.annots;
+    xil_active_env.annots = annot->next;
+    XIL_ProcessAnnotationAttr(annot->type, annot->attr, NULL, NULL);
+  }
+
   XIL_ClearActiveBlock(xil_active_env.dropped);
   XIL_ClearAssociate(XIL_AscBlock);
 

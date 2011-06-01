@@ -265,6 +265,13 @@ void XIL_ResolveGoto(XIL_PPoint source, XIL_PPoint target,
                      struct XIL_ScopeEnv *source_scope,
                      struct XIL_ScopeEnv *target_scope);
 
+struct XIL_PendingAnnotation
+{
+  tree type;
+  tree attr;
+  struct XIL_PendingAnnotation *next;
+};
+
 // global translation environment.
 struct XIL_BlockEnv
 {
@@ -293,6 +300,9 @@ struct XIL_BlockEnv
 
   // all local variables in the CFG.
   struct XIL_LocalData *locals;
+
+  // pending annotations discovered in the CFG.
+  struct XIL_PendingAnnotation *annots;
 };
 
 // the active block environment.

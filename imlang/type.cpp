@@ -848,12 +848,39 @@ void CompositeCSU::UnPersist()
 
 HashCons<Field> Field::g_table;
 
+static inline bool DropType(Type *type)
+{
+  // when there is inconsistency on the type of a field, favor non-void* types
+  // over void* types. The latter are sometimes introduced when the declarations
+  // in place at a structure definition are inconsistent, e.g. a dependent type
+  // may or may not have been declared ahead of time.
+  if (TypePointer *ntype = type->IfPointer()) {
+    if (ntype->GetTargetType()->IsVoid())
+      return true;
+    if (TypePointer *ntarget = ntype->GetTargetType()->IfPointer()) {
+      if (ntarget->GetTargetType()->IsVoid())
+        return true;
+    }
+  }
+  return false;
+}
+
 int Field::Compare(const Field *f0, const Field *f1)
 {
   TryCompareObjects(f0->GetCSUType(), f1->GetCSUType(), Type);
   TryCompareObjects(f0->GetName(), f1->GetName(), String);
   TryCompareValues((int)f0->IsInstanceFunction(),
                    (int)f1->IsInstanceFunction());
+
+  if (f0->GetType() != f1->GetType()) {
+    logout << "Warning: Field mismatch on " << f0 << ": "
+           << f0->GetType() << " " << f1->GetType() << endl;
+
+    Type *preferred = DropType(f0->GetType()) ? f1->GetType() : f0->GetType();
+    ((Field*) f0)->m_type = preferred;
+    ((Field*) f1)->m_type = preferred;
+  }
+
   return 0;
 }
 
