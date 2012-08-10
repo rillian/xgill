@@ -1,6 +1,6 @@
 
 #include "xgill.h"
-#include <c-pragma.h>
+#include <c-family/c-pragma.h>
 #include <cpplib.h>
 #include <cp/cp-tree.h>
 

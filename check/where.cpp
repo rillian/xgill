@@ -368,9 +368,9 @@ void WherePostcondition::PrintHook(OutStream &out) const
         << func_var->GetName()->Value();
   }
   else {
-    PEdgeCall *nedge = edge->AsCall();
+    PEdgeCall *nedge2 = edge->AsCall();
 
-    if (Variable *callee = nedge->GetDirectFunction()) {
+    if (Variable *callee = nedge2->GetDirectFunction()) {
       // direct call, just one hook function.
       out << "post " << callee->GetName()->Value();
     }
