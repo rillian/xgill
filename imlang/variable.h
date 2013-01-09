@@ -28,15 +28,20 @@ NAMESPACE_XGILL_BEGIN
 // forward declarations.
 class BlockId;
 
+#define ITERATE_VARIABLE_KINDS(ITER)		\
+  ITER(Glob, 1)					\
+  ITER(Func, 2)					\
+  ITER(Arg, 3)					\
+  ITER(Local, 4)				\
+  ITER(Temp, 5)					\
+  ITER(Return, 6)				\
+  ITER(This, 7)
+
 enum VarKind {
   VK_Invalid = 0,
-  VK_Glob = 1,
-  VK_Func = 2,
-  VK_Arg = 3,
-  VK_Local = 4,
-  VK_Temp = 5,
-  VK_Return = 6,
-  VK_This = 7
+#define ITER(NAME, NUM) VK_ ## NAME = NUM,
+  ITERATE_VARIABLE_KINDS(ITER)
+#undef ITER
 };
 
 class Variable : public HashObject

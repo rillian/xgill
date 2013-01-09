@@ -294,6 +294,9 @@ void PrintPadding(size_t pad_spaces);
 // the buffer.
 size_t PrintPartialBuffer(Buffer *buf);
 
+// print the data in buf as a JSON string.
+void PrintJSONBuffer(Buffer *buf);
+
 // Primitive write/read methods. byte order of data is least-significant
 // byte first. the buffer must have at least the specified number of bytes
 // remaining.

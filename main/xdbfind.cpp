@@ -36,6 +36,9 @@ ConfigOption plain_text(CK_Flag, "plain-text", NULL,
 ConfigOption raw_tags(CK_Flag, "raw-tags", NULL,
                       "print key data as raw binary tags");
 
+ConfigOption json(CK_Flag, "json", NULL,
+		  "print key data as a JSON string");
+
 // read a binary tag value from the specified buffer and get whatever
 // hash object it represents from the buffer, returning a reference
 // on that object. we will just match against the types of values that
@@ -72,6 +75,7 @@ int main(int argc, const char **argv)
 {
   plain_text.Enable();
   raw_tags.Enable();
+  json.Enable();
 
   Vector<const char*> unspecified;
   bool parsed = Config::Parse(argc, argv, &unspecified);
@@ -116,11 +120,14 @@ int main(int argc, const char **argv)
         parse_data.pos += len - consumed;
 
         size_t read_len = PrintPartialBuffer(&parse_data);
-
         if (read_len == 0)
           break;
         consumed += read_len;
       }
+    }
+    else if (json.IsSpecified()) {
+      Buffer parse_data(bdata.base, len);
+      PrintJSONBuffer(&parse_data);
     }
     else {
       Buffer read_buf(bdata.base, len);

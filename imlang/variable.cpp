@@ -56,10 +56,10 @@ void Variable::Write(Buffer *buf, const Variable *v)
   WriteTagUInt32(buf, TAG_Kind, v->Kind());
   if (v->GetName(false) != NULL)
     String::WriteWithTag(buf, v->GetName(), TAG_Name);
-  if (v->Kind() == VK_Arg)
-    WriteTagUInt32(buf, TAG_Index, v->GetIndex());
   if (v->GetSourceName() != NULL)
     String::WriteWithTag(buf, v->GetSourceName(), TAG_Name);
+  if (v->Kind() == VK_Arg)
+    WriteTagUInt32(buf, TAG_Index, v->GetIndex());
   WriteCloseTag(buf, TAG_Variable);
 }
 

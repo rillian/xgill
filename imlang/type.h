@@ -27,16 +27,21 @@
 
 NAMESPACE_XGILL_BEGIN
 
+#define ITERATE_TYPE_KINDS(ITER)		\
+  ITER(Error, 1)				\
+  ITER(Void, 2)					\
+  ITER(Int, 3)					\
+  ITER(Float, 4)				\
+  ITER(Pointer, 5)				\
+  ITER(Array, 6)				\
+  ITER(CSU, 7)					\
+  ITER(Function, 8)
+
 enum TypeKind {
   YK_Invalid = 0,
-  YK_Error = 1,
-  YK_Void = 2,
-  YK_Int = 3,
-  YK_Float = 4,
-  YK_Pointer = 5,
-  YK_Array = 6,
-  YK_CSU = 7,
-  YK_Function = 8
+#define ITER(NAME, NUM) YK_ ## NAME = NUM,
+  ITERATE_TYPE_KINDS(ITER)
+#undef ITER
 };
 
 class TypeError;

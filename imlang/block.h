@@ -26,24 +26,25 @@
 
 NAMESPACE_XGILL_BEGIN
 
+#define ITERATE_BLOCK_KINDS(ITER)					\
+  /* entire function body, may contain loops. */			\
+  ITER(FunctionWhole, 0)						\
+  /* loop-free outer function body, with loop summary edges. */		\
+  ITER(Function, 1)							\
+  /* loop-free inner loop body, modelling a single iteration. */	\
+  ITER(Loop, 2)								\
+  /* static initializer of a global variable. */			\
+  ITER(Initializer, 3)							\
+  /* block computing the value of an annotation. */			\
+  ITER(AnnotationFunc, 4)						\
+  ITER(AnnotationInit, 5)						\
+  ITER(AnnotationComp, 6)
+
 // different kinds of CFG blocks.
 enum BlockKind {
-  // entire function body, may contain loops.
-  B_FunctionWhole = 0,
-
-  // loop-free outer function body, with loop summary edges.
-  B_Function = 1,
-
-  // loop-free inner loop body, modelling a single iteration.
-  B_Loop = 2,
-
-  // static initializer of a global variable.
-  B_Initializer = 3,
-
-  // block computing the value of an annotation.
-  B_AnnotationFunc = 4,
-  B_AnnotationInit = 5,
-  B_AnnotationComp = 6
+#define ITER(NAME, NUM) B_ ## NAME = NUM,
+  ITERATE_BLOCK_KINDS(ITER)
+#undef ITER
 };
 
 // unique identifier for a block
@@ -529,15 +530,20 @@ class BlockCFG : public HashObject
 
 // HashCons tables
 
+#define ITERATE_EDGE_KINDS(ITER)		\
+  ITER(Skip, 1)					\
+  ITER(Assume, 2)				\
+  ITER(Assign, 3)				\
+  ITER(Call, 4)					\
+  ITER(Loop, 5)					\
+  ITER(Assembly, 6)				\
+  ITER(Annotation, 7)
+
 enum PEdgeKind {
   EGK_Invalid = 0,
-  EGK_Skip = 1,
-  EGK_Assume = 2,
-  EGK_Assign = 3,
-  EGK_Call = 4,
-  EGK_Loop = 5,
-  EGK_Assembly = 6,
-  EGK_Annotation = 7
+#define ITER(NAME, NUM) EGK_ ## NAME = NUM,
+  ITERATE_EDGE_KINDS(ITER)
+#undef ITER
 };
 
 class PEdgeSkip;

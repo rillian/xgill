@@ -196,6 +196,7 @@ UTIL_OBJS = \
 	util/buffer.o \
 	util/config.o \
 	util/hashcons.o \
+	util/json.o \
 	util/monitor.o \
 	util/primitive.o \
 	util/stream.o \

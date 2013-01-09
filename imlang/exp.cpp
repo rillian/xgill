@@ -275,8 +275,8 @@ void Exp::Write(Buffer *buf, const Exp *exp)
   case EK_Index: {
     const ExpIndex *nexp = exp->AsIndex();
     Exp::Write(buf, nexp->GetTarget());
-    Type::Write(buf, nexp->GetElementType());
     Exp::Write(buf, nexp->GetIndex());
+    Type::Write(buf, nexp->GetElementType());
     break;
   }
   case EK_String: {
