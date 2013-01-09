@@ -26,7 +26,7 @@ else
   OPT = -O2
 endif
 
-WARNINGS = -Wall -Wno-non-virtual-dtor -Wno-strict-aliasing -Werror
+WARNINGS = -Wall -Wno-non-virtual-dtor -Wno-delete-non-virtual-dtor -Wno-strict-aliasing -Werror
 CPPFLAGS = -g ${OPT} -I${PWD} ${HOST_CFLAGS} ${WARNINGS}
 LDFLAGS = ${HOST_LDFLAGS} -lz -lgmp
 

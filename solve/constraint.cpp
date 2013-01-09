@@ -222,8 +222,8 @@ void ConstraintTable::PopContext()
   for (size_t ind = 0; ind < context->entries.Size(); ind++) {
     ConstraintEntry *entry = context->entries[ind];
 
-    size_t ind = entry->Hash() % m_bucket_count;
-    Bucket *bucket = &m_buckets[ind];
+    size_t bucketIndex = entry->Hash() % m_bucket_count;
+    Bucket *bucket = &m_buckets[bucketIndex];
 
     LinkedListRemove<ConstraintEntry,__ConstraintEntry_List>
       (&bucket->entry_pend, entry);
@@ -260,8 +260,8 @@ void ConstraintTable::PopContext()
     for (size_t lind = 0; lind < key->owned_listeners.Size(); lind++)
       delete key->owned_listeners[lind];
 
-    size_t ind = key->Hash() % m_bucket_count;
-    Bucket *bucket = &m_buckets[ind];
+    size_t bucketIndex = key->Hash() % m_bucket_count;
+    Bucket *bucket = &m_buckets[bucketIndex];
 
     LinkedListRemove<ConstraintKey,__ConstraintKey_List>(&bucket->key_pend, key);
 

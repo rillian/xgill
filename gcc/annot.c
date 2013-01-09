@@ -1,6 +1,6 @@
 
 #include "xgill.h"
-#include <c-pragma.h>
+#include <c-family/c-pragma.h>
 #include <cpplib.h>
 #include <cp/cp-tree.h>
 
@@ -853,7 +853,7 @@ void XIL_PrintContext(FILE *file, tree decl)
     gcc_assert(TREE_CODE(context) != UNION_TYPE);
     if (TREE_CODE(context) == NAMESPACE_DECL && DECL_NAME(context)) {
       XIL_PrintContext(file, context);
-      fprintf(file, IDENTIFIER_POINTER(DECL_NAME(context)));
+      fprintf(file, "%s", IDENTIFIER_POINTER(DECL_NAME(context)));
       fprintf(file, "::");
     }
   }
@@ -864,7 +864,7 @@ void XIL_PrintBaseContext(FILE *file, tree context)
 {
   TREE_CHECK(context, NAMESPACE_DECL);
   XIL_PrintContext(file, context);
-  fprintf(file, IDENTIFIER_POINTER(DECL_NAME(context)));
+  fprintf(file, "%s", IDENTIFIER_POINTER(DECL_NAME(context)));
 }
 
 // print any struct/union/enum prefix for type.

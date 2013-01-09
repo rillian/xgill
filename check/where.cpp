@@ -363,7 +363,8 @@ void WherePostcondition::PrintHook(OutStream &out) const
 
   PEdge *edge = m_frame->CFG()->GetSingleOutgoingEdge(m_point);
 
-  if (PEdgeLoop *nedge = edge->IfLoop()) {
+  if (edge->IsLoop()) {
+    PEdgeLoop *nedge = edge->AsLoop();
     out << nedge->GetLoopId()->Loop()->Value() << " "
         << func_var->GetName()->Value();
   }
