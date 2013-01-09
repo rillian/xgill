@@ -654,11 +654,11 @@ static bool HandleMissingDeclaration(const char *name)
   if (c_dialect_cxx() && DECL_CONTEXT(decl) &&
       TREE_CODE(DECL_CONTEXT(decl)) == NAMESPACE_DECL &&
       DECL_NAME(DECL_CONTEXT(decl))) {
-    struct XIL_AnnotationNamespace *namespace =
+    struct XIL_AnnotationNamespace *namespc =
       xcalloc(1, sizeof(struct XIL_AnnotationNamespace));
-    namespace->context = DECL_CONTEXT(decl);
-    namespace->next = state->namespaces;
-    state->namespaces = namespace;
+    namespc->context = DECL_CONTEXT(decl);
+    namespc->next = state->namespaces;
+    state->namespaces = namespc;
   }
 
   if (TREE_CODE(decl) == FUNCTION_DECL || TREE_CODE(decl) == VAR_DECL) {
@@ -1726,12 +1726,12 @@ void WriteAnnotationFile(FILE *file)
   }
 
   // print any namespace 'using' declarations.
-  struct XIL_AnnotationNamespace *namespace = state->namespaces;
-  while (namespace) {
+  struct XIL_AnnotationNamespace *namespc = state->namespaces;
+  while (namespc) {
     fprintf(file, "using namespace ");
-    XIL_PrintBaseContext(file, namespace->context);
+    XIL_PrintBaseContext(file, namespc->context);
     fprintf(file, ";\n");
-    namespace = namespace->next;
+    namespc = namespc->next;
   }
 
   fprintf(file, "int __value__ = 0 != (%s);\n", state->text);

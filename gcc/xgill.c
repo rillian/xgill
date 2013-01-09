@@ -440,6 +440,9 @@ tree annotation_name_handler(tree *node, tree name, tree args,
   return NULL;
 }
 
+// XXX disabled for plugin compilation with CXX
+#if 0
+
 static struct attribute_spec annotation_name_attribute = {
   .name = "annot_name",
   .min_length = 1,
@@ -529,6 +532,13 @@ void gcc_plugin_attributes(void *gcc_data, void *user_data)
   register_attribute(&annotation_local_attribute);
   register_attribute(&annotation_source_attribute);
 }
+
+#else
+
+void gcc_plugin_attributes(void *gcc_data, void *user_data)
+{}
+
+#endif
 
 void gcc_plugin_pre_genericize(void *gcc_data, void *user_data)
 {

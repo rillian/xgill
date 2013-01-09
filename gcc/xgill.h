@@ -216,7 +216,7 @@ struct XIL_ScopeEnv
 };
 
 // active scope for the currently active block.
-struct XIL_ScopeEnv *xil_active_scope;
+extern struct XIL_ScopeEnv *xil_active_scope;
 
 void XIL_ActivePushScope();
 void XIL_ActivePopScope();
