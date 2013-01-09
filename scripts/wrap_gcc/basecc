@@ -27,6 +27,8 @@
 # directory containing the real versions of the gcc binaries.
 my $gccdir = "/usr/local/bin";
 
+my $xsource = "xsource";
+
 ##########################
 # general purpose script #
 ##########################
@@ -123,7 +125,7 @@ $code = system("$gccdir/$ccname $xgillargs $args") / 256;
 
 if ($code == 0) {
     # get the source and preprocessed code.
-    $code = system("$gccdir/$ccname $ppargs | xsource $sourceargs") / 256;
+    $code = system("$gccdir/$ccname $ppargs | $xsource $sourceargs") / 256;
     if ($code ne 0) {
         open(OUT,">> $logfile");
         print OUT "*** ERROR: Preprocessor failure\n";

@@ -162,11 +162,13 @@ const char* XIL_TreeIntString(tree node)
     case 16: max = "65535"; break;
     case 32: max = "4294967295"; break;
     case 64: max = "18446744073709551615"; break;
-    default: gcc_unreachable();
+    default: break;
     }
-    mpz_t mask;
-    mpz_init_set_str(mask, max, 10);
-    mpz_and(mpz, mpz, mask);
+    if (max) {
+      mpz_t mask;
+      mpz_init_set_str(mask, max, 10);
+      mpz_and(mpz, mpz, mask);
+    }
   }
 
   int needed = mpz_sizeinbase(mpz, 10) + 2;
