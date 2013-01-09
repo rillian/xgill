@@ -153,7 +153,7 @@ sub run_build
     if (!$pid) {
         # this is the child process, fork another process to run a manager.
         defined(my $pid = fork) or die;
-        exec("xmanager > $log_file 2>&1") if (!$pid);
+        exec("$xmanager > $log_file 2>&1") if (!$pid);
 
         # open new streams to redirect stdout and stderr.
         open(LOGOUT, "> $result_dir/build.log");
@@ -210,7 +210,7 @@ sub run_pass
 
     # fork off a manager process for the analysis.
     defined(my $pid = fork) or die;
-    exec("xmanager $manager_extra > $log_file 2>&1") if (!$pid);
+    exec("$xmanager $manager_extra > $log_file 2>&1") if (!$pid);
 
     my $address = get_manager_address($log_file);
 
