@@ -155,6 +155,9 @@ static inline bool IsPrimitiveTag(tag_t tag)
   case TAG_OpCode:
   case TAG_PEdgeAssumeNonZero:
   case TAG_Count:
+  case TAG_Offset:
+  case TAG_True:
+  case TAG_False:
     return true;
   default:
     return false;
@@ -174,11 +177,23 @@ static inline bool CanHaveMultipleInnerTags(tag_t outer, tag_t inner)
     case TAG_PPoint:
     case TAG_PEdge:
     case TAG_Index:
+    case TAG_BlockPPoint:
     case TAG_LoopIsomorphic:
       return true;
     default:
       return false;
     }
+  case TAG_CompositeCSU:
+    switch (inner) {
+    case TAG_Location:
+    case TAG_DataField:
+    case TAG_FunctionField:
+      return true;
+    default:
+      return false;
+    }
+  case TAG_FunctionField:
+    return inner == TAG_Field;
   case TAG_TypeFunctionArguments:
     return inner == TAG_Type;
   case TAG_PEdgeCallArguments:
@@ -193,18 +208,8 @@ static inline bool CanHaveMultipleInnerTags(tag_t outer, tag_t inner)
     }
   case TAG_Exp:
     return inner == TAG_Exp;
-  default:
-    return false;
-  }
-}
-
-static inline bool IgnoreRepeatedTag(tag_t outer, tag_t inner)
-{
-  switch (outer) {
-  case TAG_Variable:
-    return inner == TAG_Name;
-  case TAG_Exp:
-    return inner == TAG_Exp;
+  case TAG_CallEdgeSet:
+    return inner == TAG_CallEdge;
   default:
     return false;
   }
@@ -235,6 +240,8 @@ static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
       SWITCH(ITERATE_EXP_KINDS)
     case TAG_Type:
       SWITCH(ITERATE_TYPE_KINDS)
+    case TAG_CompositeCSU:
+      SWITCH(ITERATE_CSU_KINDS)
     case TAG_BlockId:
       SWITCH(ITERATE_BLOCK_KINDS)
     case TAG_PEdge:
@@ -329,7 +336,7 @@ static bool PrintJSONTag(Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inn
 
 	PrintPadding(pad_spaces);
 
-	if (inner_seen.Contains(inner_tag) && !IgnoreRepeatedTag(tag, inner_tag)) {
+	if (inner_seen.Contains(inner_tag)) {
 	  logout << "*** ERROR *** Duplicate inner tag: "
 		 << TagName(0, tag) << " " << TagName(tag, inner_tag) << endl;
 	  Assert(!inner_seen.Contains(inner_tag));

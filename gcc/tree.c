@@ -336,6 +336,23 @@ void XIL_TranslateReference(struct XIL_TreeEnv *env, tree node)
     return;
   }
 
+  case MEM_REF: {
+    tree target = TREE_OPERAND(node, 0);
+    XIL_Exp xil_target = NULL;
+
+    tree constant = TREE_OPERAND(node, 1);
+    if (TREE_UINT(constant) != 0)
+      TREE_UNEXPECTED_RESULT(env, node);
+
+    MAKE_ENV(target_env, env->point, env->post_edges);
+    target_env.result_rval = &xil_target;
+    XIL_TranslateTree(&target_env, target);
+
+    XIL_Exp result = XIL_ExpDrf(xil_target);
+    XIL_ProcessResult(env, result);
+    return;
+  }
+
   case ARRAY_REF: {
     tree array = TREE_OPERAND(node, 0);
     XIL_Exp xil_array = NULL;
@@ -1486,6 +1503,10 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
     XIL_ProcessResult(env, result);
     return;
   }
+
+  // Default initialization for member arrays?
+  case VEC_INIT_EXPR:
+    TREE_UNHANDLED_RESULT(env, result);
 
   case SAVE_EXPR: {
     // associate each saved expression with the translation result,

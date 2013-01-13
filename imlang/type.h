@@ -316,11 +316,16 @@ struct FunctionField
     : field(_field), base(_base), function(_function) {}
 };
 
+#define ITERATE_CSU_KINDS(ITER)				\
+  ITER(Class, XIL_CSU_Class)				\
+  ITER(Struct, XIL_CSU_Struct)				\
+  ITER(Union, XIL_CSU_Union)
+
 enum CSUKind {
   CSU_Invalid = 0,
-  CSU_Class = XIL_CSU_Class,
-  CSU_Struct = XIL_CSU_Struct,
-  CSU_Union = XIL_CSU_Union
+#define ITER(NAME, NUM) CSU_ ## NAME = NUM,
+  ITERATE_CSU_KINDS(ITER)
+#undef ITER
 };
 
 // information about a class, struct, or union definition.

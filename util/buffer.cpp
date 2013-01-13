@@ -671,21 +671,20 @@ void PrintString(OutStream &out, const uint8_t *str, size_t len)
 {
   for (size_t n = 0; n < len; n++) {
     switch ((char) str[n]) {
-    case '\n': out << "\\n"; break;
-    case '\t': out << "\\t"; break;
-    case '\v': out << "\\v"; break;
-    case '\b': out << "\\b"; break;
-    case '\r': out << "\\r"; break;
-    case '\f': out << "\\f"; break;
-    case '\a': out << "\\a"; break;
+    case '\n': out << "\\\\n"; break;
+    case '\t': out << "\\\\t"; break;
+    case '\v': out << "\\\\v"; break;
+    case '\b': out << "\\\\b"; break;
+    case '\r': out << "\\\\r"; break;
+    case '\f': out << "\\\\f"; break;
+    case '\a': out << "\\\\a"; break;
     case '\\': out << "\\\\"; break;
-    case '\'': out << "\\\'"; break;
     case '\"': out << "\\\""; break;
     default:
       if (str[n] >= 32 && str[n] <= 126)
         out << (char) str[n];
       else
-        out << "\\x" << ToHex(str[n] >> 4) << ToHex(str[n] & 0xf);
+        out << "\\u00" << ToHex(str[n] >> 4) << ToHex(str[n] & 0xf);
     }
   }
 }
