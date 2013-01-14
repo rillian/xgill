@@ -91,12 +91,17 @@ void XIL_ResolveGoto(XIL_PPoint source, XIL_PPoint target,
     }
 
     // don't need to do the cleanup if the target is also in this scope.
+    bool needed = true;
     struct XIL_ScopeEnv *scope = target_scope;
     while (scope) {
-      if (scope == source_scope)
-        return;
+      if (scope == source_scope) {
+	needed = false;
+        break;
+      }
       scope = scope->parent;
     }
+    if (!needed)
+      break;
 
     MAKE_ENV(cleanup_env, &cur_point, NULL);
     XIL_TranslateTree(&cleanup_env, source_scope->cleanup);

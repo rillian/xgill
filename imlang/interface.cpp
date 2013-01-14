@@ -393,8 +393,10 @@ extern "C" void XIL_ClearActiveBlock(int drop)
   Assert(g_active_cfg);
 
   if (drop) {
-    if (!g_drop_cfgs.Contains(g_active_cfg))
+    if (!g_drop_cfgs.Contains(g_active_cfg)) {
+      logout << "Dropping CFG " << g_active_cfg->GetId() << endl;
       g_drop_cfgs.PushBack(g_active_cfg);
+    }
   }
 
   g_active_cfg = NULL;
@@ -573,6 +575,67 @@ extern "C" void XIL_CSUAddFunctionField(XIL_Field field, XIL_Field base,
   GET_OBJECT(Field, base);
   GET_OBJECT(Variable, func);
   csu->AddFunctionField(new_field, new_base, new_func);
+}
+
+extern "C" const char * XIL_MaybeDecorateFunction(const char *name, XIL_Type type)
+{
+  GET_OBJECT(Type, type);
+
+  TypeFunction *ntype = new_type->IfFunction();
+  if (!ntype)
+    return strdup(name);
+
+  if (ntype->GetReturnType()->IsPointer() &&
+      ntype->GetReturnType()->AsPointer()->GetTargetType()->IsFunction()) {
+    return strdup(name);
+  }
+
+  if (strstr(name, "operator "))
+    return strdup(name);
+
+  Buffer *buf = new Buffer(256);
+  BufferOutStream out(buf);
+
+  const char *openParentheses = strchr(name, '(');
+  if (!openParentheses)
+    return strdup(name);
+  const char *closeParentheses = strchr(openParentheses, ')');
+  if (!closeParentheses)
+    return strdup(name);
+
+  const char *templateOpen = strchr(name, '<');
+  if (templateOpen && templateOpen < openParentheses)
+    return strdup(name);
+
+  const char *start = name;
+  while (true) {
+    const char *spacePos = strchr(start, ' ');
+    if (!spacePos || spacePos > openParentheses)
+      break;
+    start = spacePos + 1;
+  }
+
+  out << ntype->GetReturnType() << " ";
+
+  out.Put(start, openParentheses - start);
+
+  out << "(";
+
+  for (size_t i = 0; i < ntype->GetArgumentCount(); i++) {
+    if (i)
+      out << ", ";
+    if (ntype->GetArgumentType(i)->IsPointer())
+      out << "void*";
+    else
+      out << ntype->GetArgumentType(i);
+  }
+
+  out << closeParentheses;
+
+  //logout << "TRANSFORM BEFORE " << name << endl;
+  //logout << "TRANSFORM AFTER  " << out.Base() << endl;
+
+  return out.Base();
 }
 
 /////////////////////////////////////////////////////////////////////

@@ -65,20 +65,19 @@ const char* XIL_GlobalName(tree decl)
   // 4. static globals. use the name as above but prefix with the filename.
   // 5. static locals. prefix with the function's name as above.
 
-  const char *name = NULL;
-  if (c_dialect_cxx()) {
-    if (DECL_EXTERN_C_P(decl)) {
-      name = IDENTIFIER_POINTER(DECL_NAME(decl));
-    }
-    else {
-      // dupe the name we get here so that is is not overwritten if we call
-      // decl_as_string again.
-      int flags = TFF_DECL_SPECIFIERS;
-      name = xstrdup(decl_as_string(decl, flags));
-    }
-  }
-  else {
-    name = IDENTIFIER_POINTER(DECL_NAME(decl));
+  const char *name = IDENTIFIER_POINTER(DECL_NAME(decl));
+  if (c_dialect_cxx() && !DECL_EXTERN_C_P(decl)) {
+    // dupe the name we get here so that is is not overwritten if we call
+    // decl_as_string again.
+    int flags = TFF_DECL_SPECIFIERS;
+    name = decl_as_string(decl, flags);
+
+    int old_generate_record_types = xil_generate_record_types;
+    xil_generate_record_types = 0;
+    XIL_Type xil_type = XIL_TranslateType(TREE_TYPE(decl));
+    xil_generate_record_types = old_generate_record_types;
+
+    name = XIL_MaybeDecorateFunction(name, xil_type);
   }
 
   // if the variable has a function context then prepend with the name

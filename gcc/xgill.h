@@ -67,6 +67,9 @@ extern tree xil_annotation_this;
 // the pointer types we get from GCC.
 extern int xil_pointer_width;
 
+// set to zero to disable generation of record types.
+extern int xil_generate_record_types;
+
 // information about post side effects (postincr, postdecr) that were added
 // to the CFG at some tree node.
 struct XIL_PostEdges
