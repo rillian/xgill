@@ -624,10 +624,7 @@ extern "C" const char * XIL_MaybeDecorateFunction(const char *name, XIL_Type typ
   for (size_t i = 0; i < ntype->GetArgumentCount(); i++) {
     if (i)
       out << ", ";
-    if (ntype->GetArgumentType(i)->IsPointer())
-      out << "void*";
-    else
-      out << ntype->GetArgumentType(i);
+    out << ntype->GetArgumentType(i);
   }
 
   out << closeParentheses;

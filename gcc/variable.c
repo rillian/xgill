@@ -67,16 +67,12 @@ const char* XIL_GlobalName(tree decl)
 
   const char *name = IDENTIFIER_POINTER(DECL_NAME(decl));
   if (c_dialect_cxx() && !DECL_EXTERN_C_P(decl)) {
-    // dupe the name we get here so that is is not overwritten if we call
-    // decl_as_string again.
-    int flags = TFF_DECL_SPECIFIERS;
-    name = decl_as_string(decl, flags);
-
     int old_generate_record_types = xil_generate_record_types;
     xil_generate_record_types = 0;
     XIL_Type xil_type = XIL_TranslateType(TREE_TYPE(decl));
     xil_generate_record_types = old_generate_record_types;
 
+    name = decl_as_string(decl, TFF_DECL_SPECIFIERS);
     name = XIL_MaybeDecorateFunction(name, xil_type);
   }
 
