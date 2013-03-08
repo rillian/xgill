@@ -343,8 +343,9 @@ static bool PrintJSONTag(OutStream &out, Buffer *buf, int pad_spaces, tag_t oute
       const uint8_t *base;
       size_t len;
       ReadCachedString(buf, &base, &len);
+      Assert(!base[len - 1]);
       out << "\"";
-      PrintString(out, base, len);
+      PrintString(out, base, len - 1);
       out << "\"";
       return true;
     }
