@@ -17,13 +17,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "buffer.h"
+#include "primitive.h"
 #include <zlib.h>
 #include <unistd.h>
 #include <errno.h>
 
 NAMESPACE_XGILL_BEGIN
 
+#ifdef TRACK_BUFFER_MEMORY
 TrackAlloc g_alloc_Buffer("Buffer");
+#endif
 
 /////////////////////////////////////////////////////////////////////
 // Buffer
@@ -31,13 +34,22 @@ TrackAlloc g_alloc_Buffer("Buffer");
 
 void Buffer::Reset(size_t initial_size)
 {
-  if (alloc) {
+  if (ownsBuffer) {
     if (base != NULL) {
+#ifdef TRACK_BUFFER_MEMORY
       track_delete<uint8_t>(*alloc, base);
+#else
+      delete[] base;
+#endif
     }
 
     if (initial_size != 0) {
-      base = track_new<uint8_t>(*alloc, initial_size);
+      base =
+#ifdef TRACK_BUFFER_MEMORY
+	track_new<uint8_t>(*alloc, initial_size);
+#else
+        new uint8_t[initial_size];
+#endif
     }
     else {
       base = NULL;
@@ -67,18 +79,27 @@ void Buffer::Reset()
 
 void Buffer::Expand(size_t new_size)
 {
-  Assert(alloc);
+  Assert(ownsBuffer);
 
   Assert(new_size);
   if (new_size < 4096)
     new_size = 4096;
 
   Assert(new_size > size);
-  uint8_t *new_base = track_new<uint8_t>(*alloc, new_size);
+  uint8_t *new_base =
+#ifdef TRACK_BUFFER_MEMORY
+    track_new<uint8_t>(*alloc, new_size);
+#else
+    new uint8_t[new_size];
+#endif
 
   if (base != NULL) {
     memcpy(new_base, base, pos - base);
+#ifdef TRACK_BUFFER_MEMORY
     track_delete<uint8_t>(*alloc, base);
+#else
+    delete[] base;
+#endif
   }
 
   uint8_t *new_pos = new_base + (pos - base);
@@ -87,7 +108,7 @@ void Buffer::Expand(size_t new_size)
   size = new_size;
 }
 
-bool Buffer::TestSeen(void *v, uint32_t *pid)
+bool Buffer::TestSeen(SeenKey v, uint32_t *pid)
 {
   if (seen == NULL)
     seen = new SeenTable();
@@ -104,12 +125,12 @@ bool Buffer::TestSeen(void *v, uint32_t *pid)
   }
 }
 
-bool Buffer::AddSeenRev(uint32_t id, void *v)
+bool Buffer::AddSeenRev(uint32_t id, SeenKey v)
 {
   if (seen_rev == NULL)
     seen_rev = new SeenRevTable();
 
-  Vector<void*> *data = seen_rev->Lookup(id, true);
+  Vector<SeenKey> *data = seen_rev->Lookup(id, true);
   if (data->Empty()) {
     data->PushBack(v);
     return true;
@@ -119,12 +140,12 @@ bool Buffer::AddSeenRev(uint32_t id, void *v)
   }
 }
 
-bool Buffer::TestSeenRev(uint32_t id, void **pv)
+bool Buffer::TestSeenRev(uint32_t id, SeenKey *pv)
 {
   if (seen_rev == NULL)
     return false;
 
-  Vector<void*> *data = seen_rev->Lookup(id, false);
+  Vector<SeenKey> *data = seen_rev->Lookup(id, false);
   if (data == NULL || data->Empty())
     return false;
   *pv = data->At(0);
@@ -292,8 +313,6 @@ bool ValidString(const uint8_t *data, size_t data_length)
 
 #define DECODE_FAIL(where, initial, value)                              \
   do {                                                                  \
-    logout << "ERROR: " << where                                          \
-         << ": Could not decode: " << initial << endl;                  \
     Assert(false);                                                      \
     return value;                                                       \
   } while (0)
@@ -689,13 +708,13 @@ void PrintString(OutStream &out, const uint8_t *str, size_t len)
   }
 }
 
-void PrintPadding(size_t pad_spaces)
+void PrintPadding(OutStream &out, size_t pad_spaces)
 {
   for (size_t n = 0; n < pad_spaces; n++)
-    logout << ' ';
+    out << ' ';
 }
 
-bool PrintTag(Buffer *buf, int pad_spaces, uint8_t *extent)
+bool PrintTag(OutStream &out, Buffer *buf, int pad_spaces, uint8_t *extent)
 {
   int32_t val;
   uint32_t uval;
@@ -708,53 +727,54 @@ bool PrintTag(Buffer *buf, int pad_spaces, uint8_t *extent)
   Assert(buf->pos <= extent);
 
   if (ReadString(buf, &str_base, &str_len)) {
-    PrintPadding(pad_spaces);
-    PrintString(logout, str_base, str_len);
-    logout << endl;
+    PrintPadding(out, pad_spaces);
+    PrintString(out, str_base, str_len);
+    out << endl;
   }
   else if (ReadInt32(buf, &val)) {
-    PrintPadding(pad_spaces);
-    logout << "I " << val << endl;
+    PrintPadding(out, pad_spaces);
+    out << "I " << val << endl;
   }
   else if (ReadUInt32(buf, &uval)) {
-    PrintPadding(pad_spaces);
-    logout << "U " << uval << endl;
+    PrintPadding(out, pad_spaces);
+    out << "U " << uval << endl;
   }
   else if (ReadUInt64(buf, &luval)) {
-    PrintPadding(pad_spaces);
-    logout << "LU " << luval << endl;
+    PrintPadding(out, pad_spaces);
+    out << "LU " << luval << endl;
   }
   else if ((tag = PeekOpenTag(buf))) {
-    PrintPadding(pad_spaces);
-    logout << "<" << tag << ">" << endl;
+    PrintPadding(out, pad_spaces);
+    out << "<" << tag << ">" << endl;
 
     ReadOpenTag(buf, tag);
     while (!ReadCloseTag(buf, tag)) {
       if (buf->pos > extent)
         return true;
 
-      bool res = PrintTag(buf, pad_spaces + 1, extent);
+      bool res = PrintTag(out, buf, pad_spaces + 1, extent);
       if (!res)
         return false;
     }
 
-    PrintPadding(pad_spaces);
-    logout << "</" << tag << ">" << endl;
+    PrintPadding(out, pad_spaces);
+    out << "</" << tag << ">" << endl;
   }
   else {
     return false;
   }
+
   return true;
 }
 
-size_t PrintPartialBuffer(Buffer *buf)
+size_t PrintPartialBuffer(OutStream &out, Buffer *buf)
 {
   Buffer newbuf(buf->base, buf->size);
   uint8_t *extent = buf->pos;
 
-  bool parsed = PrintTag(&newbuf, 0, extent);
+  bool parsed = PrintTag(out, &newbuf, 0, extent);
   if (!parsed)
-    logout << "ERROR: Buffer parse failed" << endl;
+    fprintf(logfile, "ERROR: Buffer parse failed");
 
   return newbuf.pos - newbuf.base;
 }
@@ -1062,7 +1082,7 @@ bool ReadPacket(int fd, Buffer *output)
     ssize_t ret = read(fd, output->pos, needed);
 
     if (ret == -1) {
-      logout << "ERROR: read() failure: " << errno << endl;
+      fprintf(logfile, "ERROR: read() failure: %d\n", errno);
       return false;
     }
     output->pos += ret;
@@ -1079,7 +1099,7 @@ bool ReadPacket(int fd, Buffer *output)
 
   Buffer length_buf(output->base, UINT32_LENGTH);
   if (!ReadUInt32(&length_buf, &data_length)) {
-    logout << "ERROR: Malformed data in PacketRead()" << endl;
+    fprintf(logfile, "ERROR: Malformed data in PacketRead()\n");
     return false;
   }
 
@@ -1088,7 +1108,7 @@ bool ReadPacket(int fd, Buffer *output)
   output->Ensure(needed);
   ssize_t ret = read(fd, output->pos, needed);
   if (ret == -1) {
-    logout << "ERROR: read() failure: " << errno << endl;
+    fprintf(logfile, "ERROR: read() failure: %d\n", errno);
     return false;
   }
   output->pos += ret;
@@ -1112,7 +1132,7 @@ bool WritePacket(int fd, Buffer *input)
 
   ssize_t ret = write(fd, input->pos, needed);
   if (ret == -1) {
-    logout << "ERROR: write() failure: " << errno << endl;
+    fprintf(logfile, "ERROR: write() failure: %d\n", errno);
     return false;
   }
   input->pos += ret;

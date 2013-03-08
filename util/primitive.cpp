@@ -83,7 +83,7 @@ void String::WriteCache(Buffer *buf, String *s)
 {
   WriteOpenTag(buf, TAG_CacheString);
   uint32_t id = 0;
-  if (buf->TestSeen((void*)s, &id)) {
+  if (buf->TestSeen((uint64_t)s, &id)) {
     WriteUInt32(buf, id);
   }
   else {
@@ -100,14 +100,14 @@ String* String::ReadCache(Buffer *buf)
 
   Try(ReadOpenTag(buf, TAG_CacheString));
   if (ReadUInt32(buf, &id)) {
-    void *v = NULL;
+    uint64_t v = 0;
     Try(buf->TestSeenRev((uint32_t)id, &v));
     s = (String*) v;
   }
   else {
     Try(s = Read(buf));
     Try(ReadUInt32(buf, &id));
-    Try(buf->AddSeenRev(id, (void*) s));
+    Try(buf->AddSeenRev(id, (uint64_t) s));
   }
   Try(ReadCloseTag(buf, TAG_CacheString));
   return s;

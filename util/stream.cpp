@@ -20,8 +20,6 @@
 
 PrintInStream cin(stdin);
 
-char OutStream::scratch[200];
-
 OutStreamEndl endl;
 OutStreamFlush flush;
 

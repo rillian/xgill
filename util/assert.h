@@ -44,10 +44,10 @@ __attribute__((noreturn))
 inline void AssertFail(const char *file, int line, const char *func,
                        const char *msg)
 {
-  logout << file << ": " << line << ": " << func
-         << ": Assertion '" << msg << "' failed." << endl << flush;
-  if (g_pause_assertions)
-    pause();
+  fprintf(logfile, "%s: %d: %s: Assertion '%s' failed.\n", file, line, func, msg);
+  fflush(logfile);
+  //if (g_pause_assertions)
+  //  pause();
   abort();
 }
 

@@ -152,9 +152,9 @@ void Xdb::PrintStats()
 {
   Assert(m_fd != -1 && !m_has_error);
 
-  logout << "Xdb statistics:" << endl;
-  logout << "File size: " << (uint32_t) m_header.file_size << endl;
-  logout << "Data streams: " << m_header.data_stream_count << endl;
+  fprintf(logfile, "Xdb statistics:\n");
+  fprintf(logfile, "File size: %lu\n", (uint64_t) m_header.file_size);
+  fprintf(logfile, "Data streams: %lu\n", (uint64_t) m_header.data_stream_count);
 
   if (m_key_cache_enabled) {
     uint64_t allocated = XDB_HEADER_MIN_SIZE;
@@ -167,10 +167,10 @@ void Xdb::PrintStats()
       used += layout.length;
     }
 
-    logout << "Bytes allocated: " << allocated
-           << " (" << (allocated / (float)m_header.file_size) << ")" << endl;
-    logout << "Bytes used: " << used
-           << " (" << (used / (float)m_header.file_size) << ")" << endl;
+    fprintf(logfile, "Bytes allocated: %lu (%.2f)\n", allocated,
+	    allocated / (float)m_header.file_size);
+    fprintf(logfile, "Bytes used: %lu (%.2f)\n", used,
+	    used / (float)m_header.file_size);
   }
 }
 

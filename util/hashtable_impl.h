@@ -33,7 +33,11 @@ HashTable<T,U,HT>::HashBucket::HashBucket()
 
 template <class T, class U, class HT>
 HashTable<T,U,HT>::HashTable(size_t min_bucket_count)
-  : m_alloc(g_alloc_HashTable), m_buckets(NULL),
+  :
+#ifdef TRACK_HASHTABLE_MEMORY
+    m_alloc(g_alloc_HashTable),
+#endif
+    m_buckets(NULL),
     m_bucket_count(0), m_entry_count(0),
     m_min_bucket_count(min_bucket_count),
     m_iter_entry(NULL), m_iter_bucket(0)
@@ -44,7 +48,11 @@ HashTable<T,U,HT>::HashTable(size_t min_bucket_count)
 
 template <class T, class U, class HT>
 HashTable<T,U,HT>::HashTable(const char *alloc_name, size_t min_bucket_count)
-  : m_alloc(LookupAlloc(alloc_name)), m_buckets(NULL),
+  :
+#ifdef TRACK_HASHTABLE_MEMORY
+    m_alloc(LookupAlloc(alloc_name)),
+#endif
+    m_buckets(NULL),
     m_bucket_count(0), m_entry_count(0),
     m_min_bucket_count(min_bucket_count),
     m_iter_entry(NULL), m_iter_bucket(0)
@@ -80,7 +88,12 @@ Vector<U>* HashTable<T,U,HT>::Lookup(const T &o, bool force)
   if (force) {
     m_entry_count++;
 
-    HashEntry *new_e = track_new_single<HashEntry>(m_alloc);
+    HashEntry *new_e =
+#ifdef TRACK_HASHTABLE_MEMORY
+      track_new_single<HashEntry>(m_alloc);
+#else
+      new HashEntry();
+#endif
     new_e->source = o;
 
     LinkedListInsert<HashEntry,__HashEntry_List>(&bucket->e_pend, new_e);
@@ -128,8 +141,11 @@ void HashTable<T,U,HT>::Remove(const T &o)
 
   if (e != NULL) {
     LinkedListRemove<HashEntry,__HashEntry_List>(&bucket->e_pend, e);
+#ifdef TRACK_HASHTABLE_MEMORY
     track_delete_single<HashEntry>(m_alloc, e);
-
+#else
+    delete e;
+#endif
     m_entry_count--;
     CheckBucketCount();
   }
@@ -146,12 +162,20 @@ void HashTable<T,U,HT>::Clear()
     while (bucket->e_begin != NULL) {
       HashEntry *e = bucket->e_begin;
       LinkedListRemove<HashEntry,__HashEntry_List>(&bucket->e_pend, e);
+#ifdef TRACK_HASHTABLE_MEMORY
       track_delete_single<HashEntry>(m_alloc, e);
+#else
+      delete e;
+#endif
     }
   }
 
   if (m_buckets != NULL) {
+#ifdef TRACK_HASHTABLE_MEMORY
     track_delete<HashBucket>(m_alloc, m_buckets);
+#else
+    delete[] m_buckets;
+#endif
     m_buckets = NULL;
   }
 
@@ -255,7 +279,12 @@ template <class T, class U, class HT>
 void HashTable<T,U,HT>::Resize(size_t bucket_count)
 {
   Assert(bucket_count >= m_min_bucket_count);
-  HashBucket *buckets = track_new<HashBucket>(m_alloc, bucket_count);
+  HashBucket *buckets =
+#ifdef TRACK_HASHTABLE_MEMORY
+    track_new<HashBucket>(m_alloc, bucket_count);
+#else
+    new HashBucket[bucket_count];
+#endif
 
   for (size_t ind = 0; ind < m_bucket_count; ind++) {
     HashBucket *bucket = &m_buckets[ind];
@@ -271,7 +300,11 @@ void HashTable<T,U,HT>::Resize(size_t bucket_count)
   }
 
   if (m_buckets != NULL) {
+#ifdef TRACK_HASHTABLE_MEMORY
     track_delete<HashBucket>(m_alloc, m_buckets);
+#else
+    delete[] m_buckets;
+#endif
     m_buckets = NULL;
   }
 

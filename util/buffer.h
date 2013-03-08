@@ -27,9 +27,13 @@
 
 #include <gmp.h>
 
+//#define TRACK_BUFFER_MEMORY
+
 NAMESPACE_XGILL_BEGIN
 
+#ifdef TRACK_BUFFER_MEMORY
 extern TrackAlloc g_alloc_Buffer;
+#endif
 
 // format for binary XML-style tags.
 
@@ -85,19 +89,30 @@ struct Buffer
   // overall size of buf_base.
   size_t size;
 
+  // whether this is a resizable buffer which owns its data.
+  bool ownsBuffer;
+
+#ifdef TRACK_BUFFER_MEMORY
   // allocator used to manage the buffer contents. this is non-NULL iff
   // the buffer is resizable, and if base was allocated for this buffer.
   TrackAlloc *alloc;
+#endif
 
   // make a non-resizable buffer for the specified data.
   Buffer(const void *data, size_t data_length)
-    : base((uint8_t*) data), pos(base), size(data_length), alloc(NULL),
+    : base((uint8_t*) data), pos(base), size(data_length), ownsBuffer(false),
+#ifdef TRACK_BUFFER_MEMORY
+      alloc(NULL),
+#endif
       seen(NULL), seen_next(0), seen_rev(NULL)
   {}
 
   // make and allocate data for a resizable buffer that is initially empty.
   Buffer(size_t initial_size = 4096)
-    : base(NULL), pos(NULL), size(0), alloc(&g_alloc_Buffer),
+    : base(NULL), pos(NULL), size(0), ownsBuffer(true),
+#ifdef TRACK_BUFFER_MEMORY
+      alloc(&g_alloc_Buffer),
+#endif
       seen(NULL), seen_next(0), seen_rev(NULL)
   {
     if (initial_size)
@@ -107,7 +122,10 @@ struct Buffer
   // make and allocate data for a resizable buffer that is initially empty
   // and uses the specified allocator.
   Buffer(const char *alloc_name)
-    : base(NULL), pos(NULL), size(0), alloc(&LookupAlloc(alloc_name)),
+    : base(NULL), pos(NULL), size(0), ownsBuffer(true),
+#ifdef TRACK_BUFFER_MEMORY
+      alloc(&LookupAlloc(alloc_name)),
+#endif
       seen(NULL), seen_next(0), seen_rev(NULL)
   {
     Reset(4096);
@@ -162,7 +180,9 @@ struct Buffer
   // these tables will be NULL until they are actually used
   // (in most cases they won't be used at all).
 
-  typedef HashTable< void*, uint32_t, DataHash<void*> > SeenTable;
+  typedef uint64_t SeenKey;
+
+  typedef HashTable< SeenKey, uint32_t, DataHash<SeenKey> > SeenTable;
 
   // table for use in writing. seen maps previously written pointers to
   // the identifiers associated with them. seen_next is the next unused
@@ -170,28 +190,24 @@ struct Buffer
   SeenTable *seen;
   uint32_t seen_next;
 
-  // return whether v is already in the seen table. if so, calls cleanup(v)
-  // and returns v's identifier through pid. if not, associates v with
-  // a new identifier and returns that identifier through pid, and will
-  // call cleanup(v) when Reset() is next called.
-  bool TestSeen(void *v, uint32_t *pid);
+  // return whether v is already in the seen table. if so, returns v's
+  // identifier through pid. if not, associates v with a new identifier and
+  // returns that identifier through pid.
+  bool TestSeen(SeenKey v, uint32_t *pid);
 
-  typedef HashTable< uint32_t, void*, DataHash<uint32_t> > SeenRevTable;
+  typedef HashTable< uint32_t, SeenKey, DataHash<uint32_t> > SeenRevTable;
 
   // table for use in reading. seen_rev maps identifiers back to the
   // pointers associated with that identifier. normally seen_rev maps
   // a contiguous range of identifiers.
   SeenRevTable *seen_rev;
 
-  // return whether id has already been associated with a value.
-  // if so, calls cleanup(v) and returns the value associated with id.
-  // if not, associates id with v and cleanup (cleanup can serve as an
-  // identifier for ensuring type safety), and will call cleanup(v) when
-  // Reset() is next called.
-  bool AddSeenRev(uint32_t id, void *v);
+  // return whether id has already been associated with a value. if so,
+  // returns the value associated with id. if not, associates id with v.
+  bool AddSeenRev(uint32_t id, SeenKey v);
 
-  // get the v/cleanup with which id was associated, return false if none.
-  bool TestSeenRev(uint32_t id, void **pv);
+  // get the v with which id was associated, return false if none.
+  bool TestSeenRev(uint32_t id, SeenKey *pv);
 
   ALLOC_OVERRIDE(g_alloc_Buffer);
 };
@@ -284,18 +300,18 @@ bool UnescapeStringLiteral(const char *str, Buffer *result);
 char* HtmlUnescape(const char *val);
 
 // print a string to the specified stream, escaping non-printable characters.
-void PrintString(OutStream &buf, const uint8_t *str, size_t len);
+void PrintString(OutStream &out, const uint8_t *str, size_t len);
 
 // print the specified number of blank spaces.
-void PrintPadding(size_t pad_spaces);
+void PrintPadding(OutStream &out, size_t pad_spaces);
 
 // print the data in buf, ending at the first closing tag after the
 // buffer's current position. returns the number of characters read from
 // the buffer.
-size_t PrintPartialBuffer(Buffer *buf);
+size_t PrintPartialBuffer(OutStream &out, Buffer *buf);
 
 // print the data in buf as a JSON string.
-void PrintJSONBuffer(Buffer *buf);
+void PrintJSONBuffer(OutStream &out, Buffer *buf);
 
 // Primitive write/read methods. byte order of data is least-significant
 // byte first. the buffer must have at least the specified number of bytes

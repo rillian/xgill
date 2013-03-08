@@ -119,7 +119,7 @@ int main(int argc, const char **argv)
         Buffer parse_data(bdata.base + consumed, len - consumed);
         parse_data.pos += len - consumed;
 
-        size_t read_len = PrintPartialBuffer(&parse_data);
+        size_t read_len = PrintPartialBuffer(logout, &parse_data);
         if (read_len == 0)
           break;
         consumed += read_len;
@@ -127,7 +127,7 @@ int main(int argc, const char **argv)
     }
     else if (json.IsSpecified()) {
       Buffer parse_data(bdata.base, len);
-      PrintJSONBuffer(&parse_data);
+      PrintJSONBuffer(logout, &parse_data);
     }
     else {
       Buffer read_buf(bdata.base, len);

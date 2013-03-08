@@ -23,6 +23,8 @@
 #include "vector.h"
 #include "timer.h"
 
+//#define TRACK_HASHTABLE_MEMORY
+
 NAMESPACE_XGILL_BEGIN
 
 // this is the ELF hash function borrowed from:
@@ -173,8 +175,10 @@ class HashTable
     HashBucket();
   };
 
+#ifdef TRACK_HASHTABLE_MEMORY
   // allocator used for entries in this table.
   TrackAlloc &m_alloc;
+#endif
 
   // buckets in this table.
   HashBucket *m_buckets;

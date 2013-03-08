@@ -60,7 +60,7 @@ void Bit::Write(Buffer *buf, Bit *b)
 {
   WriteOpenTag(buf, TAG_Bit);
   uint32_t id = 0;
-  if (buf->TestSeen((void*)b, &id)) {
+  if (buf->TestSeen((uint64_t)b, &id)) {
     WriteUInt32(buf, id);
   }
   else {
@@ -102,7 +102,7 @@ Bit* Bit::Read(Buffer *buf)
   Try(ReadOpenTag(buf, TAG_Bit));
   Try(ReadUInt32(buf, &id));
 
-  void *v = NULL;
+  uint64_t v = 0;
   if (buf->TestSeenRev((size_t)id, &v)) {
     Try(ReadCloseTag(buf, TAG_Bit));
     return (Bit*) v;
@@ -173,7 +173,7 @@ Bit* Bit::Read(Buffer *buf)
     Assert(bit->Hash() == hash);
 #endif
 
-  if (!buf->AddSeenRev(id, (void*) bit)) {
+  if (!buf->AddSeenRev(id, (uint64_t) bit)) {
     // the references on var/op_list have already been consumed
     return NULL;
   }
@@ -1161,14 +1161,14 @@ void Bit::PrintTree(OutStream &out, size_t pad_spaces)
 void Bit::RecursivePrintTree(OutStream &out, size_t pad_spaces)
 {
   Assert(g_base_used);
-  PrintPadding(pad_spaces);
+  PrintPadding(out, pad_spaces);
 
   // we will set the extra field to indicate that this has already been
   // printed out and just its hash should be used.
   if (m_base_extra) {
     // only print the hash for and/or binops.
     if (m_kind == BIT_And || m_kind == BIT_Or) {
-      logout << "# " << m_hash << endl;
+      out << "# " << m_hash << endl;
       return;
     }
   }

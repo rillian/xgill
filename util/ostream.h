@@ -180,7 +180,7 @@ class OutStream
  private:
   // this buffer needs to be big enough to accomodate the string
   // version of any integer or floating point value.
-  static char scratch[];
+  char scratch[200];
 };
 
 // additional global operators on chars and strings.
@@ -328,5 +328,8 @@ extern OutStream *log_stream;
 
 // write to the logging stream.
 #define logout (*log_stream)
+
+// write to the logging stream without using an OutStream.
+#define logfile stdout
 
 // see BufferOutStream in buffer.h for a stream that appends to a char buffer.

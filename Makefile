@@ -214,6 +214,12 @@ LIB_OBJS = \
 	${UTIL_OBJS} \
 	${XDB_OBJS}
 
+XDB_LIB_OBJS = \
+	util/buffer.o \
+	util/json.o \
+	${XDB_OBJS} \
+	xdb/library.o
+
 CHK_OBJS = \
 	${INFER_OBJS} \
 	${CHECK_OBJS} \
@@ -230,7 +236,8 @@ ALL_BINS = \
 	bin/xsource \
 	bin/xdbfind \
 	bin/xdbkeys \
-	bin/xmanager
+	bin/xmanager \
+	bin/xdb.so
 
 # additional settings for Yices.
 ifeq ($(USE_YICES),yes)
@@ -257,6 +264,10 @@ all: .have_yices build-libevent ${ALL_LIBS} ${ALL_BINS} build-plugin # build-els
 
 profile:
 	$(MAKE) all "PROFILE=1"
+
+bin/xdb.so: ${XDB_LIB_OBJS}
+	rm -f $@
+	${CXX} -shared -fPIC -o $@ ${XDB_LIB_OBJS} -lz
 
 bin/libxgill.a: ${LIB_OBJS}
 	rm -f $@

@@ -41,7 +41,7 @@ static inline const char *TagName(tag_t outer, tag_t inner)
     case TAG_Exp:
       return "String";
     default:
-      logout << "*** ERROR *** Unknown name for inner string tag: " << TagName(0, outer) << endl;
+      fprintf(logfile, "*** ERROR *** Unknown name for inner string tag: %s\n", TagName(0, outer));
       Assert(false);
     }
   case TAG_Int32:
@@ -53,11 +53,11 @@ static inline const char *TagName(tag_t outer, tag_t inner)
     case TAG_Exp:
       return "Number";
     default:
-      logout << "*** ERROR *** Unknown name for inner integer tag: " << TagName(0, outer) << endl;
+      fprintf(logfile, "*** ERROR *** Unknown name for inner integer tag: %s\n", TagName(0, outer));
       Assert(false);
     }
   default:
-    logout << "*** ERROR *** Unknown unnamed tag: " << inner << endl;
+    fprintf(logfile, "*** ERROR *** Unknown unnamed tag: %d\n", (int) inner);
     Assert(false);
   }
 }
@@ -215,6 +215,9 @@ static inline bool CanHaveMultipleInnerTags(tag_t outer, tag_t inner)
   }
 }
 
+// Hack for distinguishing unops/binops when printing.
+static uint32_t last_exp_kind = 0;
+
 static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
 {
 #define SWITCH_CASE(NAME, VAL)			\
@@ -224,11 +227,8 @@ static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
   switch (val) {				\
     MACRO(SWITCH_CASE)				\
   default:					\
-    logout << "Unexpected value";		\
+    fprintf(logfile, "Unexpected value");	\
   }
-
-  // Hack for distinguishing unops/binops when printing.
-  static uint32_t last_exp_kind = 0;
 
   switch (inner) {
   case TAG_Kind:
@@ -247,7 +247,7 @@ static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
     case TAG_PEdge:
       SWITCH(ITERATE_EDGE_KINDS)
     default:
-      logout << "*** ERROR *** No readable kind for " << TagName(0, outer) << endl;
+      fprintf(logfile, "*** ERROR *** No readable kind for %s\n", TagName(0, outer));
       Assert(false);
     }
   case TAG_OpCode:
@@ -262,7 +262,7 @@ static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
 	Assert(false);
       }
     default:
-      logout << "*** ERROR *** No readable opcode for " << TagName(0, outer) << endl;
+      fprintf(logfile, "*** ERROR *** No readable opcode for %s\n", TagName(0, outer));
       Assert(false);
     }
   default:
@@ -273,7 +273,31 @@ static inline const char *ChangeInt(uint32_t val, tag_t outer, tag_t inner)
 #undef SWITCH
 }
 
-static bool PrintJSONTag(Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inner = 0)
+static void ReadCachedString(Buffer *buf, const uint8_t **base, size_t *len)
+{
+  uint32_t id = 0;
+
+  Try(ReadOpenTag(buf, TAG_CacheString));
+  if (ReadUInt32(buf, &id)) {
+    uint64_t v = 0;
+    Try(buf->TestSeenRev((uint32_t)id, &v));
+    *base = buf->base + (uint32_t) v;
+    *len = (uint32_t) (v >> 32);
+  }
+  else {
+    uint32_t id;
+    Try(ReadString(buf, base, len));
+    Try(ReadUInt32(buf, &id));
+
+    Assert(size_t(*base - buf->base) < buf->size);
+    uint64_t key = uint64_t(*base - buf->base) | (uint64_t(*len) << 32);
+    Try(buf->AddSeenRev(id, key));
+  }
+  Try(ReadCloseTag(buf, TAG_CacheString));
+}
+
+
+static bool PrintJSONTag(OutStream &out, Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inner = 0)
 {
   int32_t val;
   uint32_t uval;
@@ -284,46 +308,48 @@ static bool PrintJSONTag(Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inn
   size_t str_len = 0;
 
   if (ReadString(buf, &str_base, &str_len)) {
-    logout << "\"";
+    out << "\"";
     if (!str_base[str_len - 1])
       str_len--;
-    PrintString(logout, str_base, str_len);
-    logout << "\"";
+    PrintString(out, str_base, str_len);
+    out << "\"";
   }
   else if (ReadInt32(buf, &val)) {
-    logout << val;
+    out << val;
   }
   else if (ReadUInt32(buf, &uval)) {
     if (const char *str = ChangeInt(uval, outer, inner))
-      logout << "\"" << str << "\"";
+      out << "\"" << str << "\"";
     else
-      logout << uval;
+      out << uval;
   }
   else if (ReadUInt64(buf, &luval)) {
-    logout << luval;
+    out << luval;
   }
   else if ((tag = PeekOpenTag(buf))) {
     if (IsPrimitiveTag(tag)) {
       ReadOpenTag(buf, tag);
       if (PeekOpenTag(buf)) {
-	if (!PrintJSONTag(buf, 0, outer, tag))
+	if (!PrintJSONTag(out, buf, 0, outer, tag))
 	  return false;
       } else {
-	logout << "true";
+	out << "true";
       }
       ReadCloseTag(buf, tag);
       return true;
     }
 
     if (tag == TAG_CacheString) {
-      String *str = String::ReadCache(buf);
-      logout << "\"";
-      PrintString(logout, (const uint8_t*) str->Value(), strlen(str->Value()));
-      logout << "\"";
+      const uint8_t *base;
+      size_t len;
+      ReadCachedString(buf, &base, &len);
+      out << "\"";
+      PrintString(out, base, len);
+      out << "\"";
       return true;
     }
 
-    logout << "{" << endl;
+    out << "{" << endl;
 
     Vector<tag_t> inner_seen;
     tag_t inner_tag;
@@ -332,45 +358,45 @@ static bool PrintJSONTag(Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inn
     while (!ReadCloseTag(buf, tag)) {
       if ((inner_tag = PeekOpenTag(buf))) {
 	if (!inner_seen.Empty())
-	  logout << "," << endl;
+	  out << "," << endl;
 
-	PrintPadding(pad_spaces);
+	PrintPadding(out, pad_spaces);
 
 	if (inner_seen.Contains(inner_tag)) {
-	  logout << "*** ERROR *** Duplicate inner tag: "
+	  out << "*** ERROR *** Duplicate inner tag: "
 		 << TagName(0, tag) << " " << TagName(tag, inner_tag) << endl;
 	  Assert(!inner_seen.Contains(inner_tag));
 	}
 	inner_seen.PushBack(inner_tag);
-	logout << "\"" << TagName(tag, inner_tag) << "\": ";
+	out << "\"" << TagName(tag, inner_tag) << "\": ";
 
 	if (CanHaveMultipleInnerTags(tag, inner_tag)) {
-	  logout << "[" << endl;
-	  PrintPadding(pad_spaces + 2);
-	  if (!PrintJSONTag(buf, pad_spaces + 2, tag))
+	  out << "[" << endl;
+	  PrintPadding(out, pad_spaces + 2);
+	  if (!PrintJSONTag(out, buf, pad_spaces + 2, tag))
 	    return false;
 	  while (PeekOpenTag(buf) == inner_tag) {
-	    logout << "," << endl;
-	    PrintPadding(pad_spaces + 2);
-	    if (!PrintJSONTag(buf, pad_spaces + 2, tag))
+	    out << "," << endl;
+	    PrintPadding(out, pad_spaces + 2);
+	    if (!PrintJSONTag(out, buf, pad_spaces + 2, tag))
 	      return false;
 	  }
-	  logout << endl;
-	  PrintPadding(pad_spaces + 1);
-	  logout << "]";
+	  out << endl;
+	  PrintPadding(out, pad_spaces + 1);
+	  out << "]";
 	} else {
-	  if (!PrintJSONTag(buf, pad_spaces + 1, tag))
+	  if (!PrintJSONTag(out, buf, pad_spaces + 1, tag))
 	    return false;
 	}
       } else {
-	if (!PrintJSONTag(buf, pad_spaces + 1, tag))
+	if (!PrintJSONTag(out, buf, pad_spaces + 1, tag))
 	  return false;
       }
     }
 
-    logout << endl;
-    PrintPadding(pad_spaces);
-    logout << "}";
+    out << endl;
+    PrintPadding(out, pad_spaces);
+    out << "}";
   }
   else {
     return false;
@@ -378,23 +404,23 @@ static bool PrintJSONTag(Buffer *buf, int pad_spaces, tag_t outer = 0, tag_t inn
   return true;
 }
 
-void PrintJSONBuffer(Buffer *buf)
+void PrintJSONBuffer(OutStream &out, Buffer *buf)
 {
   if (!g_tag_names[TAG_Kind])
     FillTagNames();
 
   Buffer newbuf(buf->base, buf->size);
 
-  logout << "[";
+  out << "[";
   while (newbuf.pos != newbuf.base + newbuf.size) {
     if (newbuf.pos != newbuf.base)
-      logout << ",";
-    if (!PrintJSONTag(&newbuf, 0)) {
-      logout << "ERROR: Buffer parse failed" << endl;
+      out << ",";
+    if (!PrintJSONTag(out, &newbuf, 0)) {
+      out << "ERROR: Buffer parse failed" << endl;
       return;
     }
   }
-  logout << "]";
+  out << "]";
 }
 
 NAMESPACE_XGILL_END
