@@ -1462,6 +1462,7 @@ extern "C" void XIL_WriteGenerated()
     SplitLoops(cfg, &split_cfgs);
     AddPointAnnotations(split_cfgs);
 
+#ifdef FRONTEND_PROCESS_CALLGRAPH
     // remember the direct callees of this function.
     Vector<Variable*> callees;
     bool indirect_callee = false;
@@ -1490,6 +1491,7 @@ extern "C" void XIL_WriteGenerated()
           Backend::HashInsertKey(t, CALLGRAPH_INDIRECT, key_arg));
       }
     }
+#endif // FRONTEND_PROCESS_CALLGRAPH
 
     Assert(split_cfgs.Size());
     WriteUInt32(&g_data_buf, split_cfgs.Size());
