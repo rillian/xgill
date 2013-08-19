@@ -171,10 +171,6 @@ const char* XIL_DecodeAttribute(tree attr,
     if (int_value)
       *int_value = TREE_INT_CST_LOW(value);
   }
-  else {
-    TREE_UNEXPECTED(attr);
-    return name;
-  }
 
   return name;
 }

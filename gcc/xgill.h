@@ -478,7 +478,6 @@ void XIL_DebugPrint(tree node);
       fflush(xil_log);                                                  \
       xil_active_env.dropped = 1;                                       \
     }                                                                   \
-    xil_active_env.dropped = 1;                                         \
   } while (0)
 #define TREE_UNHANDLED_RESULT(ENV)                      \
   do {                                                  \
@@ -496,7 +495,7 @@ void XIL_DebugPrint(tree node);
 #define TREE_BOGUS()
 #define TREE_BOGUS_RESULT(ENV)                          \
   do {                                                  \
-    TREE_UNHANDLED();                                   \
+    TREE_BOGUS();                                       \
     XIL_Var error_var = XIL_VarGlob("error", "error");  \
     XIL_Exp error_exp = XIL_ExpVar(error_var);          \
     XIL_Exp error_drf = XIL_ExpDrf(error_exp);          \

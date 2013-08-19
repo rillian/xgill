@@ -342,7 +342,7 @@ void XIL_TranslateReference(struct XIL_TreeEnv *env, tree node)
 
     tree constant = TREE_OPERAND(node, 1);
     if (TREE_UINT(constant) != 0)
-      TREE_UNEXPECTED_RESULT(env, node);
+      TREE_BOGUS_RESULT(env);
 
     MAKE_ENV(target_env, env->point, env->post_edges);
     target_env.result_rval = &xil_target;
@@ -404,6 +404,10 @@ void XIL_TranslateReference(struct XIL_TreeEnv *env, tree node)
     XIL_TranslateTree(env, operand);
     return;
   }
+
+  case REALPART_EXPR:
+  case IMAGPART_EXPR:
+    TREE_BOGUS_RESULT(env);
 
   default:
     TREE_UNEXPECTED_RESULT(env, node);
@@ -2138,7 +2142,7 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
       else {
         // otherwise couldn't figure out the relation between the instance
         // object and the function pointer.
-        TREE_UNEXPECTED_RESULT(env, function);
+        TREE_BOGUS_RESULT(env);
       }
     }
     else {
@@ -2349,7 +2353,7 @@ void generate_TranslateTree(struct XIL_TreeEnv *env, tree node)
 
         if (TREE_CODE(index) == INTEGER_CST) {
           if (TREE_CODE(type) != ARRAY_TYPE)
-            TREE_UNEXPECTED_RESULT(env, node);
+            TREE_BOGUS_RESULT(env);
 
           tree element_type = TREE_TYPE(type);
           XIL_Type xil_element_type = XIL_TranslateType(element_type);
