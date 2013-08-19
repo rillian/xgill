@@ -221,7 +221,7 @@ void XIL_TranslateConstant(struct XIL_TreeEnv *env, tree node)
 
   // constant for pointer-to-member.
   case PTRMEM_CST:
-    TREE_UNHANDLED_RESULT(env, result);
+    TREE_BOGUS_RESULT(env);
 
   default:
     TREE_UNEXPECTED_RESULT(env, node);
@@ -430,6 +430,7 @@ void XIL_TranslateComparison(struct XIL_TreeEnv *env, tree node)
 
   switch (TREE_CODE(node)) {
   case LT_EXPR: case UNLT_EXPR:
+  case ORDERED_EXPR: case UNORDERED_EXPR:
     binop = xil_stride_type ? XIL_B_LessThanP : XIL_B_LessThan; break;
   case LE_EXPR: case UNLE_EXPR:
     binop = xil_stride_type ? XIL_B_LessEqualP : XIL_B_LessEqual; break;
@@ -972,7 +973,7 @@ void XIL_TranslateStatement(struct XIL_TreeEnv *env, tree node)
 
     // don't handle computed gotos.
     if (TREE_CODE(label_decl) != LABEL_DECL)
-      TREE_UNHANDLED_RESULT(env, node);
+      TREE_UNHANDLED_RESULT(env);
 
     struct XIL_LabelData **pdata =
       (struct XIL_LabelData**) XIL_Associate(XIL_AscBlock, "Label", label_decl);
@@ -1506,7 +1507,7 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
 
   // Default initialization for member arrays?
   case VEC_INIT_EXPR:
-    TREE_UNHANDLED_RESULT(env, result);
+    TREE_BOGUS_RESULT(env);
 
   case SAVE_EXPR: {
     // associate each saved expression with the translation result,
@@ -2132,7 +2133,7 @@ void XIL_TranslateExpression(struct XIL_TreeEnv *env, tree node)
       else if (TREE_CODE(function) == COND_EXPR) {
         // COND_EXPR method calls seem to come up just with pointer-to-member.
         if (TREE_CODE(function) == COND_EXPR)
-          TREE_UNHANDLED_RESULT(env, node);
+          TREE_BOGUS_RESULT(env);
       }
       else {
         // otherwise couldn't figure out the relation between the instance

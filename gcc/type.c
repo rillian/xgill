@@ -60,6 +60,19 @@ XIL_Type XIL_TranslatePointerType(tree type)
   return XIL_TypePointer(xil_target_type, bytes);
 }
 
+XIL_Type XIL_TranslateNullptrType(tree type)
+{
+  tree size = TYPE_SIZE_UNIT(type);
+  int bytes = TREE_UINT(size);
+
+  if (bytes != xil_pointer_width) {
+    TREE_UNEXPECTED(type);
+    return XIL_TypeError();
+  }
+
+  return XIL_TypePointer(XIL_TypeVoid(), bytes);
+}
+
 XIL_Type XIL_TranslateArrayType(tree type)
 {
   tree element_type = TREE_TYPE(type);
@@ -723,6 +736,9 @@ XIL_Type generate_TranslateType(tree type)
   case REFERENCE_TYPE:
     return XIL_TranslatePointerType(type);
 
+  case NULLPTR_TYPE:
+    return XIL_TranslateNullptrType(type);
+
   case ARRAY_TYPE:
     return XIL_TranslateArrayType(type);
 
@@ -737,12 +753,12 @@ XIL_Type generate_TranslateType(tree type)
 
   // type used for pointer-to-member.
   case OFFSET_TYPE:
-    TREE_UNHANDLED(type);
+    TREE_BOGUS();
     return XIL_TypeError();
 
   // vectors of primitive types.
   case VECTOR_TYPE:
-    TREE_UNHANDLED(type);
+    TREE_BOGUS();
     return XIL_TypeError();
 
   default:

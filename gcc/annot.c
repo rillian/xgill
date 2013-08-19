@@ -709,7 +709,7 @@ static bool HandleMissingDeclaration(const char *name)
   }
 
   if (TREE_CODE(decl) == TEMPLATE_DECL) {
-    TREE_UNHANDLED(decl);
+    TREE_UNHANDLED();
     return false;
   }
 

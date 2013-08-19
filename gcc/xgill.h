@@ -470,7 +470,7 @@ void XIL_DebugPrint(tree node);
 
 // as with TREE_UNEXPECTED, but less log information. these are cases where
 // our translation is incomplete but the issue is known.
-#define TREE_UNHANDLED(TREE)                                            \
+#define TREE_UNHANDLED()                                                \
   do {                                                                  \
     if (!xil_active_env.dropped) {                                      \
       fprintf(xil_log, "\nXIL: Unhandled tree (%s:%d)\n\n",             \
@@ -480,9 +480,23 @@ void XIL_DebugPrint(tree node);
     }                                                                   \
     xil_active_env.dropped = 1;                                         \
   } while (0)
-#define TREE_UNHANDLED_RESULT(ENV, TREE)                \
+#define TREE_UNHANDLED_RESULT(ENV)                      \
   do {                                                  \
-    TREE_UNHANDLED(TREE);                               \
+    TREE_UNHANDLED();                                   \
+    XIL_Var error_var = XIL_VarGlob("error", "error");  \
+    XIL_Exp error_exp = XIL_ExpVar(error_var);          \
+    XIL_Exp error_drf = XIL_ExpDrf(error_exp);          \
+    XIL_ProcessResult(ENV, error_drf);                  \
+    return;                                             \
+  } while (0)
+
+// as with TREE_UNHANDLED, but no log information and does not cause compilation
+// to abort. Use for expressions with no reasonable translation but for which
+// an approximate CFG is still desired.
+#define TREE_BOGUS()
+#define TREE_BOGUS_RESULT(ENV)                          \
+  do {                                                  \
+    TREE_UNHANDLED();                                   \
     XIL_Var error_var = XIL_VarGlob("error", "error");  \
     XIL_Exp error_exp = XIL_ExpVar(error_var);          \
     XIL_Exp error_drf = XIL_ExpDrf(error_exp);          \
