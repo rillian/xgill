@@ -23,10 +23,10 @@ XGILL_OBJS= xgill.o type.o variable.o tree.o annot.o missing.o
 all: xgill.so
 
 xgill.so: $(XGILL_OBJS) ../bin/libxgill.a
-	$(CXX) -shared -fPIC -o $@ $+ ../bin/libxgill.a -lstdc++ -lz
+	$(CXX) -shared -fPIC -o $@ $+ ../bin/libxgill.a -lstdc++ -lz ${EXTRA_LDFLAGS}
 
 %.o: %.c xgill.h ../imlang/interface.h
-	$(CXX) -g3 -fPIC -Wall -Wno-unused-value -fpermissive -c -o $@ $< -I$(GCC_PLUGIN_HEADERS)
+	$(PLUGIN_CC) -g3 -fPIC -Wall -Wno-unused-value -c -o $@ $< -I$(GCC_PLUGIN_HEADERS)
 
 clean:
 	rm -f *.o *.so

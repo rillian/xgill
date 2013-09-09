@@ -52,15 +52,16 @@ void SetBaseDirectory(const char *path)
 // remove uses of '.' from a path (except any leading '.').
 static void CleanupPathDot(char *pos)
 {
-  char *old = pos;
+  char *end = pos + strlen(pos);
   while (true) {
     pos = strchr(pos, '/');
     if (pos == NULL)
       break;
 
     if (pos[1] == '.' && pos[2] == '/') {
-      strcpy(pos, &pos[2]);
-      pos = old;
+      memmove(pos, &pos[2], end - &pos[2]);
+      end -= 2;
+      *end = '\0';
     }
     else {
       pos++;
@@ -72,6 +73,7 @@ static void CleanupPathDot(char *pos)
 static void CleanupPathDotDot(char *pos)
 {
   char *old = pos;
+  char *end = old + strlen(old);
   while (true) {
     pos = strchr(pos, '/');
     if (pos == NULL)
@@ -82,7 +84,9 @@ static void CleanupPathDotDot(char *pos)
       break;;
 
     if (next_pos[1] == '.' && next_pos[2] == '.' && next_pos[3] == '/') {
-      strcpy(pos, &next_pos[3]);
+      memmove(pos, &next_pos[3], end - &next_pos[3]);
+      end -= &next_pos[3] - pos;
+      *end = '\0';
       pos = old;
     }
     else {

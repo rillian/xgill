@@ -24,21 +24,33 @@
 # environment specific settings #
 #################################
 
-# directory containing the real versions of the gcc binaries.
-my $gccdir = "/usr/local/bin";
+use FindBin;
+use Cwd 'abs_path';
 
-my $xsource = "xsource";
+# Some installations of ccache will put another gcc wrapper in $PATH, and we
+# may end up calling ourselves indirectly recursively if the directory
+# containing this script is in $PATH. So remove it. Also heuristically throw
+# out the ccache entry in $PATH.
+my @paths = grep { !/ccache/ && abs_path($_) ne abs_path($FindBin::Bin) } split(/:/, $ENV{PATH});
+$ENV{PATH} = join(':', @paths);
+
+# directory containing the real versions of the gcc binaries.
+my ($gccdir) = grep { defined($_) && (abs_path($_) ne abs_path($FindBin::Bin)) && (-x "$_/gcc") }
+                    ($ENV{GCCDIR}, split(/:/, $ENV{PATH}), "/usr/local/bin");
+die "Cannot find real gcc binaries" if ! $gccdir;
+
+my ($xsource) = grep { (-x "$_/xsource") } (split(/:/, $ENV{PATH}), "$FindBin::Bin/../../bin");
+die "Cannot find xsource binary" if ! $xsource;
+$xsource .= "/xsource";
+
+my ($plugindir) = grep { (-x "$_/xgill.so") } $FindBin::Bin, "$FindBin::Bin/../../gcc";
+die "Cannot find plugin xgill.so\n" if not $plugindir;
+
+my $wrapdir = $FindBin::Bin;
 
 ##########################
 # general purpose script #
 ##########################
-
-# get the directory containing this binary.
-$0 =~ /(.*)\/(.*)/ or die "Unexpected: $0\n";
-my $wrapdir = $1;
-
-# the xgill plugin should be in the base directory.
-die "Need plugin: $wrapdir/xgill.so\n" if (not (-e "$wrapdir/xgill.so"));
 
 # get the name of the binary we are emulating.
 my $ccname = shift or die "USAGE: basecc ccname ccarg*\n";
@@ -48,8 +60,9 @@ my $basedir = "";
 my $logfile = "";
 my $remote = "";
 my $extra = "";
-if (-e "$wrapdir/xgill.config") {
-    open(CONFIG, "< $wrapdir/xgill.config");
+my $config_file = $ENV{XGILL_CONFIG} || "$wrapdir/xgill.config";
+if (-e $config_file) {
+    open(CONFIG, "<", $config_file) or die "open $config_file: $!";
     $basedir = <CONFIG>; chomp $basedir;
     $logfile = <CONFIG>; chomp $logfile;
     $remote = <CONFIG>; chomp $remote;
@@ -64,7 +77,7 @@ $sourceargs .= " -log=$logfile" if ($logfile ne "");
 $sourceargs .= " -remote=$remote" if ($remote ne "");
 
 # plugin arguments to pass to the compiler.
-my $xgillargs = " -DXGILL_PLUGIN -fplugin=$wrapdir/xgill.so";
+my $xgillargs = " -DXGILL_PLUGIN -fplugin=$plugindir/xgill.so";
 $xgillargs .= " -fplugin-arg-xgill-gcc=$gccdir/gcc";
 $xgillargs .= " -fplugin-arg-xgill-basedir=$basedir" if ($basedir ne "");
 $xgillargs .= " -fplugin-arg-xgill-remote=$remote" if ($remote ne "");

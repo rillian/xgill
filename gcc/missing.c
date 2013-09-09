@@ -8,8 +8,8 @@
 // symbols called instead.
 
 void lang_check_failed() { abort(); }
-const char * type_as_string(tree, int) { abort(); return NULL; }
-const char * decl_as_string(tree, int) { abort(); return NULL; }
-int cp_type_quals(const_tree) { abort(); return 0; }
-tree look_for_overrides_here(tree, tree) { abort(); return NULL; }
-tree get_template_info(const_tree) { abort(); return NULL; }
+const char * type_as_string(tree t, int x) { abort(); return NULL; }
+const char * decl_as_string(tree t, int x) { abort(); return NULL; }
+int cp_type_quals(const_tree t) { abort(); return 0; }
+tree look_for_overrides_here(tree t, tree tt) { abort(); return NULL; }
+tree get_template_info(const_tree t) { abort(); return NULL; }

@@ -81,6 +81,28 @@ fi
 AC_SUBST(GCC_PLUGIN_SUPPORT)
 AC_SUBST(GCC_PLUGIN_HEADERS)
 
+dnl **********************
+dnl Sometimes symbols in cc1/cc1plus are extern "C", sometimes mangled C++
+dnl **********************
+AC_MSG_CHECKING([symbol linkage in cc1])
+CC1_BINARY=`$CC --print-prog-name=cc1`
+CC1_LINKAGE=`nm -D $CC1_BINARY | egrep -q 'T print_node$' && echo C || echo mangled`
+AC_MSG_RESULT($CC1_LINKAGE)
+AC_MSG_CHECKING([symbol linkage in cc1plus])
+CC1PLUS_BINARY=`$CC --print-prog-name=cc1plus`
+CC1PLUS_LINKAGE=`nm -D $CC1PLUS_BINARY | egrep -q 'T print_node$' && echo C || echo mangled`
+AC_MSG_RESULT($CC1PLUS_LINKAGE)
+if test "$CC1_LINKAGE" = "$CC1PLUS_LINKAGE"; then
+  if test "$CC1_LINKAGE" = "mangled"; then
+    PLUGIN_CC=$CXX
+  else
+    PLUGIN_CC=$CC
+  fi
+else
+  AC_MSG_ERROR([cc1 and cc1plus use different linkage])
+fi
+AC_SUBST(PLUGIN_CC)
+
 dnl ***********************
 dnl Results
 dnl ***********************

@@ -1,5 +1,6 @@
 # General build support
 CXX=@CXX@
+PLUGIN_CC=@PLUGIN_CC@ -fpermissive
 HOST=@HOST@
 HOST_CFLAGS=@HOST_CFLAGS@
 HOST_LDFLAGS=@HOST_LDFLAGS@

@@ -45,6 +45,9 @@ ConfigOption spawn_command(CK_String, "spawn-command", "",
 ConfigOption spawn_count(CK_UInt, "spawn-count", "0",
   "Number of worker processes to spawn");
 
+ConfigOption terminate_on_assert(CK_Flag, "terminate-on-assert", NULL,
+  "die instead of pausing when assertion is hit");
+
 // whether we are currently handling an incoming transaction.
 bool handling_transaction = false;
 
@@ -290,6 +293,7 @@ int main(int argc, const char **argv)
 {
   spawn_command.Enable();
   spawn_count.Enable();
+  terminate_on_assert.Enable();
 
 #ifdef USE_COUNT_ALLOCATOR
   memory_limit.Enable();
@@ -312,6 +316,9 @@ int main(int argc, const char **argv)
 
   // xmanager failures are unrecoverable.
   g_pause_assertions = true;
+  if (terminate_on_assert.IsSpecified()) {
+    g_pause_assertions = false;
+  }
 
   int ret;
 
