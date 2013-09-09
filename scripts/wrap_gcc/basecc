@@ -93,6 +93,10 @@ my $ppargs = "-E -DXGILL_PLUGIN";
 # whether we have an input file.
 my $has_input = 0;
 
+my $have_E = 0;
+my $have_M = 0;
+my $have_MD = 0;
+
 while (my $arg = shift) {
     if ($arg eq "-o") {
         # remove output file from preprocessed args.
@@ -106,9 +110,21 @@ while (my $arg = shift) {
         $has_input = 1 if ($arg =~ /\.C$/);
 
         $args .= " '$arg'";
+
+	# gcc -M means to produce dependency info, which we do not
+	# want to run under the plugin because xsource will choke on
+	# it. But gcc -MD can be used to produce dependency info as a
+	# side effect, in which case we *do* need the real output,
+	# just not the dependency output.
+	$have_E = 1  if $arg =~ /^-E/;
+	$have_M = 1  if $arg =~ /^-MM?$/;
+	$have_MD = 1 if $arg =~ /^-MM?D$/;
+
         $ppargs .= " '$arg'";
     }
 }
+
+$has_input = 0 if $have_M || ($have_MD && $have_E);
 
 my $cwd = `pwd`;
 chomp $cwd;
@@ -127,7 +143,7 @@ if ($logfile ne "") {
 
 my $code;
 
-if (!$has_input) {
+if (!$has_input || $passthrough) {
     # just run the original argument, nothing for us to do here.
     $code = system("$gccdir/$ccname $args") / 256;
     exit($code);
